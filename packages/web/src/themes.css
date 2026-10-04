@@ -1,0 +1,249 @@
+/*
+ * The colours. Every colour in the app is a variable set here, and
+ * data-theme on <html> picks which set. The five themes are the ones
+ * Crossband and Membro use: Zinc, Midnight, Espresso, OLED and Light, with
+ * the same token names and the same dark palettes. Zinc is also what the
+ * page shows when no theme is set.
+ *
+ * Woodchuck differs from its siblings in three ways.
+ *   - Its accent is timber, not blue. Each dark theme has a light caramel
+ *     that reads on its panels, and Espresso keeps its siblings' warm
+ *     accent. Light keeps Woodchuck's brown.
+ *   - Light keeps Woodchuck's warm paper look, not its siblings' cool grey.
+ *   - A few tokens are Woodchuck's own, starting --wc-.
+ *
+ * styles.css uses these through the names it has always had (--bg, --panel,
+ * --line, --ink and so on), which are mapped from them at the foot of this
+ * file. Nothing else in the app writes a colour of its own, and a test holds
+ * styles.css to that. The 3D view reads the --wc-scene- tokens, and the 2D
+ * views and parts previews read the --t- ones.
+ */
+
+/* Colours that read the same on every theme. */
+:root {
+  /* The selected part, and the blue sheet over a selected face. */
+  --wc-scene-pick: #7fb2ff;
+  --wc-scene-pick-edge: var(--t-info);
+  /* A part Claude just changed glows pink. */
+  --wc-scene-glow: #d6336c;
+  /* A change Claude suggests is drawn over the model in the same pink, see-through, with its sizes. */
+  --wc-scene-ghost: var(--wc-scene-glow);
+  /* A part's outline, and the outline in the see-through view. */
+  --wc-scene-edge: #3b2f25;
+  --wc-scene-edge-see: #8a7a68;
+  /* The see-through view: what's cut away, a tongue's outline, hardware. */
+  --wc-scene-cut: #e03131;
+  --wc-scene-cut-edge: #c92a2a;
+  --wc-scene-tongue: #e8590c;
+  --wc-scene-hardware: #adb5bd;
+  --wc-scene-hardware-edge: #495057;
+  /* A numbered pin for Claude, and the ring round it. */
+  --wc-scene-pin: #e03131;
+  --wc-scene-pin-ring: #ffffff;
+}
+
+/* Zinc: the siblings' default, a neutral dark. */
+:root,
+[data-theme="zinc"] {
+  color-scheme: dark;
+  --t-app: #09090b;
+  --t-panel: #18181b;
+  --t-panel2: #27272a;
+  --t-edge: #27272a;
+  --t-edge2: #3f3f46;
+  --t-edge3: #71717a;
+  --t-ink: #f4f4f5;
+  --t-ink-mid: #a1a1aa;
+  --t-ink-dim: #71717a;
+  --t-ink-faint: #52525b;
+  --t-btn: #d9a66d;
+  --t-btn-ink: #1c1208;
+  --t-btn-hover: #e6b883;
+  --t-link: #38bdf8;
+  --t-accent: #d9a66d;
+  --t-ok: #34d399;
+  --t-warn: #fbbf24;
+  --t-err: #f87171;
+  --t-info: #38bdf8;
+  --t-selection: rgba(217, 166, 109, 0.28);
+  --t-focus: #d9a66d;
+  --wc-control-line: #3f3f46;
+  --wc-field: #09090b;
+  --wc-card: #27272a;
+  --wc-part: #6b5236;
+  --wc-part-hover: #7d6143;
+  --wc-overlay: rgba(39, 39, 42, 0.94);
+  --wc-overlay-ink: #f4f4f5;
+  --wc-overlay-line: #3f3f46;
+  --wc-stage: #09090b;
+  --wc-shadow: rgba(0, 0, 0, 0.5);
+  --wc-drawing-filter: invert(0.9) hue-rotate(180deg);
+  --wc-scene-bg: #09090b;
+  --wc-scene-cell: #27272a;
+  --wc-scene-section: #3f3f46;
+  --wc-scene-fastener: #b8c0c8;
+}
+
+/* Midnight: deep blue-slate with cool ink. */
+[data-theme="midnight"] {
+  color-scheme: dark;
+  --t-app: #0a0f1e;
+  --t-panel: #121a2b;
+  --t-panel2: #1c2740;
+  --t-edge: #1f2a44;
+  --t-edge2: #2e3c5c;
+  --t-edge3: #5b6b8f;
+  --t-ink: #e8ecf6;
+  --t-ink-mid: #9aa7c2;
+  --t-ink-dim: #6e7c9c;
+  --t-ink-faint: #4d5a78;
+  --t-btn: #d9a66d;
+  --t-btn-ink: #1c1208;
+  --t-btn-hover: #e6b883;
+  --t-link: #6db1ff;
+  --t-accent: #d9a66d;
+  --t-ok: #4ade80;
+  --t-warn: #fcd34d;
+  --t-err: #fb7185;
+  --t-info: #6db1ff;
+  --t-selection: rgba(217, 166, 109, 0.28);
+  --t-focus: #d9a66d;
+  --wc-control-line: #2e3c5c;
+  --wc-field: #0a0f1e;
+  --wc-card: #1c2740;
+  --wc-part: #6b5236;
+  --wc-part-hover: #7d6143;
+  --wc-overlay: rgba(28, 39, 64, 0.94);
+  --wc-overlay-ink: #e8ecf6;
+  --wc-overlay-line: #2e3c5c;
+  --wc-stage: #0a0f1e;
+  --wc-shadow: rgba(0, 0, 0, 0.5);
+  --wc-drawing-filter: invert(0.9) hue-rotate(180deg);
+  --wc-scene-bg: #0a0f1e;
+  --wc-scene-cell: #1f2a44;
+  --wc-scene-section: #2e3c5c;
+  --wc-scene-fastener: #b8c0d0;
+}
+
+/* Espresso: warm graphite and brown-greys. Its siblings' accent is already timber. */
+[data-theme="espresso"] {
+  color-scheme: dark;
+  --t-app: #131110;
+  --t-panel: #1b1815;
+  --t-panel2: #282218;
+  --t-edge: #2a251f;
+  --t-edge2: #3c352c;
+  --t-edge3: #7a6f5f;
+  --t-ink: #f1ece4;
+  --t-ink-mid: #b3a895;
+  --t-ink-dim: #837868;
+  --t-ink-faint: #5c544a;
+  --t-btn: #f0b37e;
+  --t-btn-ink: #1b1208;
+  --t-btn-hover: #f6c493;
+  --t-link: #f0b37e;
+  --t-accent: #f0b37e;
+  --t-ok: #86d9a8;
+  --t-warn: #fbbf24;
+  --t-err: #f28b82;
+  --t-info: #9ec1f0;
+  --t-selection: rgba(240, 179, 126, 0.28);
+  --t-focus: #f0b37e;
+  --wc-control-line: #3c352c;
+  --wc-field: #131110;
+  --wc-card: #282218;
+  --wc-part: #6b5236;
+  --wc-part-hover: #7d6143;
+  --wc-overlay: rgba(40, 34, 24, 0.94);
+  --wc-overlay-ink: #f1ece4;
+  --wc-overlay-line: #3c352c;
+  --wc-stage: #131110;
+  --wc-shadow: rgba(0, 0, 0, 0.5);
+  --wc-drawing-filter: invert(0.9) hue-rotate(180deg);
+  --wc-scene-bg: #131110;
+  --wc-scene-cell: #2a251f;
+  --wc-scene-section: #3c352c;
+  --wc-scene-fastener: #c4bcae;
+}
+
+/* OLED: true black, for the most contrast. */
+[data-theme="oled"] {
+  color-scheme: dark;
+  --t-app: #000000;
+  --t-panel: #0d0d0f;
+  --t-panel2: #1a1a1d;
+  --t-edge: #1f1f23;
+  --t-edge2: #333338;
+  --t-edge3: #6e6e76;
+  --t-ink: #f5f5f7;
+  --t-ink-mid: #a0a0a8;
+  --t-ink-dim: #707078;
+  --t-ink-faint: #4e4e55;
+  --t-btn: #d9a66d;
+  --t-btn-ink: #1c1208;
+  --t-btn-hover: #e6b883;
+  --t-link: #4cc2ff;
+  --t-accent: #d9a66d;
+  --t-ok: #34d399;
+  --t-warn: #fbbf24;
+  --t-err: #f87171;
+  --t-info: #4cc2ff;
+  --t-selection: rgba(217, 166, 109, 0.28);
+  --t-focus: #d9a66d;
+  --wc-control-line: #333338;
+  --wc-field: #000000;
+  --wc-card: #1a1a1d;
+  --wc-part: #6b5236;
+  --wc-part-hover: #7d6143;
+  --wc-overlay: rgba(26, 26, 29, 0.94);
+  --wc-overlay-ink: #f5f5f7;
+  --wc-overlay-line: #333338;
+  --wc-stage: #000000;
+  --wc-shadow: rgba(0, 0, 0, 0.6);
+  --wc-drawing-filter: invert(0.9) hue-rotate(180deg);
+  --wc-scene-bg: #000000;
+  --wc-scene-cell: #1f1f23;
+  --wc-scene-section: #333338;
+  --wc-scene-fastener: #b8b8c0;
+}
+
+/* Light: Woodchuck's own warm paper look, under the siblings' token names. */
+[data-theme="light"] {
+  color-scheme: light;
+  --t-app: #f4f1ec;
+  --t-panel: #fffdf9;
+  --t-panel2: #efe6da;
+  --t-edge: #e2dbd0;
+  --t-edge2: #c9bca9;
+  --t-edge3: #9c8c78;
+  --t-ink: #2b241d;
+  --t-ink-mid: #6f645a;
+  --t-ink-dim: #7d7266;
+  --t-ink-faint: #a79c8f;
+  --t-btn: #8a5a2b;
+  --t-btn-ink: #ffffff;
+  --t-btn-hover: #744a22;
+  --t-link: #1b5fd1;
+  --t-accent: #8a5a2b;
+  --t-ok: #2d794c;
+  --t-warn: #8f5d0e;
+  --t-err: #c0392b;
+  --t-info: #1b5fd1;
+  --t-selection: rgba(138, 90, 43, 0.22);
+  --t-focus: #8a5a2b;
+  --wc-control-line: #e2dbd0;
+  --wc-field: #ffffff;
+  --wc-card: #ffffff;
+  --wc-part: #dfc29c;
+  --wc-part-hover: #e9d3b4;
+  --wc-overlay: rgba(43, 36, 29, 0.88);
+  --wc-overlay-ink: #ffffff;
+  --wc-overlay-line: transparent;
+  --wc-stage: #1f1b17;
+  --wc-shadow: rgba(0, 0, 0, 0.12);
+  --wc-drawing-filter: none;
+  --wc-scene-bg: #f4f1ec;
+  --wc-scene-cell: #ddd5c8;
+  --wc-scene-section: #c4b8a6;
+  --wc-scene-fastener: #343a40;
+}

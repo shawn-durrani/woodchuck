@@ -1,0 +1,28 @@
+{
+  "name": "woodchuck",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/server",
+    "packages/web"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @woodchuck/server\" \"npm run dev -w @woodchuck/web\"",
+    "start": "npm run build -w @woodchuck/web && npm run start -w @woodchuck/server",
+    "test": "vitest run",
+    "typecheck": "tsc -b packages/core packages/server packages/web",
+    "build": "npm run build -w @woodchuck/web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

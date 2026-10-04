@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "../../node_modules/.tsbuild/server", "rootDir": "..", "types": ["node"] },
+  "include": ["src", "test"],
+  "references": [{ "path": "../core" }]
+}

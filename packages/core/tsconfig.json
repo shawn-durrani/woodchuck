@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "../../node_modules/.tsbuild/core", "rootDir": "." },
+  "include": ["src", "test"]
+}

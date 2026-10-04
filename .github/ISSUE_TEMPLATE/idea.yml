@@ -1,0 +1,42 @@
+name: Idea / feedback
+description: Something Woodchuck should do, or explain more clearly.
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        All feedback welcome, especially "I couldn't tell what this check
+        meant", "Claude changed something I didn't ask for" or "I didn't
+        understand what this screen was for". You don't need a solution, just
+        tell us what felt off.
+
+        **Please redact real personal details** (names, addresses, room
+        photos, your own designs). Describe the *shape* of the problem, not
+        the private content.
+
+        Security problem? Don't open an issue, see [SECURITY.md](https://github.com/shawn-durrani/woodchuck/blob/main/SECURITY.md).
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's the idea, or what felt wrong?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part is this about?
+      options:
+        - Designing a piece (parts, joints, sizes)
+        - The chat with Claude
+        - Checks and the cut list
+        - Views, photos and the AI blend
+        - Saving, starring and finding designs
+        - Setup, config, or running it
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What were you doing when you wanted it?
+      description: The situation matters more than the feature. "I was in the workshop with the timber in front of me and..." is gold.

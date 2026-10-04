@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Woodchuck</title>
+    <script>
+      // The theme, set before the first paint so nothing flashes. System, the
+      // default, follows the device between Light and Zinc. The same rules are in
+      // src/theme.ts, and a test holds the two together.
+      (function () {
+        var t = "system";
+        try {
+          t = localStorage.getItem("wc-theme") || "system";
+        } catch (e) {}
+        if (!/^(system|zinc|midnight|espresso|oled|light)$/.test(t)) t = "system";
+        // The page the server photographs is for Claude, so it is always Light.
+        if (/(^|[?&])render=1(&|$)/.test(location.search)) t = "light";
+        if (t === "system") t = matchMedia("(prefers-color-scheme: dark)").matches ? "zinc" : "light";
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

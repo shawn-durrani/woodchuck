@@ -1,0 +1,179 @@
+// Read-only questions about a design: explain a number, measure between
+// faces, describe a part, and check the model against its plan.
+
+import { AXIS_INDEX, partRefParts, type DeriveResult, type DerivedPart } from "./derive.js";
+import { fmt } from "./expr.js";
+import { machiningText } from "./cutlist.js";
+import { JOINT_LIBRARY, type JointParam } from "./joints.js";
+import { AXES, FACE_AXIS, FACES, type Axis, type Design, type Face } from "./types.js";
+
+export class QueryError extends Error {}
+
+function part(d: DeriveResult, id: string): DerivedPart {
+  const p = d.byId.get(id);
+  if (!p) {
+    const known = d.parts.slice(0, 40).map((x) => x.id).join(", ");
+    throw new QueryError(`There's no part "${id}". Parts: ${known || "none yet"}`);
+  }
+  return p;
+}
+
+function axisName(p: DerivedPart, a: Axis): string {
+  if (a === p.grain_axis) return "length";
+  if (a === p.thickness_axis) return "thickness";
+  return "width";
+}
+
+/** Plain-language working for one part's sizes, including joinery. */
+export function explainPart(d: DeriveResult, id: string): string[] {
+  const p = part(d, id);
+  const lines: string[] = [];
+  for (const a of AXES) {
+    const t = p.axes[a];
+    lines.push(`${a} (${axisName(p, a)}): from ${fmt(t.start.value)} to ${fmt(t.end.value)}, so ${fmt(t.size.value)} mm`);
+    lines.push(`  start = ${t.start.text}`);
+    lines.push(`  end = ${t.end.text}`);
+    lines.push(`  size = ${t.size.text}`);
+  }
+  for (const a of AXES) {
+    const ext = p.extensions.filter((e) => e.axis === a);
+    if (!ext.length) continue;
+    const nominal = p.axes[a].size.value;
+    const extra = ext.map((e) => `${fmt(e.depth_mm)} into ${e.host} (${e.joint})`).join(" + ");
+    const total = nominal + ext.reduce((s, e) => s + e.depth_mm, 0);
+    lines.push(`Cut ${axisName(p, a)} ${fmt(total)} = visible ${fmt(nominal)} + ${extra}`);
+  }
+  for (const m of p.machining) lines.push(machiningText(m));
+  for (const j of d.joints.filter((x) => x.host === p.id || x.guest === p.id)) {
+    const entry = JOINT_LIBRARY[j.type];
+    const ps = Object.entries(j.params)
+      .map(([k, v]) => `${k} ${fmt(v)}${j.defaulted.includes(k as JointParam) ? " (library default)" : ""}`)
+      .join(", ");
+    lines.push(`Joint ${j.id}: ${entry.name}, ${j.guest} into ${j.host}${ps ? `. ${ps}` : ""}`);
+  }
+  return lines;
+}
+
+export function explain(design: Design, d: DeriveResult, target: string): string[] {
+  const t = target.trim();
+  const param = design.params.find((p) => p.name === t);
+  if (param) {
+    const v = d.params[t];
+    if (!v) return [`${t} hasn't been worked out`];
+    return "error" in v ? [`${t} can't be worked out: ${v.error}`] : [`${t} = ${param.expr}`, `  = ${v.text}`, `  = ${fmt(v.value)}`];
+  }
+  const rule = design.rules.find((r) => r.id === t);
+  if (rule) {
+    try {
+      const r = d.evaluate(rule.expr);
+      return [`${rule.id}: ${rule.expr}`, `  = ${r.text}`, `  → ${r.value ? "passes" : "fails"}`];
+    } catch (e) {
+      return [`${rule.id} can't be worked out: ${(e as Error).message}`];
+    }
+  }
+  if (d.byId.has(t)) return explainPart(d, t);
+  // Any other expression, such as "right_side.left - left_side.right".
+  try {
+    const r = d.evaluate(t);
+    return [`${t}`, `  = ${r.text}`, `  = ${typeof r.value === "number" ? fmt(r.value) : r.value}`];
+  } catch (e) {
+    throw new QueryError(`Can't explain "${t}": ${(e as Error).message}`);
+  }
+}
+
+/** The distance between two faces on the same axis. */
+export function measure(d: DeriveResult, a: string, b: string): { mm: number; text: string } {
+  const parseFace = (s: string): { id: string; face: Face } => {
+    const dot = s.lastIndexOf(".");
+    const id = s.slice(0, dot);
+    const face = s.slice(dot + 1) as Face;
+    if (dot < 0 || !(FACES as readonly string[]).includes(face)) {
+      throw new QueryError(`"${s}" isn't a face. Write it as part.face, with a face from ${FACES.join(", ")}`);
+    }
+    part(d, id);
+    return { id, face };
+  };
+  const fa = parseFace(a);
+  const fb = parseFace(b);
+  if (FACE_AXIS[fa.face] !== FACE_AXIS[fb.face]) {
+    throw new QueryError(`${a} is on the ${FACE_AXIS[fa.face]} axis and ${b} is on ${FACE_AXIS[fb.face]}. Measure between faces on the same axis`);
+  }
+  const i = AXIS_INDEX[FACE_AXIS[fa.face]];
+  const at = (f: { id: string; face: Face }) => {
+    const p = part(d, f.id);
+    return f.face === "right" || f.face === "top" || f.face === "front" ? p.nominal.max[i]! : p.nominal.min[i]!;
+  };
+  const va = at(fa);
+  const vb = at(fb);
+  return { mm: Math.abs(vb - va), text: `${b} (${fmt(vb)}) - ${a} (${fmt(va)}) = ${fmt(vb - va)}` };
+}
+
+export interface PartSummary {
+  id: string;
+  name: string;
+  material: string;
+  tags: string[];
+  finished_mm: { length: number; width: number; thickness: number };
+  cut_mm: { length: number; width: number; thickness: number };
+  position_mm: { min: number[]; max: number[] };
+  decor?: boolean;
+  unverified?: boolean;
+}
+
+export function summarisePart(p: DerivedPart): PartSummary {
+  const r = (n: number) => Math.round(n * 10) / 10;
+  const dims = (x: { length: number; width: number; thickness: number }) => ({
+    length: r(x.length),
+    width: r(x.width),
+    thickness: r(x.thickness),
+  });
+  const s: PartSummary = {
+    id: p.id,
+    name: p.name,
+    material: p.material,
+    tags: p.tags,
+    finished_mm: dims(p.finished),
+    cut_mm: dims(p.cut),
+    position_mm: { min: p.nominal.min.map(r), max: p.nominal.max.map(r) },
+  };
+  if (p.decor) s.decor = true;
+  if (p.unverified) s.unverified = true;
+  return s;
+}
+
+export interface PlanCheck {
+  item: string;
+  ok: boolean;
+  detail: string;
+}
+
+export function verifyPlan(design: Design, d: DeriveResult): PlanCheck[] {
+  const plan = design.plan;
+  if (!plan) throw new QueryError("There's no plan to check against. Submit one with submit_plan");
+  const out: PlanCheck[] = [];
+  for (const pp of plan.parts) {
+    const found = d.parts.filter((p) => p.tags.includes(pp.tag) && !p.decor);
+    out.push({
+      item: `${pp.label} (tag ${pp.tag})`,
+      ok: found.length === pp.qty,
+      detail: `planned ${pp.qty}, model has ${found.length}${found.length ? `: ${found.map((p) => p.id).slice(0, 12).join(", ")}` : ""}`,
+    });
+  }
+  for (const dim of plan.key_dims) {
+    const tol = dim.tolerance_mm ?? 0.5;
+    try {
+      const r = d.evaluate(dim.expr);
+      if (typeof r.value !== "number") {
+        out.push({ item: dim.label, ok: false, detail: `${dim.expr} gives true/false, not a size` });
+        continue;
+      }
+      const ok = Math.abs(r.value - dim.expected_mm) <= tol;
+      out.push({ item: dim.label, ok, detail: `planned ${fmt(dim.expected_mm)} ± ${fmt(tol)}, model ${fmt(r.value)} (${r.text})` });
+    } catch (e) {
+      out.push({ item: dim.label, ok: false, detail: `can't work out ${dim.expr}: ${(e as Error).message}` });
+    }
+  }
+  return out;
+}
+
+export { partRefParts };

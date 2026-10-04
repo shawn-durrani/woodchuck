@@ -1,0 +1,21 @@
+.env
+.env.*
+!.env.example
+config.local.json
+config.local.json.*
+CLAUDE.local.md
+.claude/
+data/
+*.log
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+.DS_Store
+
+# Personal-content deny-list for scripts/secret-scan.sh. The list itself is
+# personal data. Committed template: secret-scan-local.example.
+.secret-scan-local

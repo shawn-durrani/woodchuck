@@ -1,0 +1,60 @@
+{
+  "id": "blum-563h4570b-457",
+  "name": "Blum TANDEM plus BLUMOTION 563H4570B, 457 mm (18 in) full-extension runner, per side",
+  "kind": "drawer_slide",
+  "sources": [
+    {
+      "url": "https://d2.blum.com/services/BEC003/tdm563h_ma_dok_bus_$sen-us_$aof_$v4.pdf",
+      "title": "Blum TANDEM plus BLUMOTION 563H/563 installation instructions (Blum)",
+      "note": "Page 3 and 4 tables for 563H4570B (drawer length, runner length, inside cabinet depth), page 2 drawer box specifications (width minus 42, thickness, clearances, max height), and locking device part numbers"
+    },
+    {
+      "url": "https://www.woodworkerexpress.com/skin/common_files/files/specs/slides/G86IZHBFIPL3.pdf",
+      "title": "TANDEM plus BLUMOTION Premium Concealed Runners for Wood Drawers brochure",
+      "note": "Static load capacity 100 lb, max drawer thickness 16 mm"
+    },
+    {
+      "url": "https://www.mckillican.com/hardware/functional-hardware/slides/563h4570b-18-tandem-blumotion-58-runner/2055183/",
+      "title": "Blum 563H4570B 18 in TANDEM + BLUMOTION runner (McKillican)",
+      "note": "Nominal length 457 mm, steel, dynamic load bearing 30 kg"
+    }
+  ],
+  "specs": {
+    "length_mm": 457,
+    "runner_length_mm": 471,
+    "min_cabinet_depth_mm": 480,
+    "max_inside_cabinet_depth_mm": 522,
+    "load_kg": 30,
+    "static_load_kg": 45,
+    "inside_width_deduction_mm": 42,
+    "clearance_per_side_mm": 6,
+    "drawer_side_thickness_min_mm": 13,
+    "drawer_side_thickness_max_mm": 16,
+    "bottom_clearance_mm": 14,
+    "min_top_clearance_mm": 6,
+    "max_drawer_height_below_opening_mm": 20,
+    "bottom_recess_mm": 13,
+    "setback_mm": 3
+  },
+  "shape": [
+    {
+      "name": "runner envelope (simplified, one side)",
+      "min_mm": [
+        0,
+        0,
+        0
+      ],
+      "max_mm": [
+        471,
+        14,
+        6
+      ]
+    }
+  ],
+  "maker": "Blum",
+  "model": "TANDEM plus BLUMOTION 563H",
+  "sku": "563H4570B",
+  "mounting": "Concealed full-extension runner screwed to the inside face of the cabinet side (frameless or inset), with a locking device clipped under each end of the drawer front and a rear hook in the drawer back. The drawer box sits on the runners, so nothing shows beside it.",
+  "notes": "Numbers from Blum's TANDEM plus BLUMOTION 563H sheet: drawer length 457, runner length 471, inside cabinet depth 480 to 522, drawer inside width = opening width minus 42, side thickness 13 to 16, bottom recess 13, bottom clearance 14, minimum top clearance 6, maximum drawer height = opening minus 20, setback 3. Clearance per side of 6 mm is derived from the sheet's width table for 15 mm sides (12 mm deducted from the opening, so 6 each side); it changes with side thickness (5 mm at 16, 8 mm at 13). Static load 100 lb (about 45 kg) is from Blum's brochure; dynamic load 30 kg is from the McKillican listing, so load_kg uses the lower figure. The model is a simplified box in the bottom-clearance zone, not the real runner profile. For an inset slab front the runner setback must be taken from Blum's inset table on page 5 of the sheet, which I did not use to size anything here. Ordered as a pair per drawer, with a left and right locking device sold separately (T51.1901L and T51.1901R, or T51.1801L and R).",
+  "approved_at": "2026-10-04T08:54:37.122Z"
+}

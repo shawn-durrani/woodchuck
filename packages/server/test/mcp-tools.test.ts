@@ -1,0 +1,136 @@
+// The MCP tools against a running app. A chat app such as Crossband
+// holds its turn while a tool runs, so woodchuck_ask hands a build over
+// within seconds, woodchuck_progress answers at once, and each carries the
+// background block Crossband watches the build by.
+
+import { mkdtempSync, rmSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createApp } from "../src/index.js";
+import type { Background } from "../src/progress.js";
+import { scriptedClient, type ScriptBlock } from "../src/scripted.js";
+
+const replies: ScriptBlock[][] = [];
+let dir: string;
+let closeApp: () => Promise<void>;
+let client: Client;
+
+beforeAll(async () => {
+  dir = mkdtempSync(path.join(tmpdir(), "woodchuck-mcp-"));
+  const app = createApp({ dataDir: dir, client: scriptedClient(replies), watchTools: false });
+  await new Promise<void>((r) => app.server.listen(0, "127.0.0.1", r));
+  closeApp = app.close;
+  // The MCP server finds the app when it loads, so it's loaded once this one is up.
+  process.env.WOODCHUCK_URL = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  const { buildServer } = await import("../src/mcp.js");
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await buildServer({ askWaitMs: 1500, replyWaitMs: 1500 }).connect(a);
+  client = new Client({ name: "test", version: "1.0.0" });
+  await client.connect(b);
+});
+afterAll(async () => {
+  await client.close();
+  await closeApp();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+type Result = { content: { type: string; text: string }[]; structuredContent?: { background: Background } };
+async function tool(name: string, args: Record<string, unknown> = {}) {
+  const t0 = Date.now();
+  const r = (await client.callTool({ name, arguments: args })) as unknown as Result;
+  return { text: r.content[0]!.text, bg: r.structuredContent?.background, ms: Date.now() - t0 };
+}
+const call = (id: string, name: string, input: ScriptBlock): ScriptBlock => ({ type: "tool_use", id, name, input });
+/** A reply held back until the test opens it, so no step depends on how fast the machine is. */
+function gate() {
+  let open!: () => void;
+  const until = new Promise<void>((r) => (open = r));
+  return { block: { type: "gate", until } as ScriptBlock, open };
+}
+const app = (p: string) => fetch(`${process.env.WOODCHUCK_URL}${p}`).then((r) => r.json() as Promise<Record<string, unknown>>);
+async function until(test: () => Promise<boolean>, ms = 10_000) {
+  const end = Date.now() + ms;
+  while (!(await test())) {
+    if (Date.now() > end) throw new Error("timed out");
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
+const idle = () => until(async () => !(await app("/api/busy")).busy);
+
+// A test that fails part way leaves no replies or turn behind for the next one.
+afterEach(async () => {
+  replies.length = 0;
+  await fetch(`${process.env.WOODCHUCK_URL}/api/chat/stop`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  await idle();
+});
+
+describe("the MCP tools while Claude builds", () => {
+  it("lists woodchuck_progress, and says woodchuck_ask never waits long", async () => {
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("woodchuck_progress");
+    expect(tools.find((t) => t.name === "woodchuck_ask")!.description).toMatch(/never waits long/);
+    expect(tools.find((t) => t.name === "woodchuck_progress")!.description).toMatch(/Never call it in a loop/);
+    expect(tools.find((t) => t.name === "woodchuck_finish")!.description).toMatch(/mid-build too/);
+  });
+
+  it("answers a quick question straight away", async () => {
+    replies.push([{ type: "text", text: "It's 800 mm wide." }]);
+    const r = await tool("woodchuck_ask", { message: "How wide is it?" });
+    expect(r.text).toBe("It's 800 mm wide.");
+    expect(r.bg).toMatchObject({ state: "done", title: "Woodchuck", progress_tool: "woodchuck_progress", reply: "It's 800 mm wide.", waiting_for: null });
+    expect(r.bg!.job).toMatch(/^u/);
+  });
+
+  it("hands a long build over within seconds, takes a message mid-build at once, and reports progress at once", async () => {
+    const second = gate();
+    const last = gate();
+    replies.push(
+      [{ type: "text", text: "Sides first." }, call("t1", "set_param", { name: "a", expr: "1", unit: "mm" })],
+      [second.block, call("t2", "set_param", { name: "b", expr: "2", unit: "mm" })],
+      [last.block, { type: "text", text: "Built it." }],
+    );
+    // The build is held after its first step, so woodchuck_ask has to hand it over unfinished.
+    const asked = await tool("woodchuck_ask", { message: "Build a bookcase" });
+    expect(asked.ms).toBeLessThan(5000);
+    expect(asked.text).toMatch(/^Woodchuck's Claude has started on it/);
+    expect(asked.bg).toMatchObject({ state: "running", stage: "Sides first.", steps: 1, reply: "" });
+    const job = asked.bg!.job;
+
+    const steer = await tool("woodchuck_ask", { message: "Make the shelves adjustable" });
+    expect(steer.ms).toBeLessThan(2000);
+    expect(steer.text).toMatch(/^Passed on\./);
+    expect(steer.bg).toMatchObject({ job, state: "running" });
+
+    const now = await tool("woodchuck_progress");
+    expect(now.ms).toBeLessThan(2000);
+    expect(now.text).toMatch(/^Woodchuck's Claude is working: Sides first\. \(1 step, \d+ s so far\.\)/);
+    expect(now.text).toContain("One message is waiting to reach it after its current step.");
+    expect(Object.keys(now.bg!)).toEqual(["job", "state", "title", "progress_tool", "stage", "steps", "elapsed_s", "waiting_for", "ask", "reply"]);
+
+    second.open();
+    last.open();
+    await idle();
+    const reply = await tool("woodchuck_reply");
+    expect(reply.bg).toMatchObject({ job, state: "done", steps: 2 });
+    expect(reply.text).toContain("Built it.");
+  });
+
+  it("changes colours mid-build, as a step of its own", async () => {
+    const ops = [{ op: "define_material", id: "ply18", name: "18 mm birch ply", kind: "sheet", thickness_mm: 18, grained: true, species: "birch_ply" }];
+    await fetch(`${process.env.WOODCHUCK_URL}/api/ops`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ops }) });
+    const held = gate();
+    replies.push([held.block, call("t3", "set_param", { name: "c", expr: "3", unit: "mm" })], [{ type: "text", text: "Done." }]);
+    const started = tool("woodchuck_ask", { message: "Add a size" });
+    await until(async () => (await app("/api/busy")).busy === true);
+    const r = await tool("woodchuck_finish", { targets: ["material:ply18"], finish: "raw" });
+    expect(r.text).toMatch(/^Done: material:ply18 now bare timber\. It's one change the woodworker can undo/);
+    held.open();
+    await started;
+    await idle();
+    expect(await tool("woodchuck_progress")).toMatchObject({ bg: { state: "done" } });
+  });
+});

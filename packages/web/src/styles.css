@@ -1,0 +1,3404 @@
+/* The colours are variables, and themes.css holds every theme's values. */
+@import "./themes.css";
+
+:root {
+  /* The names this file uses, taken from the theme's tokens. */
+  --bg: var(--t-app);
+  --panel: var(--t-panel);
+  --line: var(--t-edge);
+  --ink: var(--t-ink);
+  --muted: var(--t-ink-mid);
+  --accent: var(--t-accent);
+  --accent-ink: var(--t-btn-ink);
+  --ok: var(--t-ok);
+  --warn: var(--t-warn);
+  --bad: var(--t-err);
+  --blue: var(--t-info);
+  --link: var(--t-link);
+  /* A chosen button or tab, and the line round it or a hovered control. */
+  --on: color-mix(in srgb, var(--t-accent) 16%, var(--t-panel));
+  --on-line: color-mix(in srgb, var(--t-accent) 50%, var(--t-panel));
+  /* A row under the pointer, and a note set into a panel. */
+  --hover: color-mix(in srgb, var(--t-ink) 5%, var(--t-panel));
+  /* Tints for a state: something chosen, done, waiting or wrong. */
+  --tint-pick: color-mix(in srgb, var(--t-info) 12%, var(--t-panel));
+  --tint-ok: color-mix(in srgb, var(--t-ok) 10%, var(--t-panel));
+  --tint-warn: color-mix(in srgb, var(--t-warn) 12%, var(--t-panel));
+  --tint-bad: color-mix(in srgb, var(--t-err) 10%, var(--t-panel));
+  accent-color: var(--t-accent);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+}
+button,
+.button,
+select,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button,
+.button {
+  border: 1px solid var(--wc-control-line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+button:hover:not(:disabled),
+.button:hover {
+  border-color: var(--on-line);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.primary {
+  background: var(--t-btn);
+  border-color: var(--t-btn);
+  color: var(--accent-ink);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--t-btn-hover);
+  border-color: var(--t-btn-hover);
+}
+/* A disabled primary button fades like any other, since fading its own colours leaves the label too faint to read. */
+button.primary:disabled {
+  background: var(--panel);
+  border-color: var(--wc-control-line);
+  color: var(--ink);
+}
+button.danger {
+  color: var(--bad);
+}
+button.link {
+  border: none;
+  background: none;
+  color: var(--link);
+  padding: 0 4px;
+}
+a {
+  color: var(--link);
+}
+::selection {
+  background: var(--t-selection);
+}
+:focus-visible {
+  outline: 2px solid var(--t-focus);
+  outline-offset: 1px;
+}
+::placeholder {
+  color: var(--t-ink-mid);
+  opacity: 1;
+}
+input,
+textarea,
+select {
+  border: 1px solid var(--wc-control-line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--wc-field);
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  color: var(--muted);
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+/* Full screen: just the 3D view and its bar. */
+.app.full {
+  grid-template-rows: minmax(0, 1fr);
+}
+.app.full > .topbar,
+.app.full > .left,
+.app.full > .right,
+.app.full > .splitter,
+.app.full > .rail {
+  display: none;
+}
+/* A collapsed sidebar keeps its chat and tabs, just out of sight. */
+.app > aside[hidden] {
+  display: none;
+}
+.splitter {
+  cursor: col-resize;
+  background: var(--line);
+  touch-action: none;
+}
+.splitter:hover,
+body.dragging .splitter {
+  background: var(--on-line);
+}
+body.dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.brand {
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 6px;
+}
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.theme-switch select {
+  font-size: 12px;
+  padding: 2px 4px;
+  color: var(--ink);
+}
+.spacer {
+  flex: 1;
+}
+.status.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.status.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.status.bad {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.left,
+.right {
+  background: var(--panel);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.left,
+.right {
+  min-width: 0;
+  overflow: hidden;
+}
+.centre {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.seg {
+  display: inline-flex;
+}
+.seg button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+.seg button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.seg button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.seg button.on,
+.tabs button.on {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.canvas-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.hover-tag {
+  background: var(--wc-overlay);
+  color: var(--wc-overlay-ink);
+  border: 1px solid var(--wc-overlay-line);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-body {
+  padding: 10px 12px;
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.empty {
+  padding: 16px 12px;
+  color: var(--muted);
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  background: var(--wc-card);
+}
+.card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.card-sub {
+  font-weight: 600;
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.card ul,
+.panel-body ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 6px;
+  margin-left: 6px;
+  color: var(--muted);
+}
+.badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.form-error {
+  color: var(--bad);
+  font-size: 12px;
+}
+
+/* Chat */
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.chat-log {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+}
+.msg {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+.msg.user {
+  background: var(--on);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.msg.error {
+  color: var(--bad);
+}
+.sel-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+/* A message sent while Claude works waits at the foot of the chat, dashed, until Claude reads it. */
+.msg.user.unread {
+  border: 1px dashed var(--line);
+  opacity: 0.85;
+  margin-top: 6px;
+}
+.thinking {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin: 4px 0;
+}
+.tool {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0;
+}
+.tool.bad {
+  color: var(--bad);
+}
+.change-line {
+  font-size: 12px;
+  color: var(--accent);
+  margin: 6px 0;
+}
+details.change-line summary {
+  cursor: pointer;
+}
+details.change-line ul {
+  color: var(--muted);
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow: auto;
+}
+/* Claude's replies: paragraphs and lists rather than raw text. */
+.msg.assistant {
+  white-space: normal;
+}
+.msg.assistant p {
+  margin: 0 0 8px;
+}
+.msg.assistant p:last-child {
+  margin-bottom: 0;
+}
+.msg.assistant ul,
+.msg.assistant ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.msg.assistant li {
+  margin: 2px 0;
+}
+.working {
+  color: var(--muted);
+  font-style: italic;
+  margin: 8px 0;
+}
+.cursor {
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.composer {
+  border-top: 1px solid var(--line);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.composer textarea {
+  resize: vertical;
+  width: 100%;
+}
+.composer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+/* While Claude works, Stop and Send sit together at the right. */
+.composer-row > .stop-claude {
+  margin-left: auto;
+}
+.chips {
+  font-size: 12px;
+  color: var(--muted);
+}
+.chip {
+  display: inline-block;
+  background: var(--tint-pick);
+  color: var(--blue);
+  border-radius: 10px;
+  padding: 0 6px;
+  margin: 0 3px 3px 0;
+}
+
+/* Inspector */
+.part-head {
+  font-size: 15px;
+}
+.kv {
+  margin: 8px 0;
+  border-collapse: collapse;
+}
+.kv th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding-right: 10px;
+}
+.axis {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+.axis-head {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.axis-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.axis-fields label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+input.expr {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.trace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+/* Parameters */
+.param {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.param-head {
+  margin-bottom: 4px;
+}
+.param-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.param-row input[type="range"] {
+  flex: 1;
+}
+input.num {
+  width: 80px;
+}
+.unit {
+  width: 40px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Cut list, problems, history */
+table.cut {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.cut th,
+table.cut td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+table.cut tbody tr {
+  cursor: pointer;
+}
+table.cut tbody tr:hover {
+  background: var(--hover);
+}
+.ready {
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.ready.ok {
+  background: var(--tint-ok);
+  color: var(--ok);
+}
+.ready.no {
+  background: var(--tint-warn);
+  color: var(--warn);
+}
+.issue {
+  border-left: 3px solid var(--warn);
+  padding: 6px 8px;
+  margin: 6px 0;
+  background: var(--wc-card);
+  cursor: pointer;
+}
+.issue.error {
+  border-left-color: var(--bad);
+}
+.who.claude {
+  color: var(--accent);
+  font-weight: 600;
+}
+.who.you {
+  color: var(--blue);
+  font-weight: 600;
+}
+.warn-card {
+  border-color: var(--warn);
+  background: var(--tint-warn);
+}
+.joint-tag {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  background: var(--wc-overlay);
+  color: var(--wc-overlay-ink);
+  border: 1px solid var(--wc-overlay-line);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  pointer-events: none;
+}
+button.toggle.on {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.joint-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0;
+  background: var(--wc-card);
+}
+.bad-text {
+  color: var(--bad);
+}
+.warn-text {
+  color: var(--warn);
+}
+.pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.pictures img {
+  height: 64px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: block;
+}
+.msg.user .pictures img {
+  height: 96px;
+}
+.picture {
+  position: relative;
+}
+.picture button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  padding: 0 5px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+/* Claude's drawings, in the plan and in what it looked at, are stored pictures on white paper. A dark theme turns the paper dark. The filter sits on the picture and the frame on its link, since a filter would turn a frame over as well. */
+.sheet {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 4px 0 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+.sheet img {
+  display: block;
+  width: 100%;
+  filter: var(--wc-drawing-filter);
+}
+
+/* Everything in the chat fits its panel: long words, ids and pictures wrap or shrink. */
+.chat,
+.chat-log,
+.composer {
+  min-width: 0;
+}
+.chat-log {
+  overflow-x: hidden;
+}
+.chat-log *,
+.composer * {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+.chat-log img {
+  height: auto;
+}
+.card ul {
+  padding-left: 16px;
+}
+.plan-actions input,
+.composer textarea {
+  width: 100%;
+  min-width: 0;
+}
+.composer-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.panel-body {
+  overflow-x: auto;
+}
+.tabs button {
+  white-space: nowrap;
+}
+.topbar {
+  flex-wrap: wrap;
+}
+.model-pick {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.part-preview {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 6px 0;
+  background: var(--panel);
+}
+.pdf-chip {
+  display: inline-block;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--wc-card);
+  font-size: 12px;
+}
+.viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.box-select {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+.box-rect {
+  position: absolute;
+  border: 1.5px dashed var(--blue);
+  background: color-mix(in srgb, var(--t-info) 10%, transparent);
+  pointer-events: none;
+}
+.pin-chip {
+  display: inline-block;
+  background: var(--tint-bad);
+  color: var(--bad);
+  border-radius: 10px;
+  padding: 0 6px;
+  margin: 0 3px 3px 0;
+}
+.pin-chip button {
+  border: none;
+  background: none;
+  padding: 0 0 0 4px;
+  color: inherit;
+}
+.view-shot {
+  max-width: 160px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: block;
+  margin-top: 6px;
+}
+ol.versions {
+  padding-left: 0;
+  list-style: none;
+}
+li.version {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+}
+.who.woodchuck {
+  color: var(--muted);
+  font-weight: 600;
+}
+.missing-tool {
+  border-left: 4px solid var(--warn);
+  background: color-mix(in srgb, var(--t-warn) 6%, var(--t-panel));
+}
+.missing-tool.built {
+  border-left-color: var(--ok);
+  background: color-mix(in srgb, var(--t-ok) 6%, var(--t-panel));
+}
+.missing-tool .spec div {
+  margin: 2px 0;
+}
+.status-pick {
+  display: block;
+  margin: -2px 0 10px 4px;
+}
+.viewport.mode-pan canvas {
+  cursor: grab;
+}
+.viewport.mode-pan canvas:active {
+  cursor: grabbing;
+}
+.viewport.mode-pin canvas {
+  cursor: crosshair;
+}
+
+/* Finish tab */
+.finish-panel h4 {
+  margin: 16px 0 6px;
+}
+.finish-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.finish-target select {
+  flex: 1;
+  min-width: 0;
+}
+.finish-search {
+  width: 100%;
+  margin: 6px 0 8px;
+}
+.swatch-legend {
+  margin: 0 0 6px;
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+}
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 4px;
+  text-align: left;
+}
+.swatch.on {
+  outline: 2px solid var(--blue);
+  outline-offset: -1px;
+}
+.chip-colour {
+  display: flex;
+  height: 30px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--t-edge2);
+}
+.chip-colour > span {
+  flex: 1;
+}
+.chip-colour > span + span {
+  flex: 0 0 30%;
+}
+.swatch-name {
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.finish-panel table td {
+  padding: 2px 8px 2px 0;
+}
+
+/* The drawer that slides out over the 3D view */
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: clamp(250px, 30%, 420px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px var(--wc-shadow);
+  animation: drawer-in 0.18s ease-out;
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 16px;
+  overflow-wrap: anywhere;
+}
+.drawer-body h3 {
+  margin: 4px 0 6px;
+}
+.drawer-body h4 {
+  margin: 14px 0 4px;
+}
+.drawer-view {
+  position: relative;
+  height: 220px;
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.drawer-actions {
+  position: sticky;
+  bottom: -16px;
+  padding: 8px 0;
+  background: var(--panel);
+  justify-content: flex-start;
+}
+.joint-facts dt {
+  font-weight: 600;
+  margin-top: 6px;
+}
+.joint-facts dd {
+  margin: 0;
+}
+
+/* Finish tab: what a colour goes on */
+.finish-panel h4.first {
+  margin-top: 4px;
+}
+.notice {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--tint-warn);
+  border: 1px solid color-mix(in srgb, var(--t-warn) 35%, var(--t-panel));
+}
+.target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.target-option {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+}
+.target-option.on {
+  border-color: var(--blue);
+  box-shadow: inset 3px 0 0 var(--blue);
+  background: var(--tint-pick);
+}
+.face-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.face-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.face-chip.on {
+  color: var(--ink);
+  text-decoration: none;
+  border-color: var(--blue);
+  background: var(--tint-pick);
+}
+
+/* Going back to previews Claude showed */
+.preview-jump {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 4px 0 6px;
+  background: var(--panel);
+}
+.preview-jump select {
+  width: 100%;
+}
+.card.flash {
+  outline: 2px solid var(--blue);
+  transition: outline-color 0.4s;
+}
+
+/* The page the server photographs: just the 3D view. */
+.render-only {
+  position: fixed;
+  inset: 0;
+}
+
+/* A note over the 3D view when something outside it changes the view. */
+.canvas-wrap {
+  position: relative;
+}
+.toast {
+  position: absolute;
+  top: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  max-width: min(520px, 90%);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--wc-overlay);
+  color: var(--wc-overlay-ink);
+  border: 1px solid var(--wc-overlay-line);
+  font-size: 13px;
+  pointer-events: none;
+  animation: toast-in 0.2s ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+}
+
+/* Collapsing the sidebars */
+.splitter {
+  position: relative;
+}
+.splitter .collapse {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 18px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.75;
+}
+.splitter .collapse:hover {
+  opacity: 1;
+}
+.rail {
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.app > .rail:last-child {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+}
+.rail span {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.rail:hover {
+  color: var(--ink);
+}
+
+/* Placing the design in a photo of the room */
+.photo-room {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 46px;
+  background: var(--wc-stage);
+}
+.photo-stage {
+  position: relative;
+}
+.photo-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+  pointer-events: none;
+}
+.photo-stage .viewport {
+  position: absolute;
+  inset: 0;
+}
+.photo-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  z-index: 4;
+}
+.photo-bar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.photo-bar input[type="range"] {
+  width: 110px;
+}
+
+/* The AI blend's progress and result, over the photo */
+.blend-working {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--wc-overlay);
+  color: var(--wc-overlay-ink);
+  border: 1px solid var(--wc-overlay-line);
+  font-size: 13px;
+}
+.blend-result {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: var(--wc-stage);
+}
+.blend-result img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.blend-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+/* Starring designs to find them again */
+.star {
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+}
+.star.on {
+  color: var(--warn);
+}
+.design-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.design-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+.design-list li.last-starred {
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 6px;
+}
+.design-list li.open .design-open {
+  font-weight: 600;
+  color: var(--ink);
+}
+.design-list .design-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* The AI blend's "not to scale" label, over the blended picture */
+.blend-label {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  max-width: calc(100% - 24px);
+  padding: 5px 6px 5px 12px;
+  border-radius: 8px;
+  background: var(--wc-overlay);
+  box-shadow: inset 4px 0 0 var(--warn);
+  color: var(--wc-overlay-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.blend-label button {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* The Library tab: search, a list of parts, and where each pull request has got to */
+.library-search {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+.library-search input {
+  flex: 1;
+  min-width: 0;
+}
+.panel-body .library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.library-list li {
+  border-bottom: 1px solid var(--line);
+}
+.library-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 6px 2px;
+  text-align: left;
+  white-space: normal;
+}
+.library-row .badge {
+  margin-left: 0;
+}
+.library-name {
+  font-weight: 600;
+}
+.library-row[aria-expanded="true"] .library-name {
+  color: var(--accent);
+}
+.pr-note {
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-left: 3px solid var(--line);
+}
+.pr-note.waiting {
+  border-left-color: var(--warn);
+}
+
+/* Cutting layouts: the Cut layout tab */
+.stock-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.stock-fields input.num {
+  width: 64px;
+}
+.stock-fields label.lengths {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 220px;
+}
+.stock-fields label.lengths input {
+  flex: 1;
+  min-width: 0;
+}
+.layout-material {
+  margin: 14px 0 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.layout-note {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+.layout-stock {
+  margin: 10px 0 12px;
+}
+.layout-stock figcaption {
+  margin-bottom: 4px;
+}
+.layout-stock svg {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+}
+.layout-stock rect {
+  vector-effect: non-scaling-stroke;
+}
+.lay-stock {
+  fill: var(--on);
+  stroke: var(--on-line);
+}
+.lay-trim {
+  fill: var(--hover);
+  stroke: var(--on-line);
+  stroke-dasharray: 4 3;
+}
+.lay-offcut {
+  fill: var(--tint-ok);
+  stroke: var(--ok);
+  stroke-dasharray: 4 3;
+}
+.lay-part {
+  cursor: pointer;
+}
+.lay-part rect {
+  fill: var(--wc-part);
+  stroke: var(--accent);
+}
+.lay-part:hover rect {
+  fill: var(--wc-part-hover);
+}
+.lay-part text {
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+/* Workshop drawings: the paper choice is kept beside the PDF. */
+.cut-drawings {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* A part whose pull request was closed without merging: its note and the two ways forward */
+.pr-note.closed {
+  border-left-color: var(--bad);
+}
+.pr-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* UX phase 1: honest signals. Errors sit beside what caused them, the top
+   bar keeps to one row, a lost connection gets a full-width bar, names lead
+   and ids stay small, and busy buttons say so. Colours come from the
+   variables at the top, so a dark theme can swap them. */
+.topbar {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.topbar > *,
+.topbar-group > * {
+  flex-shrink: 0;
+}
+.topbar-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.topbar-group > select {
+  flex-shrink: 1;
+  min-width: 90px;
+  max-width: 260px;
+}
+.topbar .shrink,
+.topbar .notice {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--bad);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--bad);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+.error-note button.link {
+  color: var(--bad);
+  padding: 0 2px;
+  font-size: 15px;
+  line-height: 1;
+}
+/* In the top bar, an error hangs under its own group, so the bar never grows a second row. */
+.topbar .error-note {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: 420px;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.topbar .error-note.at-history {
+  left: auto;
+  right: 0;
+}
+.error-note.at-view {
+  margin: 6px 10px 0;
+}
+.photo-bar .error-note {
+  flex-basis: 100%;
+}
+.field-error {
+  margin-top: 4px;
+  line-height: 1.35;
+}
+input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+.app.offline {
+  grid-template-rows: auto auto 1fr;
+}
+.app.full.offline {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.offline-bar {
+  grid-column: 1 / -1;
+  padding: 8px 12px;
+  background: var(--bad);
+  color: var(--accent-ink);
+  font-size: 13px;
+  text-align: center;
+}
+.app.offline > header,
+.app.offline > aside,
+.app.offline > main {
+  opacity: 0.55;
+}
+.param-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.param-name {
+  font-weight: 500;
+}
+.param-id {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.change-line.undone {
+  color: var(--muted);
+}
+.issue-working summary {
+  margin-top: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.setup-steps ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.setup-steps li {
+  margin: 3px 0;
+}
+.composer textarea:disabled {
+  background: var(--bg);
+  cursor: not-allowed;
+}
+.blend-slot {
+  display: inline-flex;
+}
+/* A short note over the 3D view sits low, clear of the view buttons. */
+.toast {
+  top: auto;
+  bottom: 64px;
+}
+.topbar button.working-button:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.working-button::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* UX phase 1, continued: the GitHub buttons say what they do, so their rows wrap rather than overflow. */
+.missing-tool .row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.missing-tool .row button,
+.plan-actions button {
+  white-space: normal;
+}
+/* The box to tick before an issue quotes your design, and the note while GitHub is off. */
+.missing-tool .consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 2px;
+  cursor: pointer;
+}
+.missing-tool .consent input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.missing-tool .github-off {
+  margin: 6px 0 2px;
+}
+
+/* Your workshop, on the All designs and parts page. */
+.workshop-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.workshop-form p {
+  margin: 0;
+}
+.workshop-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workshop-form input,
+.workshop-form textarea {
+  font-size: 13px;
+  color: var(--ink);
+}
+.workshop-form textarea {
+  resize: vertical;
+}
+.workshop-form input.country {
+  width: 5em;
+  text-transform: uppercase;
+}
+.workshop-form .row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+/* UX phase 2: Claude's waiting moments in one place, and a quieter chat.
+   One bar above the chat box holds what Claude waits on, each turn's steps
+   fold into its change line, a selection reads as one line, and empty
+   states say what to do. Colours come from the variables at the top, so a
+   dark theme can swap them. */
+.waiting-bar {
+  flex-shrink: 0;
+  max-height: 40vh;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  padding: 8px 10px;
+  min-width: 0;
+}
+.waiting-moment + .waiting-moment {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.waiting-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.waiting-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.waiting-head button.link {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.waiting-summary {
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.waiting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.waiting-actions button {
+  white-space: normal;
+  text-align: left;
+}
+.waiting-note {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.steps-fold {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+.steps-fold.change-line {
+  color: var(--accent);
+}
+.steps-fold.change-line.undone {
+  color: var(--muted);
+}
+.steps-fold > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.steps-fold > summary::-webkit-details-marker {
+  display: none;
+}
+.steps-fold .fold-verb {
+  color: var(--blue);
+}
+.steps {
+  margin: 4px 0 2px 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  max-height: 260px;
+  overflow: auto;
+  color: var(--muted);
+}
+.thinking-setting {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.working-step {
+  font-style: normal;
+  font-size: 12px;
+}
+.pointing-line {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pointing-text {
+  color: var(--ink);
+}
+.pointing-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow: auto;
+}
+.empty.starters p {
+  margin: 0;
+}
+.starter-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+.starter-list button {
+  white-space: normal;
+  text-align: left;
+  color: var(--ink);
+}
+.example-intro {
+  border-left: 3px solid var(--accent);
+}
+.example-intro p {
+  margin: 4px 0 8px;
+}
+.example-intro button {
+  white-space: normal;
+}
+.array-copy {
+  margin: 8px 0;
+}
+.array-copy p {
+  margin: 0 0 6px;
+}
+.array-copy button {
+  white-space: normal;
+}
+/* A worked example opened while an older suggested change is showing takes the second slot, beside it. */
+.drawer.paired {
+  width: clamp(250px, 30%, 420px);
+}
+.drawer.paired.slot-example {
+  right: clamp(250px, 30%, 420px);
+  box-shadow: none;
+}
+.drawer .row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.drawer .row select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* UX phase 3: one calm toolbar row and a design menu. The toolbar keeps
+   three fixed groups on one row, and a control that can't act greys out
+   in its place. Menus open under their button. The design's name in the
+   top bar opens the design menu. The 2D view is one large drawing over
+   the 3D view, which stays ready underneath. Colours come from the
+   variables at the top, so a theme can swap them. */
+.design-group {
+  min-width: 0;
+}
+.design-group > .menu-wrap {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.design-trigger {
+  max-width: min(420px, 38vw);
+  min-width: 0;
+  border-color: var(--panel);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.design-trigger:hover:not([aria-disabled="true"]),
+.design-trigger.open {
+  border-color: var(--line);
+}
+.design-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.needs-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.design-rename {
+  width: min(320px, 38vw);
+  font-size: 14px;
+  font-weight: 600;
+}
+.design-group .menu {
+  min-width: 270px;
+}
+
+.toolbar {
+  container-type: inline-size;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.tb-group {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+.tb-group + .tb-group {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.toolbar .tb-share {
+  margin-left: auto;
+  padding-left: 0;
+  border-left: 0;
+}
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 13px;
+}
+.toolbar button.on {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.toolbar .tb-camera {
+  min-width: 5.4em;
+  justify-content: space-between;
+}
+.toolbar [aria-disabled="true"],
+.menu [aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.toolbar button[aria-disabled="true"]:hover,
+.menu-choices button[aria-disabled="true"]:hover {
+  border-color: var(--wc-control-line);
+}
+@container (max-width: 560px) {
+  .toolbar button {
+    padding: 0 6px;
+  }
+  .tb-group {
+    gap: 3px;
+  }
+}
+
+.menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.menu-button .caret {
+  margin-left: 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.menu-button.open {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 210px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--wc-shadow);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+}
+.menu.menu-right {
+  left: auto;
+  right: 0;
+}
+.toolbar .menu {
+  max-width: calc(100cqw - 16px);
+}
+.menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: auto;
+  padding: 6px 10px 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+}
+.menu .menu-item:hover:not([aria-disabled="true"]),
+.menu .menu-item:focus-visible,
+.menu-choices button:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.menu-item .tick {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 700;
+}
+.menu-item .menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-item.danger {
+  color: var(--bad);
+}
+.menu kbd,
+.menu-aside {
+  margin-left: 18px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+}
+.menu-item .badge {
+  margin-left: 12px;
+}
+.menu-divider {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.menu-scroll {
+  max-height: min(60vh, 420px);
+  overflow: auto;
+}
+.look-menu .menu {
+  width: 300px;
+}
+.menu-section + .menu-section {
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+}
+.menu-head {
+  padding: 7px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.menu-choices {
+  display: flex;
+  gap: 4px;
+  padding: 0 6px 6px;
+}
+.menu-choices button {
+  flex: 1;
+  height: 30px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+.menu-choices button.on {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.menu-note {
+  padding: 0 8px 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.stage > .canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+.plan-view {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.plan-head .seg button {
+  height: 30px;
+  padding: 0 12px;
+}
+.plan-head .cut-drawings .button,
+.plan-head .cut-drawings button {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+}
+/* The drawings link, over the 2D view and in Make, looks like the app's main buttons. */
+a.primary-link {
+  background: var(--t-btn);
+  border-color: var(--t-btn);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+a.primary-link:hover {
+  background: var(--t-btn-hover);
+  border-color: var(--t-btn-hover);
+}
+.plan-sheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 0 10px 10px;
+}
+.plan-sheet img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* UX phase 4: five tabs, and suggestions drawn on the model. The side
+   panel has five tabs in one row, with Check's count of problems. Make
+   keeps the drawings, the paper and the CSV over a two-way switch. Each
+   problem in Check offers its fixes, and a rule opens to edit in place.
+   The All designs and parts page lies over the side panel. A change
+   Claude suggests is drawn on the model as a ghost, with a switch over
+   the model and its sizes on it, and its lists sit in the waiting bar.
+   Colours come from the variables at the top, so a theme can swap them. */
+.right {
+  position: relative;
+  container-type: inline-size;
+}
+.five-tabs {
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+/* A narrow side panel keeps all five tabs on their row. */
+@container (max-width: 330px) {
+  .five-tabs {
+    gap: 2px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .five-tabs button {
+    font-size: 12px;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+}
+.five-tabs button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.tab-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  background: var(--tint-warn);
+  color: var(--warn);
+}
+.tab-count.bad {
+  background: var(--tint-bad);
+  color: var(--bad);
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 2px 0 6px;
+}
+.section-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.section-head.under-part {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.make-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.make-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.make-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.make-downloads .button,
+.make-downloads button {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+}
+.issue.nothing-to-show {
+  cursor: default;
+}
+.issue-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.issue-fixes button {
+  font-size: 12px;
+}
+.rule-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: auto;
+}
+.rule-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rule-edit input,
+.rule-edit select {
+  font-size: 13px;
+  color: var(--ink);
+}
+.rule-edit .row {
+  justify-content: flex-start;
+  margin: 2px 0 0;
+}
+.rule-edit p {
+  margin: 0;
+}
+.all-page {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  animation: drawer-in 0.18s ease-out;
+}
+.all-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.all-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+/* The heading takes the focus when the page opens, so a keyboard starts there, and needs no ring of its own. */
+.all-head h2:focus-visible {
+  outline: none;
+}
+.all-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.all-jump .badge,
+.all-section h3 .badge {
+  margin-left: 6px;
+}
+.all-section + .all-section {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.all-section h3 {
+  display: flex;
+  align-items: center;
+  margin: 2px 0 6px;
+  font-size: 14px;
+}
+.ghost-switch {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: min(380px, calc(100% - 20px));
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--wc-scene-ghost);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 2px 10px var(--wc-shadow);
+  font-size: 13px;
+}
+.ghost-switch.put-away {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.ghost-tag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.ghost-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.waiting-actions button.on {
+  background: var(--on);
+  border-color: var(--on-line);
+}
+.change-lists.compact {
+  margin-top: 4px;
+}
+.change-lists.compact .change-head {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.change-lists.compact .change-head.bad-text {
+  color: var(--bad);
+}
+.change-lists ul {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+
+/* UX phase 5: Claude drives the screen you'd use. While Claude works, the
+   side panel opens the tab it's working in, a caption at the top of the
+   tab says what it did, and the control it used lights in the same pink
+   as a part Claude changed. A chip over the 3D view says the screen is
+   following, with a stop. Show me how replays a turn the same way, and
+   each step in a turn's list links to its control. The setting sits
+   beside Theme. Colours come from the variables at the top. */
+.follow-chip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 14;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--wc-overlay-line);
+  border-radius: 14px;
+  background: var(--wc-overlay);
+  color: var(--wc-overlay-ink);
+  box-shadow: 0 2px 10px var(--wc-shadow);
+  font-size: 13px;
+  white-space: nowrap;
+  animation: toast-in 0.2s ease-out;
+}
+.follow-chip button.link {
+  position: relative;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* A bigger target for the stop than the word itself. */
+.follow-chip button.link::after {
+  content: "";
+  position: absolute;
+  inset: -8px -6px;
+}
+.follow-dot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wc-scene-glow);
+  animation: follow-pulse 1.2s ease-in-out infinite;
+}
+@keyframes follow-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.follow-caption {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--wc-scene-glow) 30%, var(--panel));
+  background: color-mix(in srgb, var(--wc-scene-glow) 10%, var(--panel));
+  color: color-mix(in srgb, var(--wc-scene-glow) 70%, var(--ink));
+  font-size: 13px;
+  font-weight: 600;
+}
+.follow-words {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.follow-more {
+  flex: none;
+  font-weight: 400;
+  color: var(--muted);
+}
+/* The control Claude used, lit until the screen moves on or you touch anything. */
+[data-follow-lit] {
+  outline: 2px solid var(--wc-scene-glow);
+  outline-offset: 2px;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--wc-scene-glow) 10%, transparent);
+  transition:
+    outline-color 0.2s ease-out,
+    background-color 0.2s ease-out;
+}
+.five-tabs button[data-follow-lit],
+.target-option[data-follow-lit],
+.seg button[data-follow-lit] {
+  outline-offset: -2px;
+}
+.param[data-follow-lit] {
+  outline: none;
+  margin-left: -8px;
+  padding-left: 5px;
+  border-left: 3px solid var(--wc-scene-glow);
+  border-radius: 0 6px 6px 0;
+}
+.param[data-follow-lit] input[type="range"] {
+  accent-color: var(--wc-scene-glow);
+}
+.param[data-follow-lit] input.num,
+.param[data-follow-lit] input.expr {
+  border-color: var(--wc-scene-glow);
+}
+.follow-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.follow-switch input {
+  margin: 0;
+}
+/* A narrower window keeps the top bar on one row with the short name. */
+@media (max-width: 1000px) {
+  .follow-long {
+    display: none;
+  }
+}
+.steps .step-link {
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  white-space: normal;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.steps .step-link:hover {
+  color: var(--link);
+}
+.steps-fold .fold-how {
+  padding: 0;
+  color: var(--link);
+}
+@media (prefers-reduced-motion: reduce) {
+  .follow-dot,
+  .follow-chip {
+    animation: none;
+  }
+}
+
+/* Phone layout: the same screen, rearranged below 640 px. The model fills
+   the screen under a slim header, and the toolbar folds into four buttons
+   that ride on the bottom sheet's top edge. The sheet is the chat column:
+   its bar switches it between the chat and the five tabs, which lie over
+   it, and the waiting bar and the chat box stay on its bottom edge.
+   PhoneShell sets the sheet's heights as variables on the page. Controls
+   are at least 44 px, fields 16 px so iOS doesn't zoom, nothing scrolls
+   sideways, and pinch zoom is never blocked. Between 640 and 1000 px it's
+   the desktop layout with the four-button toolbar and the chat folded at
+   the start. Colours come from the variables at the top, so a theme can
+   swap them. */
+
+/* The four-button toolbar, centred, wherever it shows. */
+.toolbar.compact-toolbar {
+  container-type: normal;
+  justify-content: center;
+  gap: 4px;
+}
+.compact-toolbar .menu-choices.wide {
+  flex-wrap: wrap;
+}
+.compact-toolbar .menu-choices.wide button {
+  flex: 1 0 28%;
+}
+.compact-toolbar .look-menu .menu .menu-item {
+  padding-left: 8px;
+}
+
+/* A corner a tap left, while a box drawn by touch waits for its other one. */
+.box-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid var(--blue);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--t-info) 25%, transparent);
+  pointer-events: none;
+}
+
+/* A touch screen of any width keeps its fields at 16 px, so iOS doesn't zoom into them. */
+@media (pointer: coarse) {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 639.98px) {
+  :root {
+    /* The header's height, and the sheet's, which PhoneShell sets on the page as it moves. */
+    --phone-head: 52px;
+    --phone-sheet: auto;
+    --phone-sheet-live: 150px;
+    --phone-strip: 214px;
+    --phone-panels-top: 50vh;
+    --phone-panels-bottom: 120px;
+    --phone-kb: 0px;
+    --phone-top: calc(var(--phone-head) + env(safe-area-inset-top, 0px));
+    /* Lets the sheet glide to and from its height when down, where browsers allow it. */
+    interpolate-size: allow-keywords;
+  }
+  html,
+  body {
+    overflow-x: hidden;
+  }
+  .app.phone {
+    display: block;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .app.phone > .rail,
+  .app.phone > .splitter {
+    display: none;
+  }
+
+  /* Every control a finger can hit is 44 px, and every field 16 px. */
+  .app.phone button,
+  .app.phone .button,
+  .app.phone select {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .app.phone .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .app.phone input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  .app.phone select,
+  .app.phone textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .app.phone input[type="range"] {
+    height: 44px;
+    margin: 0;
+  }
+  .app.phone input[type="checkbox"],
+  .app.phone input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    margin: 0;
+  }
+  .app.phone label:has(> input[type="checkbox"]),
+  .app.phone label:has(> input[type="radio"]) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+  }
+  .app.phone button.link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 6px;
+  }
+  .app.phone summary {
+    min-height: 44px;
+    padding-block: 10px;
+    line-height: 24px;
+    box-sizing: border-box;
+  }
+  .app.phone .small {
+    font-size: 13px;
+  }
+
+  /* The slim header: the design's name and its menu, Undo and the status pill. */
+  .app.phone > .topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    height: var(--phone-top);
+    padding: env(safe-area-inset-top, 0px) 8px 0 4px;
+    gap: 6px;
+  }
+  .app.phone > .topbar > .brand,
+  .app.phone > .topbar > .spacer,
+  .app.phone .topbar .redo-button {
+    display: none;
+  }
+  .app.phone .design-group,
+  .app.phone .design-group > .menu-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .app.phone .design-trigger {
+    width: 100%;
+    max-width: none;
+    font-size: 16px;
+    justify-content: flex-start;
+    display: inline-flex;
+    align-items: center;
+  }
+  .app.phone .design-rename {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .app.phone .design-group .menu {
+    position: fixed;
+    top: calc(var(--phone-top) + 4px);
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    max-height: calc(100dvh - var(--phone-top) - 16px);
+    overflow: auto;
+  }
+  .app.phone .menu .menu-item {
+    min-height: 44px;
+    font-size: 16px;
+    padding: 0 12px 0 6px;
+  }
+  .app.phone .menu .menu-item .badge {
+    font-size: 12px;
+  }
+  /* A phone has no keyboard to press, so the menus leave out the keys. */
+  .app.phone .menu kbd {
+    display: none;
+  }
+  .app.phone .menu-choices button {
+    height: auto;
+    font-size: 15px;
+  }
+  .app.phone .menu-head {
+    font-size: 12px;
+  }
+  .app.phone .menu-extra .theme-switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 6px 0 10px;
+    font-size: 16px;
+    color: var(--ink);
+  }
+  .app.phone .menu-extra .theme-switch select {
+    font-size: 16px;
+    padding: 0 8px;
+  }
+  .app.phone .menu-extra .follow-switch {
+    display: flex;
+    min-height: 44px;
+    gap: 0;
+    padding: 0 10px;
+    font-size: 16px;
+    color: var(--ink);
+  }
+  .app.phone .menu-extra .follow-switch input {
+    margin-right: 10px;
+  }
+  /* Kept as one flex item's text, with its leading space. */
+  .app.phone .menu-extra .follow-long {
+    display: inline;
+    white-space: pre;
+  }
+  /* Over the tailnet, Passkeys reads as a menu row above Follow Claude. */
+  .app.phone .menu-extra .passkeys-button {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 10px;
+    border: 0;
+    background: none;
+    font-size: 16px;
+    color: var(--ink);
+    text-align: left;
+  }
+  .app.phone .topbar-group {
+    flex-shrink: 0;
+    gap: 6px;
+  }
+  .app.phone .topbar .status {
+    flex-shrink: 0;
+    padding: 0 10px;
+  }
+  .app.phone .topbar .notice {
+    display: none;
+  }
+  .app.phone .topbar .error-note {
+    position: fixed;
+    top: calc(var(--phone-top) + 6px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  /* The model fills the strip between the header and the sheet. */
+  .app.phone > .centre {
+    position: fixed;
+    top: var(--phone-top);
+    left: 0;
+    right: 0;
+    bottom: calc(var(--phone-strip) + var(--phone-kb));
+    z-index: 1;
+  }
+  .app.phone.full > .centre {
+    top: 0;
+    bottom: 0;
+  }
+  .app.phone.full > .left,
+  .app.phone.full > .right {
+    display: none;
+  }
+  .app.phone .centre .toast {
+    top: 8px;
+    bottom: auto;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+  }
+  .app.phone .centre > .error-note.at-view {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 0;
+    z-index: 16;
+  }
+
+  /* The four buttons ride on the sheet's top edge, and step aside over the chat or a tall sheet. */
+  .app.phone .compact-toolbar {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--phone-sheet-live) + 10px);
+    transform: translateX(-50%);
+    z-index: 25;
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    padding: 0;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: 0 3px 12px var(--wc-shadow);
+    transition: opacity 0.2s, visibility 0.2s;
+  }
+  .app.phone.full .compact-toolbar {
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  .app.phone.toolbar-away:not(.full) .compact-toolbar {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .app.phone .compact-toolbar > button,
+  .app.phone .compact-toolbar > .menu-wrap > .menu-button {
+    height: 44px;
+    min-width: 56px;
+    padding: 0 13px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-size: 15px;
+    justify-content: center;
+  }
+  .app.phone .compact-toolbar > * + * {
+    border-left: 1px solid var(--line);
+  }
+  .app.phone .compact-toolbar > :first-child,
+  .app.phone .compact-toolbar > :first-child > .menu-button {
+    border-radius: 11px 0 0 11px;
+  }
+  .app.phone .compact-toolbar > :last-child,
+  .app.phone .compact-toolbar > :last-child > .menu-button {
+    border-radius: 0 11px 11px 0;
+  }
+  .app.phone .compact-toolbar > .menu-wrap > .menu-button.open,
+  .app.phone .compact-toolbar > .tool-menu > .menu-button {
+    background: var(--on);
+  }
+  /* Its menus open upward, across the screen, and scroll when the model's strip is short. */
+  .app.phone .compact-toolbar .menu-wrap {
+    position: static;
+  }
+  .app.phone .compact-toolbar .menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    right: auto;
+    width: 240px;
+    max-width: none;
+    margin-left: -120px;
+    max-height: calc(100dvh - var(--phone-sheet-live) - var(--phone-top) - 74px);
+    overflow: auto;
+  }
+  .app.phone .compact-toolbar .look-menu .menu {
+    width: min(366px, calc(100vw - 24px));
+    margin-left: calc(min(366px, calc(100vw - 24px)) / -2);
+  }
+
+  /* The sheet: the chat column, fixed to the bottom, with the bar on top. */
+  .app.phone > .left {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--phone-kb);
+    z-index: 30;
+    height: var(--phone-sheet);
+    max-height: calc(100dvh - var(--phone-top) - var(--phone-kb));
+    border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -6px 24px var(--wc-shadow);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .phone-dragging .app.phone > .left {
+    transition: none;
+  }
+  .app.phone > .left > .chat {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .app.phone.sheet-peek .chat-log {
+    display: none;
+  }
+  /* Pulled up from down, the chat shows as the sheet grows. */
+  .phone-dragging .app.phone.sheet-peek .chat-log {
+    display: block;
+  }
+  .app.phone.sheet-panels .chat-log {
+    visibility: hidden;
+  }
+  .sheet-bar {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    height: 56px;
+    padding: 10px 12px 0;
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+  }
+  .sheet-grab {
+    position: absolute;
+    left: 50%;
+    top: 5px;
+    width: 38px;
+    height: 4px;
+    margin-left: -19px;
+    border-radius: 2px;
+    background: var(--on-line);
+  }
+  .sheet-switch button {
+    padding: 0 14px;
+    font-size: 15px;
+  }
+  .sheet-toggle {
+    margin-left: auto;
+    width: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sheet-toggle svg {
+    transition: transform 0.25s;
+  }
+  .sheet-toggle[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+  }
+  /* The chat box's model picker sits on the sheet's bar, beside the arrow. */
+  .app.phone > .left .model-pick {
+    position: absolute;
+    top: 10px;
+    right: 62px;
+    z-index: 2;
+    max-width: min(140px, calc(100vw - 260px));
+    padding: 0 6px;
+  }
+
+  /* The chat: bigger words for a phone, and each turn's steps a finger's height. */
+  .app.phone .chat-log {
+    padding: 0 14px 10px;
+    font-size: 15px;
+  }
+  .app.phone .preview-jump {
+    padding-top: 8px;
+  }
+  .app.phone .steps-fold,
+  .app.phone .change-line {
+    font-size: 13.5px;
+  }
+  .app.phone .chat-log .card button,
+  .app.phone .starter-list button {
+    min-height: 44px;
+  }
+  .app.phone .preview-jump select {
+    min-height: 44px;
+  }
+
+  /* The waiting bar: on the sheet's edge whatever it shows, never taller than half the screen. */
+  .app.phone .waiting-bar {
+    max-height: 50dvh;
+    margin: 0 10px 6px;
+    border: 1px solid var(--accent);
+    border-left-width: 4px;
+    border-radius: 10px;
+    padding: 6px 12px 10px;
+  }
+  .app.phone .waiting-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .app.phone .waiting-summary {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .app.phone .waiting-actions {
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .app.phone .waiting-actions button {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+    font-size: 15px;
+  }
+  /* A question's options stack, and the bar scrolls inside once it's half the screen. */
+  .app.phone .wait-question .waiting-actions,
+  .app.phone .wait-part .waiting-actions {
+    flex-direction: column;
+  }
+  .app.phone .wait-question .waiting-actions button,
+  .app.phone .wait-part .waiting-actions button {
+    flex: none;
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  /* The chat box: Attach, the words and Send in one row, with anything you point at above. */
+  .app.phone .composer {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 6px 8px;
+    padding: 6px 12px 8px;
+  }
+  .app.phone .composer > * {
+    grid-column: 1 / -1;
+  }
+  .app.phone .composer-row,
+  .app.phone .composer-row > span {
+    display: contents;
+  }
+  .app.phone .composer-row > span > button {
+    grid-column: 1;
+    order: 1;
+    padding: 0 12px;
+    font-size: 15px;
+  }
+  .app.phone .composer > textarea {
+    grid-column: 2;
+    order: 2;
+    max-height: 132px;
+    padding: 10px;
+    line-height: 22px;
+    resize: none;
+    field-sizing: content;
+  }
+  /* Where the box can't grow with its words, it stays one line and scrolls. */
+  @supports not (field-sizing: content) {
+    .app.phone .composer > textarea {
+      height: 44px;
+    }
+  }
+  .app.phone .composer-row > button {
+    grid-column: 3;
+    order: 3;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+  .app.phone .composer .stop-claude {
+    color: var(--bad);
+    border-color: var(--bad);
+    padding: 0 12px;
+  }
+  .app.phone .pointing-line {
+    font-size: 14px;
+  }
+
+  /* The five tabs lie over the sheet, between its bar and its waiting bar. */
+  .app.phone > .right {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--phone-panels-top);
+    bottom: var(--phone-panels-bottom);
+    z-index: 31;
+    border-top: 1px solid var(--line);
+  }
+  .app.phone .five-tabs {
+    gap: 0;
+    padding: 6px 12px;
+  }
+  .app.phone .five-tabs button {
+    min-width: 0;
+    padding: 0 2px;
+    font-size: 15px;
+    border-radius: 0;
+    margin-left: -1px;
+  }
+  .app.phone .five-tabs button:first-child {
+    margin-left: 0;
+    border-radius: 8px 0 0 8px;
+  }
+  .app.phone .five-tabs button:last-child {
+    border-radius: 0 8px 8px 0;
+  }
+  .app.phone .five-tabs button.on {
+    position: relative;
+    z-index: 1;
+    font-weight: 600;
+  }
+  .app.phone .panel-body {
+    padding: 8px 14px 16px;
+    overflow-x: hidden;
+    font-size: 15px;
+  }
+  .app.phone .param-id {
+    display: none;
+  }
+  .app.phone .param-row {
+    gap: 10px;
+  }
+  .app.phone .param-row input.num {
+    width: 84px;
+  }
+  .app.phone .axis-fields input {
+    width: 100%;
+    min-width: 0;
+  }
+  .app.phone .seg button {
+    padding: 0 12px;
+  }
+  .app.phone .row {
+    flex-wrap: wrap;
+  }
+
+  /* Make: the drawings first and biggest, then the paper and the CSV, then the switch. */
+  .app.phone .make-head {
+    align-items: stretch;
+    padding: 10px 14px 8px;
+  }
+  .app.phone .make-downloads {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+  .app.phone .make-downloads .cut-drawings {
+    display: contents;
+  }
+  .app.phone .make-downloads .cut-drawings > :first-child {
+    grid-column: 1 / -1;
+    height: 56px;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .app.phone .make-downloads .button,
+  .app.phone .make-downloads button {
+    height: auto;
+    font-size: 15px;
+  }
+  .app.phone .make-head .seg {
+    display: flex;
+  }
+  .app.phone .make-head .seg button {
+    flex: 1;
+  }
+  /* The cut list in two lines a row, so it never scrolls sideways. */
+  .app.phone table.cut thead {
+    display: none;
+  }
+  .app.phone table.cut,
+  .app.phone table.cut tbody {
+    display: block;
+    font-size: 15px;
+  }
+  .app.phone table.cut tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    min-height: 56px;
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  .app.phone table.cut td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .app.phone table.cut td:nth-child(1) {
+    flex: 0 0 24px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .app.phone table.cut td:nth-child(2) {
+    flex: 1 0 calc(100% - 92px);
+    font-weight: 600;
+  }
+  .app.phone table.cut td:nth-child(3) {
+    flex: 0 0 62px;
+    text-align: right;
+    font-weight: 600;
+  }
+  .app.phone table.cut td:nth-child(3)::before {
+    content: "×";
+  }
+  .app.phone table.cut td:nth-child(n + 4) {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: pre;
+  }
+  .app.phone table.cut td:nth-child(4) {
+    margin-left: 24px;
+  }
+  .app.phone table.cut td:nth-child(4)::after,
+  .app.phone table.cut td:nth-child(5)::after {
+    content: " × ";
+  }
+  .app.phone table.cut td:nth-child(6)::after {
+    content: " mm · ";
+  }
+  .app.phone table.cut td:nth-child(7) {
+    white-space: normal;
+  }
+
+  /* Check, History, Finish and the All designs and parts page, at a finger's size. */
+  .app.phone .issue-fixes button {
+    font-size: 14px;
+  }
+  .app.phone .face-chip {
+    padding: 0 12px;
+    font-size: 14px;
+  }
+  .app.phone .stock-fields label.lengths {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .app.phone .star {
+    padding: 0 10px;
+  }
+  .app.phone .all-head,
+  .app.phone .all-jump {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Over the model: Claude's suggested change, the 2D views and the photo bar keep to the strip. */
+  .app.phone .ghost-switch {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+    padding: 4px 6px 4px 10px;
+  }
+  .app.phone .ghost-tag {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .app.phone .ghost-tag strong {
+    display: none;
+  }
+  .app.phone .ghost-controls {
+    gap: 2px;
+  }
+  .app.phone .ghost-switch .seg button {
+    padding: 0 9px;
+    font-size: 14px;
+  }
+  .app.phone .ghost-words {
+    flex-basis: 100%;
+  }
+  .app.phone .plan-head {
+    padding: 6px 8px;
+  }
+  .app.phone .photo-bar input[type="range"] {
+    width: 96px;
+  }
+  /* A worked example or an older suggestion fills the screen under the header. */
+  .app.phone .drawer,
+  .app.phone .drawer.paired,
+  .app.phone .drawer.paired.slot-example {
+    position: fixed;
+    top: var(--phone-top);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    width: auto;
+  }
+
+  /* After an undo, a note over the model holds Redo. */
+  .undone-note {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: calc(var(--phone-top) + 8px);
+    z-index: 55;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px 0 14px;
+    border: 1px solid var(--wc-overlay-line);
+    border-radius: 10px;
+    background: var(--wc-overlay);
+    color: var(--wc-overlay-ink);
+    font-size: 14px;
+    box-shadow: 0 4px 14px var(--wc-shadow);
+  }
+  .undone-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .undone-note button.link {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .undone-note button.undone-close {
+    font-size: 20px;
+    justify-content: center;
+    text-decoration: none;
+  }
+
+  .app.phone .offline-bar {
+    position: fixed;
+    top: var(--phone-top);
+    left: 0;
+    right: 0;
+    z-index: 60;
+  }
+}
+
+@media (max-width: 639.98px) and (prefers-reduced-motion: reduce) {
+  .app.phone > .left,
+  .app.phone .compact-toolbar,
+  .sheet-toggle svg {
+    transition: none;
+  }
+}
+
+/* The owner lock: the lock screen a tailnet browser sees until it signs in, and the Passkeys section once it has. Colours come from the variables above only. */
+.lock-wait {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.lock-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+.lock-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+}
+.lock-brand {
+  margin: 0 0 14px;
+}
+.lock-card h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.lock-lead {
+  margin: 6px 0 18px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.lock-form {
+  display: grid;
+  gap: 14px;
+}
+.lock-field {
+  display: grid;
+  gap: 4px;
+}
+.lock-field span {
+  font-weight: 600;
+}
+.lock-field input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-color: var(--line);
+}
+.lock-field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+.lock-field small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.lock-submit {
+  width: 100%;
+  padding: 8px 12px;
+}
+.lock-link {
+  display: block;
+  margin: 12px auto 0;
+  padding: 2px 4px;
+}
+.lock-hidden {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+}
+.lock-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.lock-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.lock-foot {
+  margin: 18px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Phones get 16px fields, so iOS doesn't zoom in on a tap. */
+@media (pointer: coarse) {
+  .lock-field input {
+    font-size: 16px;
+  }
+}
+.passkeys {
+  position: fixed;
+  top: 52px;
+  left: 12px;
+  z-index: 30;
+  width: min(400px, calc(100vw - 24px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 24px var(--line);
+}
+.passkeys-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.passkeys-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.passkeys-lead {
+  margin: 6px 0 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.passkeys-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.passkeys-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.passkeys-list li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.passkeys-list strong {
+  overflow-wrap: anywhere;
+}
+.passkeys-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.passkeys-actions button {
+  white-space: normal;
+}
+.passkeys-note {
+  margin: 10px 0 0;
+}
+.passkeys-foot {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.lock-field small code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

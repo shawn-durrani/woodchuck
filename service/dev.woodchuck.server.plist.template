@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent that keeps Woodchuck running. This is a TEMPLATE:
+  service/install-service.sh fills in {{APP_DIR}}, {{HOME}} and {{PATH}}
+  with this computer's real values and writes the result to
+  ~/Library/LaunchAgents/. The template stays placeholder-only, so no
+  personal path is ever committed.
+
+  RunAtLoad and KeepAlive make launchd the only owner of the server: it
+  starts at login, starts again if the process exits for any reason, and
+  comes back after a reboot. ThrottleInterval holds restarts to one every
+  10 seconds, so a server that fails as it starts can't spin.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.woodchuck.server</string>
+
+  <key>WorkingDirectory</key>
+  <string>{{APP_DIR}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{APP_DIR}}/start.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{APP_DIR}}/data/service.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{APP_DIR}}/data/service.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+</dict>
+</plist>
