@@ -28,6 +28,8 @@ import {
   SPECIES_IDS,
   summarisePart,
   verifyPlan,
+  checkKeySizes,
+  fmt,
   VIEW_NAMES,
   type CheckReport,
   type DeriveResult,
@@ -35,6 +37,7 @@ import {
   type Design,
   type Op,
   type JointType,
+  type KeySizeCheck,
   type LibraryPart,
   type Plan,
   type ViewName,
@@ -514,7 +517,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "submit_plan",
-    description: "Pin the plan beside the draft you've just built, then end your turn and wait. The app shows it with drawings of the model. The woodworker says it looks right or asks for changes, and their reply arrives as this tool's result. Give each parts line its own tag, and put that tag on exactly the parts the line counts; verify_against_plan counts parts by tag.",
+    description: "Pin the plan beside the draft you've just built, then end your turn and wait. The app shows it with drawings of the model. The woodworker says it looks right or asks for changes, and their reply arrives as this tool's result. Give each parts line its own tag, and put that tag on exactly the parts the line counts; verify_against_plan counts parts by tag. Each key size is worked out on the model first, and the card shows the model's number. If one doesn't match its expected_mm or can't be worked out, the plan is refused and nothing is pinned.",
     input_schema: obj(
       {
         summary: { type: "string", description: "One or two sentences on what you've drafted" },
@@ -532,10 +535,10 @@ export const TOOLS: Tool[] = [
           items: {
             type: "object",
             properties: {
-              label: { type: "string" },
+              label: { type: "string", description: "What the expression measures, such as the clear gap between two shelves or the pitch from one to the next" },
               expr: { type: "string", description: "Expression that measures it in the model" },
-              expected_mm: { type: "number" },
-              tolerance_mm: { type: "number" },
+              expected_mm: { type: "number", description: "The size you mean. The model must give it, within tolerance_mm" },
+              tolerance_mm: { type: "number", description: "Default 0.5" },
             },
             required: ["label", "expr", "expected_mm"],
             additionalProperties: false,
@@ -954,11 +957,16 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         };
       }
       case "submit_plan": {
+        // Every key size is worked out on the model first, so the woodworker never approves a number the model doesn't give.
+        if (input.key_dims !== undefined && !Array.isArray(input.key_dims)) throw new QueryError("key_dims must be a list of { label, expr, expected_mm }");
+        const dims = (input.key_dims as Plan["key_dims"] | undefined) ?? [];
+        const sizes = checkKeySizes(dims, d);
+        if (sizes.some((k) => !k.ok)) return keySizeRefusal(sizes);
         const plan: Plan = {
           status: "proposed",
           summary: String(input.summary ?? ""),
           parts: (input.parts as Plan["parts"]) ?? [],
-          key_dims: (input.key_dims as Plan["key_dims"]) ?? [],
+          key_dims: dims.map((dim, i) => ({ ...dim, model_mm: Math.round(sizes[i]!.model_mm! * 100) / 100 })),
           joints: (input.joints as string[]) ?? [],
           assumptions: (input.assumptions as string[]) ?? [],
         };
@@ -1018,4 +1026,27 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
     }
     throw e;
   }
+}
+
+/**
+ * submit_plan's refusal when a key size fails: each one with its expression,
+ * what the model gives and what the plan expects, or why it can't be worked
+ * out. Nothing is pinned, and Claude fixes the size, the label or the model.
+ */
+function keySizeRefusal(sizes: KeySizeCheck[]): ToolOutcome {
+  const wrong = sizes.filter((k) => !k.ok);
+  const count = `${wrong.length} of ${sizes.length} key size${sizes.length === 1 ? "" : "s"} ${wrong.length === 1 ? "doesn't" : "don't"} match the model`;
+  const line = (k: KeySizeCheck) =>
+    k.error
+      ? `- ${k.label}: ${k.error.replace(/\.$/, "")}.`
+      : `- ${k.label}: ${k.expr} gives ${fmt(k.model_mm!)} mm on the model (${k.working}), but expected_mm is ${fmt(k.expected_mm)} (± ${fmt(k.tolerance_mm)}).`;
+  return {
+    content: [
+      `The plan wasn't pinned. ${count}:`,
+      ...wrong.map(line),
+      "Fix expected_mm, the label or the model for each one, so every label says what its expression measures, such as a clear gap or a pitch. Then call submit_plan again with the whole plan.",
+    ].join("\n"),
+    isError: true,
+    chatLine: `${count}: ${wrong.map((k) => k.label).join(", ")}. The plan wasn't pinned`,
+  };
 }

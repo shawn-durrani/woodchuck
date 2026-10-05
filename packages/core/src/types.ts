@@ -293,6 +293,8 @@ export interface PlanDim {
   expr: string;
   expected_mm: number;
   tolerance_mm?: number;
+  /** What the model gave when the plan was pinned, which the plan's card shows. */
+  model_mm?: number;
 }
 
 export interface Plan {

@@ -19,7 +19,7 @@ import { RichText } from "../richText";
 import { partNamer, pinsLine, selectionLine } from "../names";
 import { changeLine, isUndone } from "../signals";
 import { duringNote, foldLine, foldTurns, joinYourEdits, latestStep, notYetRead, turnTime, type Folded, type Row } from "../fold";
-import { boxPlaceholder, boxReply, buttonReply, waitingMoments, type Answer, type Reply } from "../waiting";
+import { boxPlaceholder, boxReply, buttonReply, keySizeLine, waitingMoments, type Answer, type Reply } from "../waiting";
 import { EMPTY_CHAT, emptyChat, FIX_LP_CHECK, STARTERS, starterFill } from "../starters";
 import { TIPS } from "../toolbar";
 import { describe, lookupOf, placeOf as placeOfLine, type Place, type ToolLine } from "../follow";
@@ -76,9 +76,7 @@ function PlanCard({ item, live }: { item: ChatItem & { kind: "plan" }; live: boo
           <div className="card-sub">Key sizes</div>
           <ul>
             {p.key_dims.map((d) => (
-              <li key={d.label}>
-                {d.label}: {d.expected_mm} mm
-              </li>
+              <li key={d.label}>{keySizeLine(d)}</li>
             ))}
           </ul>
         </>

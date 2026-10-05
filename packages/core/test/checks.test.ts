@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOps,
+  checkKeySizes,
   cutLayout,
   cutList,
   derive,
@@ -194,6 +195,27 @@ describe("queries", () => {
     ]);
     const checks = verifyPlan(d, derive(d));
     expect(checks.map((c) => c.ok)).toEqual([false, true]);
+    expect(checks[1]!.detail).toBe("planned 482 ± 0.5, model 482 (right.left (500) - left.right (18))");
+  });
+
+  it("works out each key size on the model, with what it gives or why it can't", () => {
+    const checks = checkKeySizes(
+      [
+        { label: "Shelf span", expr: "right.left - left.right", expected_mm: 482.4 },
+        { label: "Shelf height", expr: "shelf.bottom", expected_mm: 310, tolerance_mm: 10 },
+        { label: "Shelf thickness", expr: "shelf.top - shelf.bottom", expected_mm: 19 },
+        { label: "Top", expr: "top.bottom", expected_mm: 600 },
+        { label: "Shelf fits", expr: "shelf.top < 600", expected_mm: 1 },
+      ],
+      derive(build()),
+    );
+    expect(checks).toEqual([
+      { label: "Shelf span", expr: "right.left - left.right", expected_mm: 482.4, tolerance_mm: 0.5, ok: true, model_mm: 482, working: "right.left (500) - left.right (18)" },
+      { label: "Shelf height", expr: "shelf.bottom", expected_mm: 310, tolerance_mm: 10, ok: true, model_mm: 300, working: "shelf.bottom (300)" },
+      { label: "Shelf thickness", expr: "shelf.top - shelf.bottom", expected_mm: 19, tolerance_mm: 0.5, ok: false, model_mm: 18, working: "shelf.top (318) - shelf.bottom (300)" },
+      { label: "Top", expr: "top.bottom", expected_mm: 600, tolerance_mm: 0.5, ok: false, error: 'can\'t work out top.bottom: Unknown part "top". Parts: left, right, shelf' },
+      { label: "Shelf fits", expr: "shelf.top < 600", expected_mm: 1, tolerance_mm: 0.5, ok: false, error: "shelf.top < 600 gives true/false, not a size" },
+    ]);
   });
 
   it("draws every view with part labels", () => {
