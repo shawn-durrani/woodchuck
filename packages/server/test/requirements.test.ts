@@ -51,6 +51,10 @@ describe("Claude's instructions on requirements", () => {
     expect(setRule.description).toContain('"drawer_side_r.left - drawer_side_l.right >= lp_clear", and standing up in it, "top.bottom - drawer_bottom.top >= lp_clear"');
   });
 
+  it("ask whether a count on a piece with sections means in total or in each", () => {
+    expect(SYSTEM_PROMPT).toContain('ask whether it\'s two in total or two in each before changing anything.');
+  });
+
   it("hold an overall size to the whole piece, back, feet and top included", () => {
     expect(SYSTEM_PROMPT).toContain(
       "A rule or a plan's key size can also read the whole piece: overall.width, overall.height and overall.depth are the box around every part, and overall.top and the other faces are its edges.",
