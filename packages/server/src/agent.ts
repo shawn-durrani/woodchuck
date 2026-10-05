@@ -15,15 +15,20 @@
 // so a deploy or a workshop change would otherwise refuse an open chat.
 // Every request asks the API to drop the thinking that no longer fits.
 // The whole chat stays on disk, and recall_chat searches it.
+//
+// Each turn picks how hard Claude thinks (route.ts). The request's own
+// level never changes, since that would restart the cache, so a turn sets
+// its level with an effort message in the chat, only when the level changes.
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
 import { systemPrompt } from "./prompt.js";
 import type { ChatItem, Job, Pending, Pin, Project, Store } from "./store.js";
+import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
 import { searchCountry } from "./workshop.js";
 
-/** Models the chat can use. All take the same request: adaptive thinking, effort and fallbacks. */
+/** Models the chat can use. All take the same request: adaptive thinking, effort, effort messages and fallbacks. */
 export const MODELS = [
   { id: "claude-sonnet-5-5", label: "Sonnet 5.5", note: "the default, the quickest and the cheapest" },
   { id: "claude-opus-5-5", label: "Opus 5.5", note: "slower, at about twice the price" },
@@ -37,10 +42,45 @@ export function isModel(id: unknown): id is ModelId {
 
 export const MODEL: ModelId = isModel(process.env.WOODCHUCK_MODEL) ? process.env.WOODCHUCK_MODEL : "claude-sonnet-5-5";
 
-const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type Effort = (typeof EFFORTS)[number];
-/** How hard Claude thinks before it answers. */
-export const EFFORT: Effort = (EFFORTS as readonly string[]).includes(process.env.WOODCHUCK_EFFORT ?? "") ? (process.env.WOODCHUCK_EFFORT as Effort) : "high";
+export type { Effort } from "./route.js";
+/**
+ * How hard Claude thinks before it answers. It's the request's own level and
+ * never changes mid-chat, since that would restart the cache. A turn that
+ * needs less thought lowers it with an effort message instead.
+ */
+export const EFFORT: Effort = isEffort(process.env.WOODCHUCK_EFFORT) ? process.env.WOODCHUCK_EFFORT : "high";
+
+/** The beta that lets a message in the chat change the effort from there on. */
+export const EFFORT_MESSAGE_BETA = "mid-conversation-output-config-2026-07-01";
+
+/**
+ * A message that changes how hard Claude thinks from the next user turn on,
+ * until another one changes it again. It carries no words, so it can sit
+ * anywhere in the chat, and it leaves the cache and earlier thinking intact.
+ */
+export function effortMessage(effort: Effort): Anthropic.Beta.BetaMessageParam {
+  return { role: "system", content: [], output_config: { effort } };
+}
+
+/** The level an effort message sets, or null for any other message. */
+export function effortOf(message: Anthropic.Beta.BetaMessageParam): Effort | null {
+  const effort = message.role === "system" ? message.output_config?.effort : null;
+  return isEffort(effort) ? effort : null;
+}
+
+/**
+ * The level Claude's next reply is written at: the latest effort message the
+ * API is sent, or the request's own level without one. A summary drops the
+ * effort messages before it, so only the summary onwards counts.
+ */
+export function effortInForce(messages: Anthropic.Beta.BetaMessageParam[], requestLevel: Effort = EFFORT): Effort {
+  const sent = sendable(messages);
+  for (let i = sent.length - 1; i >= 0; i--) {
+    const effort = effortOf(sent[i]!);
+    if (effort) return effort;
+  }
+  return requestLevel;
+}
 
 /**
  * The chat size, in tokens, at which the API summarises the older turns.
@@ -313,6 +353,19 @@ export class Turn {
   private steps = 0;
   /** Whether this turn has logged thinking the API left out. */
   private droppedThinking = false;
+  /** Whether this turn picks its own level, read once a turn. */
+  private routing = false;
+  /** The level this turn wants Claude at, which only rises during the turn. */
+  private effort: Effort = EFFORT;
+  /** The level each request this turn was written at, in order. */
+  private readonly efforts: Effort[] = [];
+  /** Which rule picked the turn's starting level. */
+  private route: Route | null = null;
+
+  /** The level each request this turn was written at, one per request, in order. */
+  roundEfforts(): readonly Effort[] {
+    return this.efforts;
+  }
 
   constructor(
     private store: Store,
@@ -344,6 +397,21 @@ export class Turn {
     }
     const job: Job = { id: queued[0] ?? project.chat.at(-1)!.id, after: project.chat.at(-1)!.id, started_at: now() };
     project.job = job;
+
+    // How hard Claude thinks this turn, read from the message and what was waiting on it.
+    this.routing = effortRouting();
+    if (this.routing) {
+      this.route = routeTurn(
+        {
+          text: input.text,
+          attachments: input.images?.length ?? 0,
+          waiting: project.pending?.waiting.map((w) => w.kind) ?? [],
+          emptyDesign: project.design.parts.length === 0,
+        },
+        EFFORT,
+      );
+      this.effort = this.route.effort;
+    }
 
     // A reply to a question, plan, part or preview answers the tool calls that were waiting.
     const content: Anthropic.Beta.BetaContentBlockParam[] = [];
@@ -380,7 +448,7 @@ export class Turn {
     // Pictures go before the words that refer to them.
     content.push(...pictures(input));
     content.push({ type: "text", text: `${input.text}${pointedAt(input)}${late}${notes}${news}` });
-    project.messages.push({ role: "user", content });
+    this.say(project, content);
     project.save();
 
     project.beginChange("claude", input.text.length > 60 ? `${input.text.slice(0, 57)}...` : input.text);
@@ -408,6 +476,8 @@ export class Turn {
     const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
+        const sent = sendable(project.messages);
+        this.efforts.push(effortInForce(project.messages));
         const message = await this.ask(project, {
           // Switching models mid-conversation is fine: other models skip the
           // earlier thinking blocks, and the history stays append-only.
@@ -418,12 +488,14 @@ export class Turn {
           // caches the history.
           system,
           tools,
-          messages: sendable(project.messages),
+          messages: sent,
           // Each thinking block is tied to the instructions, tools and chat
           // it came from. A changed prompt, tool list or workshop would
           // otherwise refuse an open chat, so the API drops the thinking
           // that no longer fits instead, on every request that carries it.
           thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
+          // The request's own level stays the same all chat long, so the
+          // cache holds. Effort messages in the chat lower or raise it.
           output_config: { effort: EFFORT },
           cache_control: { type: "ephemeral" },
           ...(compactTrigger
@@ -435,7 +507,14 @@ export class Turn {
             : {}),
           // If a safety check declines the request, the API retries it on
           // a fallback model instead of stopping.
-          betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01", ...(compactTrigger ? ["compact-2026-01-12"] : [])],
+          betas: [
+            "server-side-fallback-2026-07-01",
+            "thinking-binding-controls-2026-08-01",
+            ...(compactTrigger ? ["compact-2026-01-12"] : []),
+            // Sent whenever the chat holds an effort message, which stays
+            // true after routing is turned off.
+            ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
+          ],
           fallbacks: "default",
         } as Anthropic.Beta.MessageCreateParamsStreaming);
         if (!this.droppedThinking && droppedStaleThinking(message)) {
@@ -586,8 +665,12 @@ export class Turn {
           project.save();
           break;
         }
+        // A call that needs judgement puts Claude back at the full level for the rest of the turn.
+        if (this.routing && needsJudgement([...calls.map((c) => c.name), ...message.content.flatMap((b) => (b.type === "server_tool_use" ? [b.name] : []))])) {
+          this.effort = atLeast(this.effort, EFFORT);
+        }
         // Tool results come first, then anything said or changed while Claude worked.
-        project.messages.push({ role: "user", content: [...results, ...this.takeIn(project)] });
+        this.say(project, [...results, ...this.takeIn(project)]);
         project.save();
       }
       if (this.stopped) this.halt(project, job);
@@ -608,13 +691,30 @@ export class Turn {
     } finally {
       this.stream = null;
       job.ended_at = now();
-      const usageItem: ChatItem = { id: nextId("n"), kind: "usage", ...usage, at: now() };
+      const usageItem: ChatItem = {
+        id: nextId("n"),
+        kind: "usage",
+        ...usage,
+        efforts: [...this.efforts],
+        ...(this.route ? { route: this.route.reason } : {}),
+        at: now(),
+      };
       project.addChat(usageItem);
       this.events.chat(usageItem);
       project.endChange();
       project.save();
       this.events.changed();
     }
+  }
+
+  /**
+   * Adds a user message to the chat. When the turn wants a level other than
+   * the one in force, an effort message goes in just before it, so Claude's
+   * reply to it is written at the new level. Nothing earlier changes.
+   */
+  private say(project: Project, content: Anthropic.Beta.BetaContentBlockParam[]) {
+    if (effortInForce(project.messages) !== this.effort) project.messages.push(effortMessage(this.effort));
+    project.messages.push({ role: "user", content });
   }
 
   /**
@@ -626,6 +726,11 @@ export class Turn {
     const out: Anthropic.Beta.BetaContentBlockParam[] = [];
     const queued = project.queued.splice(0);
     for (const { input } of queued) {
+      // A message mid-turn can raise the level, never lower it.
+      if (this.routing) {
+        const route = routeTurn({ text: input.text, attachments: input.images?.length ?? 0, waiting: [], emptyDesign: project.design.parts.length === 0 }, EFFORT);
+        this.effort = atLeast(this.effort, route.effort);
+      }
       out.push(...pictures(input));
       out.push({
         type: "text",
