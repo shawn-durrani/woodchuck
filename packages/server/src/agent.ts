@@ -16,7 +16,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
 import { systemPrompt } from "./prompt.js";
-import type { ChatItem, Job, Pin, Project, Store } from "./store.js";
+import type { ChatItem, Job, Pending, Pin, Project, Store } from "./store.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
 import { searchCountry } from "./workshop.js";
 
@@ -252,6 +252,29 @@ export function followUp(project: Project): TurnInput | null {
   };
 }
 
+/** The tools that end the turn until the woodworker replies, and what each waits for. */
+const WAITING_TOOLS: Record<string, Pending["waiting"][number]["kind"]> = {
+  ask_user: "question",
+  submit_plan: "plan",
+  propose_library_part: "part",
+  preview_change: "preview",
+};
+
+/**
+ * Tool results in the order Claude made the calls, in its latest reply.
+ * Results held from a reply that waited on the woodworker are joined by the
+ * answers to its waiting calls, which can sit anywhere among the others.
+ */
+function inCallOrder(messages: Anthropic.Beta.BetaMessageParam[], results: Anthropic.Beta.BetaToolResultBlockParam[]) {
+  const last = messages.findLast((m) => m.role === "assistant");
+  const ids = Array.isArray(last?.content) ? last.content.flatMap((b) => (b.type === "tool_use" ? [b.id] : [])) : [];
+  const at = (r: Anthropic.Beta.BetaToolResultBlockParam) => {
+    const i = ids.indexOf(r.tool_use_id);
+    return i < 0 ? ids.length : i;
+  };
+  return [...results].sort((a, b) => at(a) - at(b));
+}
+
 function toolSummary(name: string, input: Record<string, unknown>): string {
   const id = input.id ?? input.name ?? input.target ?? "";
   switch (name) {
@@ -312,17 +335,17 @@ export class Turn {
     // A message sent while Claude worked can be what answers its plan or question, so both cards and Claude are told.
     let answering = "";
     if (project.pending) {
-      content.push(...project.pending.held);
-      for (const w of project.pending.waiting) {
-        content.push({ type: "tool_result", tool_use_id: w.tool_use_id, content: input.text });
-      }
+      const answers = project.pending.waiting.map((w): Anthropic.Beta.BetaToolResultBlockParam => ({ type: "tool_result", tool_use_id: w.tool_use_id, content: input.text }));
+      content.push(...inCallOrder(project.messages, [...project.pending.held, ...answers]));
+      // Only what's waiting is answered. A reply cut off mid-tool call waits
+      // on nothing, so its next message leaves every card as it was.
+      const asked = project.pending.waiting.filter((w) => w.kind === "plan" || w.kind === "question").map((w) => w.kind);
       for (const item of project.chat) {
-        if (item.kind === "question" && item.answered === undefined) {
+        if (asked.includes("question") && item.kind === "question" && item.answered === undefined) {
           item.answered = input.text;
           if (queued.length) item.answered_by = queued[0]!;
         }
       }
-      const asked = project.pending.waiting.filter((w) => w.kind === "plan" || w.kind === "question").map((w) => w.kind);
       if (queued.length && asked.length) {
         const plan = asked.includes("plan") ? project.chat.findLast((c) => c.kind === "plan") : undefined;
         if (plan?.kind === "plan") {
@@ -420,7 +443,18 @@ export class Turn {
         }
         const calls = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
         if (message.stop_reason === "max_tokens" && calls.length) {
-          this.fail(project, job, "Claude's reply was cut off mid-tool call, so that call didn't run. Ask it to carry on.");
+          // The last call may be half written, so none of them run. Each still
+          // needs a result, or the next request is refused, so the results
+          // wait to go in with the woodworker's next message.
+          const held = calls.map((c): Anthropic.Beta.BetaToolResultBlockParam => ({
+            type: "tool_result",
+            tool_use_id: c.id,
+            content: "Not run: your reply was cut off before its tool calls were complete.",
+            is_error: true,
+          }));
+          project.pending = { held, waiting: [] };
+          project.save();
+          this.fail(project, job, "Claude's reply was cut off mid-tool call, so its tool calls didn't run. Ask it to carry on.");
           break;
         }
         if (message.stop_reason === "pause_turn") continue;
@@ -444,14 +478,24 @@ export class Turn {
           project.addChat(item);
           this.events.chat(item);
         }
+        // A reply can carry many calls. They run in order, so a call can use
+        // what an earlier one added, and a failed call doesn't stop the rest.
+        // Calls after a waiting tool still run, and the turn waits once the
+        // reply is done. Only one of each kind of wait can be open, since the
+        // woodworker's one reply answers it.
         for (const call of calls) {
           const input = (call.input ?? {}) as Record<string, unknown>;
           // Every call must get a result, or the next request is refused.
           let out: ReturnType<typeof runTool>;
-          try {
-            out = runTool(call.name, input, ctx);
-          } catch (e) {
-            out = { content: `The tool failed: ${(e as Error).message}`, isError: true };
+          const waits = WAITING_TOOLS[call.name];
+          if (waits && waiting.some((w) => w.kind === waits)) {
+            out = { content: `Not run: this reply already calls ${call.name}, and the woodworker answers one at a time. Call it again after they reply.`, isError: true };
+          } else {
+            try {
+              out = runTool(call.name, input, ctx);
+            } catch (e) {
+              out = { content: `The tool failed: ${(e as Error).message}`, isError: true };
+            }
           }
           let image: string | undefined;
           if (Array.isArray(out.content)) {

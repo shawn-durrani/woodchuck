@@ -97,11 +97,14 @@ Claude's earlier reasoning valid.
 ## You can talk and edit while Claude works
 
 A build can take minutes, so the chat box and the edit controls stay open
-while Claude works. A message you send waits for Claude's current step to
-end. It then goes in beside that step's tool results, in the same message,
-and Claude carries on with it in mind. Your edits reach Claude the same
-way. Nothing earlier in the chat changes to fit them in, which keeps
-Claude's earlier reasoning valid.
+while Claude works. A step is one reply from Claude, and Claude puts the
+edits that don't depend on each other into one reply. Its tools run in
+order, so a whole stage of a build, such as every carcass panel, is one
+step. A message you send waits for Claude's current step to end. It then
+goes in beside that step's tool results, in the same message, and Claude
+carries on with it in mind. Your edits reach Claude the same way. Nothing
+earlier in the chat changes to fit them in, which keeps Claude's earlier
+reasoning valid.
 
 A message that arrives after Claude's last step starts a new turn as soon
 as the old one ends, and so does one waiting when you press Stop. The app

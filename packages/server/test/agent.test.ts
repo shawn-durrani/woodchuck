@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { derive } from "@woodchuck/core";
 import { compactAt, SUMMARY_INSTRUCTIONS, Turn, type MessagesClient } from "../src/agent.js";
+import { SYSTEM_PROMPT } from "../src/prompt.js";
 import { scriptedClient } from "../src/scripted.js";
 import { Store } from "../src/store.js";
 import { TOOLS } from "../src/tools.js";
@@ -204,6 +205,156 @@ describe("a Claude turn", () => {
     expect(system[1]!.cache_control).toEqual({ type: "ephemeral" });
     expect(body.tool_choice).toBeUndefined();
     expect(body.thinking).toMatchObject({ type: "adaptive" });
+  });
+});
+
+// A build goes quicker when one reply carries a whole stage. The fixture is a
+// small invented carcass: two 18 mm sides 500 mm apart and a shelf between.
+describe("a reply with many tool calls", () => {
+  const ply = call("t1", "define_material", { id: "ply18", name: "18 mm ply", kind: "sheet", thickness_mm: 18, grained: true });
+  const side = (callId: string, id: string, name: string, x: Block) =>
+    call(callId, "add_panel", {
+      id,
+      name,
+      material: "ply18",
+      thickness_axis: "x",
+      grain_axis: "y",
+      x,
+      y: { start: { at: "0" }, size: "600" },
+      z: { start: { at: "0" }, size: "300" },
+    });
+  const left = side("t2", "left", "Left side", { start: { at: "0" } });
+  const right = side("t3", "right", "Right side", { end: { at: "500" } });
+  const shelf = (callId: string, id: string, material: string) =>
+    call(callId, "add_panel", {
+      id,
+      name: "Shelf",
+      material,
+      thickness_axis: "y",
+      grain_axis: "x",
+      x: { start: { face: "left.right" }, end: { face: "right.left" } },
+      y: { start: { at: "200" } },
+      z: { start: { at: "0" }, size: "300" },
+    });
+  const results = (client: ReturnType<typeof scripted>, n: number) => client.sent[n]!.messages.at(-1)!.content as unknown as Block[];
+
+  it("asks for independent edits together, and leaves parallel calls on", async () => {
+    const client = scripted([[{ type: "text", text: "Hi." }]]);
+    await turn(client).run({ text: "hello", selection: [] });
+    const body = client.sent[0]! as unknown as Record<string, unknown>;
+    expect(body.tool_choice).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("disable_parallel_tool_use");
+    expect(SYSTEM_PROMPT).toContain("Put independent edits together in one reply.");
+  });
+
+  it("runs every call in order, carries on past a failed one, and undoes as one change", async () => {
+    const client = scripted([
+      [
+        { type: "text", text: "Carcass first." },
+        ply,
+        left,
+        right,
+        shelf("t4", "broken", "walnut"),
+        shelf("t5", "shelf", "ply18"),
+        call("t6", "add_joint", { id: "shelf_l", type: "dado", host: "left", guest: "shelf", depth: "6" }),
+      ],
+      [{ type: "text", text: "Carcass done." }],
+    ]);
+    await turn(client).run({ text: "Build a small carcass", selection: [] });
+
+    // One result per call, in the order of the calls, and only the bad one is an error.
+    const sent = results(client, 1);
+    expect(sent.map((b) => b.type)).toEqual(Array(6).fill("tool_result"));
+    expect(sent.map((b) => b.tool_use_id)).toEqual(["t1", "t2", "t3", "t4", "t5", "t6"]);
+    expect(sent.filter((b) => b.is_error).map((b) => b.tool_use_id)).toEqual(["t4"]);
+    expect(String(sent[3]!.content)).toMatch(/walnut/);
+
+    // The design took them in order: the shelf sits between the sides, and its dado lengthens it.
+    const design = store.project.design;
+    expect(design.parts.map((p) => p.id)).toEqual(["left", "right", "shelf"]);
+    expect(design.joints.map((j) => j.id)).toEqual(["shelf_l"]);
+    expect(derive(design).byId.get("shelf")!.cut.length).toBe(500 - 36 + 6);
+    const tools = store.project.chat.filter((c) => c.kind === "tool");
+    expect(tools.map((c) => c.kind === "tool" && c.name)).toEqual(["define_material", "add_panel", "add_panel", "add_panel", "add_panel", "add_joint"]);
+
+    // One change set, so one undo takes the whole stage back.
+    expect(store.project.history).toHaveLength(1);
+    expect(store.project.chat.find((c) => c.kind === "change")).toMatchObject({ author: "claude", edits: 5 });
+    store.project.undo();
+    expect(store.project.design.parts).toEqual([]);
+    expect(store.project.design.materials).toEqual([]);
+  });
+
+  it("runs the calls around a question, waits once, and answers in call order", async () => {
+    const client = scripted([
+      [
+        ply,
+        left,
+        call("q1", "ask_user", { question: "Fixed or adjustable shelf?", options: ["Fixed", "Adjustable"] }),
+        right,
+        call("q2", "ask_user", { question: "Painted or oiled?", options: ["Painted", "Oiled"] }),
+      ],
+      [{ type: "text", text: "A fixed shelf it is." }],
+    ]);
+    await turn(client).run({ text: "Build a small carcass", selection: [] });
+
+    // The calls after the question still ran, and only the first question waits.
+    expect(store.project.design.parts.map((p) => p.id)).toEqual(["left", "right"]);
+    expect(store.project.pending?.waiting).toEqual([{ tool_use_id: "q1", kind: "question" }]);
+    expect(store.project.chat.filter((c) => c.kind === "question")).toHaveLength(1);
+    expect(client.sent).toHaveLength(1);
+
+    await turn(client).run({ text: "Fixed", selection: [] });
+    const sent = results(client, 1);
+    expect(sent.map((b) => b.tool_use_id ?? b.type)).toEqual(["t1", "t2", "q1", "t3", "q2", "text"]);
+    expect(sent[2]).toMatchObject({ content: "Fixed" });
+    expect(sent[2]!.is_error).toBeUndefined();
+    expect(sent[4]).toMatchObject({ is_error: true, content: expect.stringMatching(/^Not run: this reply already calls ask_user/) });
+    expect(store.project.pending).toBeNull();
+  });
+
+  it("keeps one preview waiting when a reply suggests two", async () => {
+    const preview = (id: string, title: string) =>
+      call(id, "preview_change", { title, explanation: "A suggestion.", ops: [{ op: "set_param", name: "depth", expr: "320", unit: "mm" }] });
+    const client = scripted([[preview("v1", "Deeper"), call("t1", "set_param", { name: "gap", expr: "2", unit: "mm" }), preview("v2", "Deeper still")]]);
+    await turn(client).run({ text: "Any ideas?", selection: [] });
+    expect(store.project.pending?.waiting).toEqual([{ tool_use_id: "v1", kind: "preview" }]);
+    expect(store.project.chat.filter((c) => c.kind === "preview").map((c) => c.kind === "preview" && c.title)).toEqual(["Deeper"]);
+    expect(store.project.pending?.held.map((r) => [r.tool_use_id, !!r.is_error])).toEqual([
+      ["t1", false],
+      ["v2", true],
+    ]);
+  });
+
+  it("answers every call of a reply that was cut off, without running any", async () => {
+    const base = scripted([[ply, left, { ...right, input: { id: "right" } }], [{ type: "text", text: "Carrying on." }]]);
+    let cut = true;
+    const client: MessagesClient = {
+      stream(body) {
+        const s = base.stream(body);
+        return {
+          on: (event, cb) => s.on(event, cb),
+          abort: () => s.abort(),
+          finalMessage: async () => {
+            const m = await s.finalMessage();
+            const out = cut ? { ...m, stop_reason: "max_tokens" as const } : m;
+            cut = false;
+            return out;
+          },
+        };
+      },
+    };
+    await turn(client).run({ text: "Build a small carcass", selection: [] });
+    expect(store.project.design.parts).toEqual([]);
+    expect(store.project.chat.at(-2)).toMatchObject({ kind: "error", text: expect.stringMatching(/cut off/) });
+    expect(store.project.pending?.waiting).toEqual([]);
+
+    // The next message goes in after a result for each of those calls, so the request is valid.
+    await turn(client).run({ text: "Carry on", selection: [] });
+    const sent = results(base, 1);
+    expect(sent.map((b) => b.tool_use_id ?? b.type)).toEqual(["t1", "t2", "t3", "text"]);
+    expect(sent.slice(0, 3).every((b) => b.is_error === true && /^Not run/.test(String(b.content)))).toBe(true);
+    expect(store.project.pending).toBeNull();
   });
 });
 
