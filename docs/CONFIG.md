@@ -22,6 +22,7 @@ setting has a default that suits one person on one computer.
 | `WOODCHUCK_EFFORT` | `high` | How hard Claude thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Lower is quicker and cheaper. A turn that needs less thought can go lower, and none goes higher. |
 | `WOODCHUCK_EFFORT_ROUTING` | `on` | Lets each turn pick how hard Claude thinks. A colour try or a question about the design runs at `low`, a small size change at `medium`, and anything else at `WOODCHUCK_EFFORT`. `off` runs every turn at `WOODCHUCK_EFFORT`. |
 | `WOODCHUCK_COMPACT_AT` | `100000` | The chat size, in tokens, at which the API summarises the older turns so Claude stays quick. The whole chat stays saved, and Claude searches it when you refer back. The lowest is 50000, and `off` sends the whole chat every time. |
+| `WOODCHUCK_CACHE_TTL` | `1h` | How long Claude's prompt cache lasts, `1h` or `5m`. An hour outlasts a pause in a voice chat or between edits. Writes to the cache cost twice the input price on `1h` and 1.25 times on `5m`, and reads cost the same. |
 | `WOODCHUCK_SEARCH_COUNTRY` | none | The country Claude's web searches favour, as a two-letter code. It wins over the country in Your workshop, which starts as `AU`. |
 | `WOODCHUCK_IMAGE_MODEL` | `gpt-image-2.5-sunburst` | OpenAI's image model for the AI blend. `gpt-image-2.5-flare` is faster and cheaper. |
 | `WOODCHUCK_SCRIPT` | none | A JSON file of replies the app plays back in place of Claude, for trying the chat with no key and no cost. |

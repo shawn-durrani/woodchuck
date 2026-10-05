@@ -22,7 +22,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
-import { systemPrompt } from "./prompt.js";
+import { cacheControl, cacheTtl, systemPrompt } from "./prompt.js";
 import type { ChatItem, Job, Pending, Pin, Project, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
@@ -494,9 +494,11 @@ export class Turn {
     const model = project.model ?? MODEL;
     let toolMs = 0;
     const compactTrigger = compactAt();
-    // Read once a turn, so a change to the workshop never splits the cache mid-turn.
+    // Read once a turn, so a change to the workshop or the cache's lifetime
+    // never splits the cache mid-turn.
     const workshop = this.store.workshop();
-    const system = systemPrompt(workshop);
+    const ttl = cacheTtl();
+    const system = systemPrompt(workshop, ttl);
     const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
@@ -510,7 +512,8 @@ export class Turn {
           max_tokens: 64000,
           // Tools render first, then the system blocks, so the breakpoint on
           // the workshop block caches all of them. The top-level breakpoint
-          // caches the history.
+          // caches the history. Both last as long as WOODCHUCK_CACHE_TTL
+          // says, an hour unless it's set to five minutes.
           system,
           tools,
           messages: sent,
@@ -522,7 +525,7 @@ export class Turn {
           // The request's own level stays the same all chat long, so the
           // cache holds. Effort messages in the chat lower or raise it.
           output_config: { effort: EFFORT },
-          cache_control: { type: "ephemeral" },
+          cache_control: cacheControl(ttl),
           ...(compactTrigger
             ? {
                 context_management: {

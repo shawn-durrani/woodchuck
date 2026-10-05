@@ -69,15 +69,48 @@ Design to the material's measured thickness, not the nominal one. Solid timber m
 
 Write plainly, in the language named under the woodworker's workshop below. Keep replies short: say what you changed, what you assumed and any problem still open, in five sentences or fewer. No headings and no bold. Name parts by their ids so the woodworker can find them. If the user's message lists selected parts or faces (part.face), they probably mean those. Pins are numbered spots they clicked on the model, each with a part, a face and a point in mm; "pin 2" means that spot. A picture of their view may come with the message: it shows what they're looking at, with selected parts in blue and pins as numbered red dots. Use it to understand what they mean, and the numbers to make the change.`;
 
+/** How long a cache entry lives after the last request that used it. */
+export type CacheTtl = "1h" | "5m";
+
+const unreadTtls = new Set<string>();
+
+/**
+ * How long the prompt cache lasts, from WOODCHUCK_CACHE_TTL. An hour
+ * outlasts a pause in a voice chat or between edits. Writing the cache costs
+ * more for an hour than for five minutes, and reading it costs the same.
+ * Any other value falls back to an hour, with one warning for each value.
+ */
+export function cacheTtl(value = process.env.WOODCHUCK_CACHE_TTL, warn: (line: string) => void = console.warn): CacheTtl {
+  const text = value?.trim().toLowerCase();
+  if (!text) return "1h";
+  if (text === "1h" || text === "5m") return text;
+  if (!unreadTtls.has(text)) {
+    unreadTtls.add(text);
+    warn("WOODCHUCK_CACHE_TTL should be 1h or 5m, so it's 1h.");
+  }
+  return "1h";
+}
+
+/**
+ * A cache breakpoint with the given lifetime. Five minutes is the API's
+ * default, so it goes without a ttl, and a chat on five minutes keeps the
+ * cache it already has. Every breakpoint in a request gets the same
+ * lifetime, which keeps to the API's rule that a longer one never follows a
+ * shorter one.
+ */
+export function cacheControl(ttl: CacheTtl): Anthropic.Beta.BetaCacheControlEphemeral {
+  return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
 /**
  * The system blocks for a request: the standing instructions, then your
  * workshop. The one cache breakpoint sits on the workshop, so the tools and
  * both blocks cache together, and a change to the workshop only rewrites
  * from there on.
  */
-export function systemPrompt(workshop: Workshop): Anthropic.Beta.BetaTextBlockParam[] {
+export function systemPrompt(workshop: Workshop, ttl: CacheTtl): Anthropic.Beta.BetaTextBlockParam[] {
   return [
     { type: "text", text: SYSTEM_PROMPT },
-    { type: "text", text: workshopText(workshop), cache_control: { type: "ephemeral" } },
+    { type: "text", text: workshopText(workshop), cache_control: cacheControl(ttl) },
   ];
 }

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { derive, recordConsoleOps, runChecks } from "../packages/core/src/index.ts";
 import { defaultClient, EFFORT, hasCredentials, MODEL, Turn } from "../packages/server/src/agent.ts";
+import { cacheTtl } from "../packages/server/src/prompt.ts";
 import { renderPng } from "../packages/server/src/render.ts";
 import { effortRouting } from "../packages/server/src/route.ts";
 import { Store, type ChatItem } from "../packages/server/src/store.ts";
@@ -43,8 +44,11 @@ const TASKS: Task[] = [
 const GO_AHEAD = "Yes, go ahead with what you suggest.";
 const MAX_REPLIES = 3;
 
-/** Price per million tokens on Sonnet 5.5, in US dollars. The app's model list puts Opus 5.5 at about twice and Fable 5.1 at about five times. */
-const PRICE = { input: 2, cached: 0.2, written: 2.5, output: 10 };
+/**
+ * Price per million tokens on Sonnet 5.5, in US dollars. The app's model list puts Opus 5.5 at about twice and Fable 5.1 at about five times.
+ * Writing the cache costs twice the input price for an hour's cache, and 1.25 times for five minutes.
+ */
+const PRICE = { input: 2, cached: 0.2, written: cacheTtl() === "1h" ? 4 : 2.5, output: 10 };
 const SCALE: Record<string, number> = { "claude-sonnet-5-5": 1, "claude-opus-5-5": 2, "claude-fable-5-1": 5 };
 
 type Usage = Extract<ChatItem, { kind: "usage" }>;

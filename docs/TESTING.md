@@ -71,6 +71,13 @@ the same bytes, and a change touches the workshop block alone. They also
 check what the workshop's route saves and what it refuses, and that
 `WOODCHUCK_SEARCH_COUNTRY` wins over the workshop's country.
 
+The cache tests hold both of the request's cache breakpoints to an hour,
+with no beta for it. With `WOODCHUCK_CACHE_TTL=5m` both go back to the
+API's default, with no lifetime named. A value the app can't read means
+an hour, with one warning. Every request in a turn has to match the first
+byte for byte, apart from the chat, and so does the next turn's. A change
+to the setting mid-turn waits for the next turn.
+
 Talking and editing while Claude works have tests of their own. A message
 or an edit arrives while the scripted Claude is mid-step, and the tests
 check where it lands in what Claude is sent next. They hold each edit to

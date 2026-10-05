@@ -143,6 +143,25 @@ leaves those out. The whole chat stays saved on disk, and Claude searches
 it with a recall tool when you refer back to something. The app never
 trims the chat itself, since that would break Claude's earlier reasoning.
 
+## The prompt cache outlasts a pause
+
+Every request sends Claude its tools, its instructions and the chat. The
+API's [prompt cache](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+keeps what it read last time, so it needn't read it all again. A cold
+cache makes the next request write the whole chat to it before Claude can
+start. Woodchuck is often used by voice, and a pause to measure a board or
+to think runs well past the API's usual five minutes. The cache lasts an
+hour from the last request that used it, so the request after a pause like
+that still reads the chat from the cache. Writing to an hour's cache costs
+more, and [CONFIG.md](docs/CONFIG.md) says how much and how to go back to
+five minutes.
+
+The request has two cache points, one after the instructions and one at
+the end of the chat. Both get the same lifetime, since the API wants a
+longer lifetime to come before a shorter one. The app reads the setting
+once a turn, like your workshop, so every request in a turn matches the
+one before it apart from the chat.
+
 ## Each turn thinks as hard as it needs
 
 Thinking is most of the wait on a turn, and a colour try needs far less of
