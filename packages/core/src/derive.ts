@@ -4,11 +4,13 @@
 //
 // Parts are worked out in two passes. The nominal box is what you see:
 // where each part starts and ends. Housing joints then lengthen the guest
-// part into its host, which gives the box you cut.
+// part into its host, which gives the box you cut. A part with cuts gets its
+// profile last, once every box is known (see profile.ts).
 
 import { evaluate, evaluateNumber, ExprError, fmt, type Traced } from "./expr.js";
 import { JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
 import { placeBox } from "./library.js";
+import { profileFor, solveFace, type CutValues, type PartProfile, type SolvedFace } from "./profile.js";
 import {
   AXES,
   AXIS_FACES,
@@ -18,6 +20,7 @@ import {
   JOINT_FAMILY,
   type ArrayPattern,
   type Axis,
+  type AxisSpec,
   type Bound,
   type Design,
   type Face,
@@ -116,6 +119,8 @@ export interface DerivedPart {
   machining: Machining[];
   finished: Dims;
   cut: Dims;
+  /** The shape its cuts leave on its broad face. Only a part with cuts that take wood has one. */
+  profile?: PartProfile;
 }
 
 export interface DerivedJoint {
@@ -363,6 +368,22 @@ class Resolver {
     return r;
   }
 
+  /**
+   * Where a part's cuts sit and how big they are, worked out like its own
+   * bounds. A cut may use its own part's faces, since nothing reads a
+   * profile back.
+   */
+  cutValues(part: Panel): CutValues {
+    return {
+      bound: (a, b) => this.bound(part, a, b),
+      span: (a, spec, who) => this.span(part, a, spec, who),
+      number: (src) => {
+        const r = evaluateNumber(src, this.value);
+        return { value: r.value, text: r.text };
+      },
+    };
+  }
+
   private bound(part: Panel, a: Axis, b: Bound): Step {
     if ("at" in b) {
       const r = evaluateNumber(b.at, this.value);
@@ -405,6 +426,11 @@ class Resolver {
       }
       throw new ExprError(`${part.id} needs a start or end on ${a}, its thickness axis`);
     }
+    return this.span(part, a, spec, part.id);
+  }
+
+  /** A span from two of start, end and size, for a part's own axis or a cutout's. */
+  private span(part: Panel, a: Axis, spec: AxisSpec, who: string): AxisTrace {
     const start = spec.start ? this.bound(part, a, spec.start) : undefined;
     const end = spec.end ? this.bound(part, a, spec.end) : undefined;
     const size = spec.size !== undefined ? evaluateNumber(spec.size, this.value) : undefined;
@@ -417,7 +443,7 @@ class Resolver {
     if (end && size) {
       return { end, size, start: { value: end.value - size.value, text: `${end.text} - ${size.text}` } };
     }
-    throw new ExprError(`${part.id} needs two of start, end and size on ${a}`);
+    throw new ExprError(`${who} needs two of start, end and size on ${a}`);
   }
 }
 
@@ -993,6 +1019,28 @@ export function derive(design: Design): DeriveResult {
 
   for (const p of parts) {
     p.cut = dimsOf(p.box, p.grain_axis, p.width_axis, p.thickness_axis);
+  }
+
+  // Each part's shape, once every box is known. An original is solved once,
+  // and its copies share the result with their own housing extensions.
+  const faces = new Map<string, SolvedFace | null>();
+  const panels = new Map(design.parts.map((p) => [p.id, p]));
+  for (const p of parts) {
+    const panel = panels.get(p.source);
+    if (p.broken || p.unverified || !panel?.cuts?.length) continue;
+    if (!faces.has(p.source)) {
+      const original = byId.get(p.source)!;
+      let face: SolvedFace | null = null;
+      try {
+        if (!original.broken) face = solveFace(panel, original.nominal, r.cutValues(panel), issues);
+      } catch (e) {
+        // Each cut's own problems are caught inside. This is for the shape itself, so a bad one never stops the rest.
+        issues.push({ severity: "error", code: "cut_error", message: `The shape of ${panel.id} couldn't be worked out: ${(e as Error).message}`, parts: [panel.id] });
+      }
+      faces.set(p.source, face);
+    }
+    const face = faces.get(p.source);
+    if (face) p.profile = profileFor(face, p.extensions);
   }
 
   const hardware: DerivedHardware[] = [];

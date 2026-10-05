@@ -18,6 +18,11 @@ function part(d: DeriveResult, id: string): DerivedPart {
   return p;
 }
 
+/** The face axis that isn't `a`: the one an end of the part runs along. */
+function otherFaceAxis(p: DerivedPart, a: Axis): Axis | null {
+  return AXES.find((x) => x !== a && x !== p.thickness_axis) ?? null;
+}
+
 function axisName(p: DerivedPart, a: Axis): string {
   if (a === p.grain_axis) return "length";
   if (a === p.thickness_axis) return "thickness";
@@ -44,6 +49,24 @@ export function explainPart(d: DeriveResult, id: string): string[] {
     lines.push(`Cut ${axisName(p, a)} ${fmt(total)} = visible ${fmt(nominal)} + ${extra}`);
   }
   for (const m of p.machining) lines.push(machiningText(m));
+  for (const c of p.profile?.cuts ?? []) {
+    lines.push(`Cut ${c.id}: ${c.text}`);
+    lines.push(`  ${c.trace}`);
+  }
+  // A housing goes into its host only where no cut has touched the end.
+  for (const e of p.profile?.extensions ?? []) {
+    const end = otherFaceAxis(p, FACE_AXIS[e.face]);
+    if (!end) continue;
+    const whole = p.nominal.max[AXIS_INDEX[end]]! - p.nominal.min[AXIS_INDEX[end]]!;
+    const covered = e.along_mm.reduce((s, [a, b]) => s + b - a, 0);
+    if (covered >= whole - 0.01) continue;
+    const spans = e.along_mm.map(([a, b]) => `${fmt(a)} to ${fmt(b)}`).join(" and ");
+    lines.push(
+      e.along_mm.length
+        ? `Joint ${e.joint} takes the ${e.face} end only from ${spans} along ${end}, where no cut has touched it`
+        : `Cuts took the whole ${e.face} end, so joint ${e.joint} has nothing to go into its host`,
+    );
+  }
   for (const j of d.joints.filter((x) => x.host === p.id || x.guest === p.id)) {
     const entry = JOINT_LIBRARY[j.type];
     const ps = Object.entries(j.params)
@@ -116,6 +139,8 @@ export interface PartSummary {
   finished_mm: { length: number; width: number; thickness: number };
   cut_mm: { length: number; width: number; thickness: number };
   position_mm: { min: number[]; max: number[] };
+  /** What its cuts do to its blank, when it has any that take wood. */
+  shape?: string[];
   decor?: boolean;
   unverified?: boolean;
 }
@@ -136,6 +161,7 @@ export function summarisePart(p: DerivedPart): PartSummary {
     cut_mm: dims(p.cut),
     position_mm: { min: p.nominal.min.map(r), max: p.nominal.max.map(r) },
   };
+  if (p.profile) s.shape = p.profile.cuts.map((c) => c.text);
   if (p.decor) s.decor = true;
   if (p.unverified) s.unverified = true;
   return s;

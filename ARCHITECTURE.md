@@ -77,6 +77,39 @@ Joints change cut sizes where they should. A dado lengthens the shelf it
 holds, and the cut list says by how much and why. Every length is in
 millimetres, and field names say so.
 
+## A part is the blank you cut, and cuts shape it
+
+Every part is a box, and the box is the blank you cut it from. Cuts then
+shape the blank on its broad face. An edge cut takes wood off one edge
+along a straight line, which makes a slope, a taper or a corner cut off. A
+cutout takes a rectangle, a rounded rectangle or a circle right through the
+part. Inside the outline it's a hole, and where it reaches the outline it's
+a notch, such as a toe kick.
+
+Positions, joints, stock checks and the cutting layout all keep using the
+box. A face such as `side.top` is the blank's face, which on a sloped top
+is its highest point. A cut's points are bounds like a part's own, so a
+slope can run from the back's top to the front's and follow both when they
+move. A cut may use its own part's faces too.
+
+The shape is worked out after every box, and nothing reads it back. That
+keeps a cut from starting a loop. A part with no cuts gets no shape worked
+out, and a test holds every example to the same output byte for byte.
+
+Edge cuts go first, then cutouts. An array copy shares its original's
+shape. A housing joint goes into its host only along the stretches of the
+end that no cut has touched. A cut that misses the wood is a warning, and
+one that splits a part in two is an error.
+
+A circle becomes a polygon with its corners on the true curve, never more
+than 0.005 mm inside it. That leaves a shade more wood than the real part
+has, so a check errs towards finding an overlap. Straight edges are exact.
+The cut list gives a hole the size you set, and it groups parts only when
+their shapes match to 0.1 mm. A mirror image keeps a row of its own.
+
+The pictures draw the blank until they learn to draw shapes. Claude's tools
+leave cuts out until then, since every picture comes from the same model.
+
 ## Checks run after every change
 
 Overlaps, parts nothing holds up, joints out of proportion, parts too big

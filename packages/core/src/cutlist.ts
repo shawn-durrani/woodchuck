@@ -1,9 +1,11 @@
 // The cut list. Parts that come out the same, with the same machining on
-// the same faces, share a row. Mirror-image parts stay separate, because
-// their housings are on opposite faces.
+// the same faces and the same shape, share a row. Mirror-image parts stay
+// separate, because their housings are on opposite faces. Shapes match only
+// when they're the same to 0.1 mm, and a mirror image keys apart.
 
 import { AXIS_INDEX, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
 import { fmt } from "./expr.js";
+import { shapeKey } from "./profile.js";
 import type { Design } from "./types.js";
 
 export interface CutRow {
@@ -17,6 +19,8 @@ export interface CutRow {
   thickness_mm: number;
   grain: boolean;
   machining: string[];
+  /** What the part's cuts do to its blank, in workshop words. Only a row of shaped parts has it. */
+  shape?: string[];
   parts: string[];
 }
 
@@ -103,14 +107,15 @@ export function cutList(design: Design, d: DeriveResult): CutList {
     const L = r1(p.cut.length);
     const W = r1(p.cut.width);
     const T = r1(p.cut.thickness);
-    const key = [p.material, L, W, T, ...machining].join("|");
+    const shape = p.profile?.cuts.map((c) => c.text) ?? [];
+    const key = [p.material, L, W, T, ...machining, ...(p.profile ? ["shape", shapeKey(p), ...shape] : [])].join("|");
     const row = groups.get(key);
     if (row) {
       row.qty++;
       row.parts.push(p.id);
       continue;
     }
-    groups.set(key, {
+    const entry: CutRow = {
       row: 0,
       name: p.copy === 1 ? p.name : (d.byId.get(p.source)?.name ?? p.name),
       qty: 1,
@@ -122,7 +127,11 @@ export function cutList(design: Design, d: DeriveResult): CutList {
       grain: m?.grained ?? false,
       machining,
       parts: [p.id],
-    });
+    };
+    if (shape.length) {
+      const { parts, ...rest } = entry;
+      groups.set(key, { ...rest, shape, parts });
+    } else groups.set(key, entry);
   }
   const rows = [...groups.values()].sort(
     (a, b) => a.material.localeCompare(b.material) || b.length_mm - a.length_mm || b.width_mm - a.width_mm,
@@ -155,11 +164,11 @@ function csvCell(v: string | number | boolean): string {
 
 export function cutListCsv(list: CutList): string {
   const lines = [
-    ["Row", "Name", "Qty", "Material", "Length mm", "Width mm", "Thickness mm", "Grain along length", "Machining", "Parts"].join(","),
+    ["Row", "Name", "Qty", "Material", "Length mm", "Width mm", "Thickness mm", "Grain along length", "Machining", "Shape", "Parts"].join(","),
   ];
   for (const r of list.rows) {
     lines.push(
-      [r.row, r.name, r.qty, r.material_name, r.length_mm, r.width_mm, r.thickness_mm, r.grain ? "yes" : "no", r.machining.join("; "), r.parts.join(" ")]
+      [r.row, r.name, r.qty, r.material_name, r.length_mm, r.width_mm, r.thickness_mm, r.grain ? "yes" : "no", r.machining.join("; "), (r.shape ?? []).join("; "), r.parts.join(" ")]
         .map(csvCell)
         .join(","),
     );

@@ -2,8 +2,9 @@
 // the cut list is derived from it (see derive.ts). All lengths are in mm.
 //
 // World axes: x runs left to right, y runs up from the floor, z runs from
-// the back to the front. Each part is a rectangular box, so it has six
-// faces named by the direction they face.
+// the back to the front. Each part's box is the blank you cut it from, so it
+// has six faces named by the direction they face. Cuts then shape the blank
+// on its broad face, with sloped edges, notches and holes (see profile.ts).
 
 export type Axis = "x" | "y" | "z";
 export const AXES: readonly Axis[] = ["x", "y", "z"];
@@ -86,6 +87,49 @@ export interface AxisSpec {
   size?: string;
 }
 
+/**
+ * A straight cut along one edge of the blank: a slope, a taper or a corner
+ * cut off. It takes wood from the `edge` side of the line through its two
+ * points, and the line runs on past them. `start` and `end` are where the
+ * new edge sits on the edge's own axis, at the start and the end of the run.
+ * The run is the part's other face axis, and its two points sit at the
+ * part's own ends unless start_along or end_along says otherwise.
+ */
+export interface EdgeCut {
+  id: string;
+  kind: "edge";
+  /** The edge it takes wood from. Never a broad face, on the thickness axis. */
+  edge: Face;
+  start: Bound;
+  end: Bound;
+  start_along?: Bound;
+  end_along?: Bound;
+  note?: string;
+}
+
+/**
+ * A shape cut right through the part's thickness: a rectangle, a rounded
+ * rectangle or a circle. Inside the outline it's a hole, and reaching the
+ * outline it's a notch, such as a toe kick.
+ */
+export interface Cutout {
+  id: string;
+  kind: "cutout";
+  shape: "rect" | "circle";
+  /** A rect spans the part's two face axes, each like a part's own axis. */
+  x?: AxisSpec;
+  y?: AxisSpec;
+  z?: AxisSpec;
+  /** A rect's corner radius. Half the shorter side makes a slot with round ends. */
+  radius?: string;
+  /** A circle's centre, on the part's two face axes. */
+  centre?: Partial<Record<Axis, Bound>>;
+  diameter?: string;
+  note?: string;
+}
+
+export type PanelCut = EdgeCut | Cutout;
+
 export interface Panel {
   id: string;
   name: string;
@@ -100,6 +144,8 @@ export interface Panel {
   /** Props for presentation. Never on the cut list or plans. */
   decor?: boolean;
   note?: string;
+  /** Edge cuts first, in order, then cutouts. With none, the part is its blank. */
+  cuts?: PanelCut[];
 }
 
 /** A stopgap shape added when no tool can express something yet. */

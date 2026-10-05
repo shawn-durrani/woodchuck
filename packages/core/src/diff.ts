@@ -6,7 +6,7 @@
 import { fmt, literalValue } from "./expr.js";
 import { finishLabel, parseFinishTarget } from "./finishes.js";
 import { DEFAULT_KERF_MM, DEFAULT_TRIM_MM } from "./layout.js";
-import type { Design, Param } from "./types.js";
+import type { Design, Panel, Param } from "./types.js";
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -40,7 +40,7 @@ function section<T extends object>(
   after: T[],
   key: keyof T,
   describe: (x: T) => string,
-  change?: (a: T, b: T) => string | null,
+  change?: (a: T, b: T) => string | string[] | null,
 ) {
   const a = byKey(before, key);
   const b = byKey(after, key);
@@ -49,7 +49,8 @@ function section<T extends object>(
   for (const [k, x] of b) {
     const old = a.get(k);
     if (!old || JSON.stringify(old) === JSON.stringify(x)) continue;
-    out.push(change?.(old, x) ?? `Changed ${what} ${k}: ${changedFields(old, x).join(", ")}`);
+    const lines = change?.(old, x) ?? `Changed ${what} ${k}: ${changedFields(old, x).join(", ")}`;
+    out.push(...(Array.isArray(lines) ? lines : [lines]));
   }
 }
 
@@ -72,7 +73,7 @@ export function diffDesigns(before: Design, after: Design, opts: { names?: boole
       ? `Changed material ${b.id} from ${a.thickness_mm} to ${b.thickness_mm} mm thick`
       : `Changed material ${b.id}: ${changedFields(a, b).join(", ")}`,
   );
-  section(out, "part", before.parts, after.parts, "id", (p) => `${p.id} (${p.name})`);
+  section(out, "part", before.parts, after.parts, "id", (p) => `${p.id} (${p.name})`, partChange);
   section(out, "box", before.unverified, after.unverified, "id", (u) => `${u.id} (${u.name}, unverified)`);
   section(out, "joint", before.joints, after.joints, "id", (j) => `${j.id} (${j.type.replace(/_/g, " ")}, ${j.guest} into ${j.host})`);
   section(out, "array", before.arrays, after.arrays, "id", (a) => `${a.id} (${a.count} of ${a.parts.join(", ")})`, (a, b) =>
@@ -81,6 +82,16 @@ export function diffDesigns(before: Design, after: Design, opts: { names?: boole
   section(out, "hardware", before.hardware, after.hardware, "id", (h) => `${h.id} (${h.name})`);
   section(out, "rule", before.rules, after.rules, "id", (r) => `${r.id} (${r.expr})`);
   finishesAndStock(out, before, after, (t) => t, (id) => id);
+  return out;
+}
+
+/** A part's changed fields on one line, and a line for each cut added, removed or changed. */
+function partChange(a: Panel, b: Panel): string[] {
+  const fields = changedFields(a, b).filter((f) => f !== "cuts");
+  const out = fields.length ? [`Changed part ${b.id}: ${fields.join(", ")}`] : [];
+  const kind = (c: { kind: string }) => (c.kind === "edge" ? "edge cut" : "cutout");
+  section(out, "cut", a.cuts ?? [], b.cuts ?? [], "id", (c) => `${c.id} (${kind(c)}) on ${b.id}`, (x, y) => `Changed cut ${y.id} on ${b.id}: ${changedFields(x, y).join(", ")}`);
+  if (!out.length) out.push(`Changed the order of the cuts on ${b.id}`);
   return out;
 }
 
@@ -132,6 +143,7 @@ const PART_FIELDS: Record<string, string> = {
   tags: "tags",
   decor: "whether it's decor",
   note: "note",
+  cuts: "shape",
 };
 
 /** The same lines with names in place of ids, for people to read. */
