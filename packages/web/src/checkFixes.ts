@@ -4,7 +4,7 @@
 // design's own rules, the parts it reads. "Edit the rule" opens the rule.
 // Kept free of React so the tests can hold it.
 
-import { refsOf, type Box, type DerivedPart, type Design, type Issue, type Rule } from "@woodchuck/core";
+import { gapPartsOf, refsOf, type Box, type DerivedPart, type Design, type Issue, type Rule } from "@woodchuck/core";
 
 /** The design's rule a problem comes from, if it's one of them. */
 export function ruleOf(issue: Pick<Issue, "code" | "message">, rules: Rule[]): Rule | null {
@@ -34,6 +34,15 @@ const refs = (expr: string): string[] => {
     return refsOf(expr);
   } catch {
     // A rule that doesn't parse reads nothing that can be shown.
+    return [];
+  }
+};
+
+/** The parts a rule measures between with gap_x, gap_y or gap_z. */
+const measured = (expr: string): string[] => {
+  try {
+    return gapPartsOf(expr);
+  } catch {
     return [];
   }
 };
@@ -82,6 +91,7 @@ export function ruleParts(rule: Pick<Rule, "expr">, design: Pick<Design, "params
     }
   };
   walk(rule.expr);
+  for (const part of measured(rule.expr)) out.add(part);
   // The parts the sizes it names set directly.
   const sets = (expr: string) => refs(expr).some((r) => named.includes(r));
   for (const p of design.parts) if (panelExprs(p).some(sets)) out.add(p.id);

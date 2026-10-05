@@ -86,15 +86,17 @@ cutout takes a rectangle, a rounded rectangle or a circle right through the
 part. Inside the outline it's a hole, and where it reaches the outline it's
 a notch, such as a toe kick.
 
-Positions, joints, stock checks and the cutting layout all keep using the
-box. A face such as `side.top` is the blank's face, which on a sloped top
-is its highest point. A cut's points are bounds like a part's own, so a
-slope can run from the back's top to the front's and follow both when they
-move. A cut may use its own part's faces too.
+Positions, stock checks and the cutting layout all keep using the box. A
+face such as `side.top` is the blank's face, which on a sloped top is its
+highest point. A cut's points are bounds like a part's own, so a slope can
+run from the back's top to the front's and follow both when they move. A
+cut may use its own part's faces too.
 
-The shape is worked out after every box, and nothing reads it back. That
-keeps a cut from starting a loop. A part with no cuts gets no shape worked
-out, and a test holds every example to the same output byte for byte.
+The shape is worked out once every part's place and size is known, and
+nothing that sets a size or a position reads it back. That keeps a cut from starting a loop.
+Joints, the checks and a design's rules read it. A part with no cuts gets
+no shape worked out, and a test holds every example to the same output
+byte for byte.
 
 Edge cuts go first, then cutouts. An array copy shares its original's
 shape. A housing joint goes into its host only along the stretches of the
@@ -123,6 +125,46 @@ for its machining turns its shape over too. The cutting layout still places
 the blanks, and draws each part's outline inside its own.
 
 Claude's tools don't make cuts yet.
+
+## The checks see the wood a cut leaves
+
+A part with cuts is checked as its true solid, which is its outline and
+holes carried through its thickness, with each housing's tongue on it.
+Overlaps, hardware and what holds a part up all use that solid. An overlap
+there gives the deepest the two run into each other along each axis. Every
+other part is still its box, and a test holds the checks on a design with
+no cuts to the same report byte for byte.
+
+A joint is found where two blanks meet, then placed on the wood the cuts
+leave. A joint with no wood left where its parts meet is refused, and the
+error names the cut. Screws, dowels and pocket screws spread over the wood
+that's left. A housing runs out through an edge cut the way it runs out of
+the blank's own edge. A cutout across a housing is a warning, since the
+guest's end shows there. Some joints need all their wood, so a cut there is
+an error. That's a cut into a mortise or under its tenon, inside a half lap
+or box joint, or where a part passes through a slot. A slot's walls are
+measured to the outline.
+
+Wood a cut leaves narrower than 6 mm is a warning, or under half the part's
+thickness when that's more. It covers a strip between an edge cut and the
+far edge, and the wood between a cutout and the outline or another cutout.
+A slope run out to a point is its shape, so it isn't counted.
+
+## A rule can measure to the shape
+
+A face such as `side.top` reads the blank, so a rule that reads a face a
+cut has taken wood from gets a warning. `gap_x(a, b)`, `gap_y(a, b)` and
+`gap_z(a, b)` measure to the shape you see. Each looks along its axis
+wherever the two parts line up across it, and gives the smallest clear
+space between them. Where they overlap it's minus the deepest overlap. For
+two boxes it's the larger start less the smaller end, so it works on parts
+with no cuts too. A tongue hidden in a housing doesn't count.
+
+Two parts that don't line up across the axis have no gap to measure, and
+the rule can't be worked out. Only a rule can use these, since every shape
+is worked out after every size. A drawer side that slopes down under a rail
+shows why. `rail.bottom - side.top` reads the side's tallest point and
+fails, while `gap_y(rail, side)` reads the slope under the rail and passes.
 
 ## Checks run after every change
 

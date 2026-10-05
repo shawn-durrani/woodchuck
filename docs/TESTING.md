@@ -38,8 +38,22 @@ touches one and a slot that splits a part. An invented drawer whose sides
 slope from a tall back to a low front checks a slope that follows its
 neighbours, its words on the cut list and its area for the finish. The cut
 operations are held to what they refuse and to a panel keeping its cuts
-through any other change. Every example with no cuts has to derive to a
-fixed digest, so cuts can't change a design that has none.
+through any other change. Every example with no cuts has to derive and
+check to a fixed digest, so cuts can't change a design that has none. The
+digests for the checks cover each joint example with its joint taken out
+too, so the overlap and contact checks get something to say.
+
+The checks on cut parts run on an invented shelf unit and on the joint
+library's worked examples. A board clear of a slope is held to no overlap,
+and one that runs into it to the deepest overlap along each axis. A block
+resting where a notch took the wood is held to floating. Each new problem
+has a pass and a fail with its words pinned: wood left too thin, a joint
+with no wood where its parts meet, a housing that runs out into a cutout,
+and a cut into a mortise, a half lap or a slot. Screws are held to spreading
+over the wood a cut leaves. `gap_x`, `gap_y` and `gap_z` are held to exact
+numbers on a slope, on boxes and on parts at right angles. An invented
+drawer checks a rule that reads the blank's top and fails, where the gap
+to the slope passes.
 
 The pictures of a cut part have tests of their own, on an invented tray
 with sloped sides and a panel with a round hole, a slot and a notch. The

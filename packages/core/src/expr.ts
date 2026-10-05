@@ -2,13 +2,18 @@
 // and rules. It has numbers, names, arithmetic, comparisons and a few
 // functions. Names are parameters (`bay_width`), part faces
 // (`left_side.right`) or part sizes (`shelf.length`).
+//
+// gap_x, gap_y and gap_z take two parts, such as `gap_y(shelf, side_l)`,
+// and measure the clear space between their shapes. Shapes are worked out
+// after every size, so only a rule can use them.
 
 export type Ast =
   | { kind: "num"; value: number }
   | { kind: "ref"; name: string }
   | { kind: "unary"; op: "-" | "!"; arg: Ast }
   | { kind: "binary"; op: BinaryOp; left: Ast; right: Ast }
-  | { kind: "call"; fn: string; args: Ast[] };
+  | { kind: "call"; fn: string; args: Ast[] }
+  | { kind: "gap"; axis: "x" | "y" | "z"; a: string; b: string };
 
 type BinaryOp = "+" | "-" | "*" | "/" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "&&" | "||";
 
@@ -30,7 +35,9 @@ const FUNCTIONS: Record<string, { min: number; max: number; fn: (...a: number[])
   floor: { min: 1, max: 2, fn: (a, step = 1) => Math.floor(a / step) * step },
   ceil: { min: 1, max: 2, fn: (a, step = 1) => Math.ceil(a / step) * step },
 };
-export const FUNCTION_NAMES = Object.keys(FUNCTIONS);
+/** The functions that measure between two parts' shapes, by the axis each measures along. */
+export const GAP_FUNCTIONS = { gap_x: "x", gap_y: "y", gap_z: "z" } as const;
+export const FUNCTION_NAMES = [...Object.keys(FUNCTIONS), ...Object.keys(GAP_FUNCTIONS)];
 
 type Token =
   | { t: "num"; v: number; pos: number }
@@ -115,6 +122,22 @@ export function parse(src: string): Ast {
       if (peek().t === "op" && (peek() as { v: string }).v === "(") {
         next();
         const fn = tok.v.toLowerCase();
+        if (fn in GAP_FUNCTIONS) {
+          // Two part names, never numbers: gap_y(shelf, side_l).
+          const part = () => {
+            const t = next();
+            if (t.t !== "name" || t.v.includes(".")) {
+              throw new ExprError(`${fn}() takes two part names, such as ${fn}(shelf, side_l)`, src);
+            }
+            return t.v;
+          };
+          const a = part();
+          expect(",");
+          const b = part();
+          expect(")");
+          if (a === b) throw new ExprError(`${fn}() needs two different parts, not ${a} twice`, src);
+          return { kind: "gap", axis: GAP_FUNCTIONS[fn as keyof typeof GAP_FUNCTIONS], a, b };
+        }
         if (!(fn in FUNCTIONS)) {
           throw new ExprError(`Unknown function "${tok.v}". Allowed: ${FUNCTION_NAMES.join(", ")}`, src);
         }
@@ -169,12 +192,29 @@ export function parse(src: string): Ast {
   return ast;
 }
 
-/** Every name an expression mentions. */
+/** Every name an expression mentions, apart from the parts a gap function measures between (see gapPartsOf). */
 export function refsOf(src: string): string[] {
   const out = new Set<string>();
   const walk = (a: Ast) => {
     if (a.kind === "ref") out.add(a.name);
     else if (a.kind === "unary") walk(a.arg);
+    else if (a.kind === "binary") {
+      walk(a.left);
+      walk(a.right);
+    } else if (a.kind === "call") a.args.forEach(walk);
+  };
+  walk(parse(src));
+  return [...out];
+}
+
+/** The parts an expression measures between with gap_x, gap_y or gap_z, such as shelf and side_l. */
+export function gapPartsOf(src: string): string[] {
+  const out = new Set<string>();
+  const walk = (a: Ast) => {
+    if (a.kind === "gap") {
+      out.add(a.a);
+      out.add(a.b);
+    } else if (a.kind === "unary") walk(a.arg);
     else if (a.kind === "binary") {
       walk(a.left);
       walk(a.right);
@@ -202,11 +242,16 @@ function precedenceOf(a: Ast): number {
   return 99;
 }
 
+/** Measures the gap between two parts along an axis, for gap_x, gap_y and gap_z. */
+export type GapResolver = (axis: "x" | "y" | "z", a: string, b: string) => number;
+
 /**
  * Evaluates an expression. `resolve` returns the value of a name or throws.
  * The returned text shows each name with its value, for derivation traces.
+ * Without `gap`, a gap function is refused, since the shapes it measures
+ * aren't known yet.
  */
-export function evaluate(src: string, resolve: (name: string) => number): Traced {
+export function evaluate(src: string, resolve: (name: string) => number, gap?: GapResolver): Traced {
   const ast = parse(src);
   const num = (v: Value, what: string): number => {
     if (typeof v !== "number") throw new ExprError(`${what} needs a number, not true/false`, src);
@@ -228,6 +273,12 @@ export function evaluate(src: string, resolve: (name: string) => number): Traced
         const r = go(a.arg, UNARY_PRECEDENCE);
         const value = a.op === "-" ? -num(r.value, "-") : !bool(r.value, "!");
         return { value, text: `${a.op}${r.text}` };
+      }
+      case "gap": {
+        const fn = `gap_${a.axis}`;
+        if (!gap) throw new ExprError(`${fn} measures the parts' shapes, which are worked out after every size, so only a rule can use it`, src);
+        const v = gap(a.axis, a.a, a.b);
+        return { value: v, text: `${fn}(${a.a}, ${a.b}) (${fmt(v)})` };
       }
       case "call": {
         const args = a.args.map((x) => go(x, 0));
@@ -267,8 +318,8 @@ export function evaluate(src: string, resolve: (name: string) => number): Traced
   return go(ast, 0);
 }
 
-export function evaluateNumber(src: string, resolve: (name: string) => number): Traced & { value: number } {
-  const r = evaluate(src, resolve);
+export function evaluateNumber(src: string, resolve: (name: string) => number, gap?: GapResolver): Traced & { value: number } {
+  const r = evaluate(src, resolve, gap);
   if (typeof r.value !== "number") throw new ExprError("Expected a number, got true/false", src);
   if (!Number.isFinite(r.value)) throw new ExprError("The result isn't a finite number", src);
   return r as Traced & { value: number };

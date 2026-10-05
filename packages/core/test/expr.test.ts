@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, literalValue, parse, refsOf } from "../src/expr.js";
+import { evaluate, gapPartsOf, literalValue, parse, refsOf } from "../src/expr.js";
 
 const names: Record<string, number> = { a: 10, b: 4, "left_side.right": 30, "partition#2.left": 758 };
 const resolve = (n: string) => {
@@ -42,6 +42,25 @@ describe("expressions", () => {
     expect(() => parse("foo(1)")).toThrow(/Unknown function/);
     expect(() => evaluate("a / 0", resolve)).toThrow(/Division by zero/);
     expect(() => evaluate("a + (b > 1)", resolve)).toThrow(/needs a number/);
+  });
+
+  it("measures between two parts with gap_x, gap_y and gap_z, given the shapes", () => {
+    const gap = (axis: "x" | "y" | "z", a: string, b: string) => (axis === "y" && a === "shelf" && b === "side#2" ? 11.5 : NaN);
+    expect(evaluate("gap_y(shelf, side#2) - a >= 1", resolve, gap)).toEqual({ value: true, text: "gap_y(shelf, side#2) (11.5) - a (10) >= 1" });
+    expect(parse("GAP_Y(shelf, side#2)")).toEqual({ kind: "gap", axis: "y", a: "shelf", b: "side#2" });
+    // The parts it measures aren't names with values, so they come back on their own.
+    expect(refsOf("gap_y(shelf, side#2) >= a")).toEqual(["a"]);
+    expect(gapPartsOf("gap_y(shelf, side#2) >= max(a, gap_x(shelf, back))")).toEqual(["shelf", "side#2", "back"]);
+    expect(gapPartsOf("left_side.right - a")).toEqual([]);
+  });
+
+  it("refuses a gap without two part names, or before the shapes are known", () => {
+    expect(() => parse("gap_y(shelf.top, side)")).toThrow(/gap_y\(\) takes two part names, such as gap_y\(shelf, side_l\)/);
+    expect(() => parse("gap_x(shelf, 3)")).toThrow(/takes two part names/);
+    expect(() => parse("gap_z(shelf)")).toThrow(/Expected ","/);
+    expect(() => parse("gap_y(shelf, shelf)")).toThrow(/gap_y\(\) needs two different parts, not shelf twice/);
+    expect(() => evaluate("gap_y(shelf, side)", resolve)).toThrow(/gap_y measures the parts' shapes, which are worked out after every size, so only a rule can use it/);
+    expect(() => parse("gap_w(a, b)")).toThrow(/Allowed: min, max, abs, sqrt, round, floor, ceil, gap_x, gap_y, gap_z/);
   });
 
   it("spots plain numbers for sliders", () => {

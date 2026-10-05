@@ -1,12 +1,19 @@
 // Checks that run after every change. Each one is a woodworking rule or a
 // rule from the design itself, and each problem names the parts involved.
+//
+// A part with cuts is checked as its true solid: its outline and holes
+// carried through its thickness, with each housing's tongue. Every other
+// part is its box, and the box checks run first, so a design with no cuts
+// is checked exactly as a set of boxes.
 
 import { AXIS_INDEX, type Box, type DeriveResult, type DeriveIssue, type DerivedPart } from "./derive.js";
 import { roundCut } from "./cutlist.js";
-import { fmt } from "./expr.js";
+import { fmt, gapPartsOf, refsOf } from "./expr.js";
 import { fitsLengths, fitsSheet, materialStock, stockSettings } from "./layout.js";
 import { JOINT_LIBRARY } from "./joints.js";
-import type { Design } from "./types.js";
+import { partPrism } from "./profile.js";
+import { prismGap, prismsOverlap, rectLoop, uncutStretches, type Prism } from "./shape.js";
+import { AXES, FACE_AXIS, FACE_IS_MAX, FACES, type Design, type Face } from "./types.js";
 import { parseFinishTarget } from "./finishes.js";
 
 export interface Issue extends DeriveIssue {
@@ -53,9 +60,28 @@ function intersect(a: Box, b: Box): Box {
   };
 }
 
+/** Problems that can come more than once for the same parts, so their words tell them apart. */
+const KEYED_BY_MESSAGE = new Set(["rule_failed", "rule_error", "rule_reads_cut_face"]);
+
 function keyOf(i: DeriveIssue): string {
-  return `${i.code}:${[...i.parts].sort().join(",")}:${i.code === "rule_failed" || i.code === "rule_error" ? i.message : ""}`;
+  return `${i.code}:${[...i.parts].sort().join(",")}:${KEYED_BY_MESSAGE.has(i.code) ? i.message : ""}`;
 }
+
+/** A hardware model's box as a solid, for comparing with a part's. */
+const boxPrism = (b: Box): Prism => ({ u: "x", v: "y", loops: [rectLoop([b.min[0], b.min[1]], [b.max[0], b.max[1]])], t_mm: [b.min[2], b.max[2]] });
+
+/** How far two overlapping solids run into each other along each axis, at most, as "a × b × c". */
+const overlapSize = (a: Prism, b: Prism) => AXES.map((x) => fmt(-(prismGap(a, b, x) ?? 0))).join(" × ");
+
+/** A face as the blank reads it, for a rule's warning. */
+const BLANK_FACE: Record<Face, string> = {
+  top: "its highest point",
+  bottom: "its lowest point",
+  left: "its leftmost point",
+  right: "its rightmost point",
+  back: "the point furthest back",
+  front: "the point furthest forward",
+};
 
 export function runChecks(design: Design, d: DeriveResult): CheckReport {
   const out: DeriveIssue[] = [...d.issues];
@@ -80,6 +106,13 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
     const k = [j.host, j.guest].sort().join("|");
     explained.set(k, [...(explained.get(k) ?? []), j.allowed]);
   }
+  // A part with cuts is its solid as you cut it, so the checks below see the wood that's really there.
+  const solids = new Map<string, Prism>();
+  const solidOf = (p: DerivedPart) => {
+    let s = solids.get(p.id);
+    if (!s) solids.set(p.id, (s = partPrism(p, "cut")));
+    return s;
+  };
   for (let a = 0; a < live.length; a++) {
     for (let b = a + 1; b < live.length; b++) {
       const pa = live[a]!;
@@ -88,11 +121,17 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
       const overlap = intersect(pa.box, pb.box);
       const regions = explained.get([pa.id, pb.id].sort().join("|")) ?? [];
       if (regions.some((r) => within(overlap, r))) continue;
-      const size = [0, 1, 2].map((i) => fmt(overlap.max[i]! - overlap.min[i]!)).join(" × ");
+      let size = [0, 1, 2].map((i) => fmt(overlap.max[i]! - overlap.min[i]!)).join(" × ");
+      let by = "by";
+      if (pa.profile || pb.profile) {
+        if (!prismsOverlap(solidOf(pa), solidOf(pb), EPS)) continue;
+        size = overlapSize(solidOf(pa), solidOf(pb));
+        by = "by up to";
+      }
       out.push({
         severity: pa.decor || pb.decor ? "warning" : "error",
         code: "overlap",
-        message: `${pa.id} and ${pb.id} overlap by ${size} mm and no joint explains it`,
+        message: `${pa.id} and ${pb.id} overlap ${by} ${size} mm and no joint explains it`,
         parts: [pa.id, pb.id],
       });
     }
@@ -104,11 +143,17 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
       for (const p of live) {
         if (p.decor || !boxesOverlap(hb, p.box)) continue;
         const overlap = intersect(hb, p.box);
-        const size = [0, 1, 2].map((i) => fmt(overlap.max[i]! - overlap.min[i]!)).join(" × ");
+        let size = [0, 1, 2].map((i) => fmt(overlap.max[i]! - overlap.min[i]!)).join(" × ");
+        let by = "by";
+        if (p.profile) {
+          if (!prismsOverlap(boxPrism(hb), solidOf(p), EPS)) continue;
+          size = overlapSize(boxPrism(hb), solidOf(p));
+          by = "by up to";
+        }
         out.push({
           severity: "error",
           code: "hardware_overlap",
-          message: `${h.name} (${h.id}) runs into ${p.id} by ${size} mm. Check the gap left for it`,
+          message: `${h.name} (${h.id}) runs into ${p.id} ${by} ${size} mm. Check the gap left for it`,
           parts: [p.id],
         });
       }
@@ -128,16 +173,33 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
     parent.set(find(x), find(y));
   };
   for (const p of live) parent.set(p.id, p.id);
+  // Two solids touch or overlap when, along some axis, they come within TOUCH of each other where they line up.
+  const solidsMeet = (pa: DerivedPart, pb: DerivedPart) =>
+    AXES.some((x) => {
+      const g = prismGap(solidOf(pa), solidOf(pb), x, EPS);
+      return g !== null && g < TOUCH;
+    });
   for (let a = 0; a < live.length; a++) {
     for (let b = a + 1; b < live.length; b++) {
-      if (boxesTouch(live[a]!.box, live[b]!.box) || boxesOverlap(live[a]!.box, live[b]!.box)) union(live[a]!.id, live[b]!.id);
+      const [pa, pb] = [live[a]!, live[b]!];
+      if (!(boxesTouch(pa.box, pb.box) || boxesOverlap(pa.box, pb.box))) continue;
+      if ((pa.profile || pb.profile) && !solidsMeet(pa, pb)) continue;
+      union(pa.id, pb.id);
     }
   }
   for (const j of d.joints) union(j.host, j.guest);
   for (const h of d.hardware) for (let i = 1; i < h.connects.length; i++) union(h.connects[0]!, h.connects[i]!);
   const grounded = new Set<string>();
+  // The lowest point of a part with cuts is the lowest its shape reaches.
+  const lowest = (p: DerivedPart) => {
+    if (!p.profile) return p.box.min[1];
+    const s = solidOf(p);
+    if (s.u !== "y" && s.v !== "y") return s.t_mm[0];
+    const i = s.u === "y" ? 0 : 1;
+    return Math.min(...s.loops.flatMap((l) => l.map((q) => q[i])));
+  };
   for (const p of live) {
-    if (p.box.min[1] <= TOUCH || p.tags.includes("wall_mounted") || p.tags.includes("fixed")) grounded.add(find(p.id));
+    if (lowest(p) <= TOUCH || p.tags.includes("wall_mounted") || p.tags.includes("fixed")) grounded.add(find(p.id));
   }
   // Castors, levellers and feet stand on the floor for the parts they hold.
   for (const h of d.hardware) {
@@ -234,6 +296,7 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
     } catch (e) {
       out.push({ severity: "error", code: "rule_error", message: `Rule ${rule.id}: ${(e as Error).message}`, parts: [] });
     }
+    out.push(...cutFacesRead(d, rule.id, rule.expr));
   }
 
   const unverified = live.filter((p) => p.unverified);
@@ -263,5 +326,51 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
 function partsIn(expr: string): string[] {
   const out = new Set<string>();
   for (const m of expr.matchAll(/([a-z][a-z0-9_]*(?:#\d+)?)\.[a-z_]+/g)) out.add(m[1]!);
+  try {
+    for (const p of gapPartsOf(expr)) out.add(p);
+  } catch {
+    // A rule that doesn't parse names no parts to measure between.
+  }
   return [...out];
+}
+
+/**
+ * A warning for each face a rule reads that a cut has taken wood from. The
+ * face still means the blank's, so on a sloped top it reads the highest
+ * point, and the rule may not see the wood the cut took.
+ */
+function cutFacesRead(d: DeriveResult, ruleId: string, expr: string): DeriveIssue[] {
+  let refs: string[];
+  try {
+    refs = refsOf(expr);
+  } catch {
+    return [];
+  }
+  const out: DeriveIssue[] = [];
+  for (const ref of refs) {
+    const dot = ref.lastIndexOf(".");
+    if (dot < 0) continue;
+    const id = ref.slice(0, dot);
+    const face = ref.slice(dot + 1) as Face;
+    if (!(FACES as readonly string[]).includes(face)) continue;
+    const p = d.byId.get(id);
+    const pr = p?.profile;
+    if (!p || !pr || FACE_AXIS[face] === p.thickness_axis) continue;
+    // The face's line on the blank, and how much of it the outline still runs along.
+    const i: 0 | 1 = FACE_AXIS[face] === pr.u ? 0 : 1;
+    const size = (a: typeof pr.u) => p.nominal.max[AXIS_INDEX[a]] - p.nominal.min[AXIS_INDEX[a]];
+    const along = size(i === 0 ? pr.v : pr.u);
+    const kept = uncutStretches([pr.outline_mm], i, FACE_IS_MAX[face] ? size(FACE_AXIS[face]) : 0, 0, along).reduce((n, [a, b]) => n + b - a, 0);
+    if (kept >= along - EPS) continue;
+    const cuts = pr.cuts.filter((c) => c.faces?.includes(face)).map((c) => c.id);
+    const who = cuts.length > 1 ? `cuts ${cuts.slice(0, -1).join(", ")} and ${cuts[cuts.length - 1]} take` : cuts.length ? `cut ${cuts[0]} takes` : "a cut takes";
+    const edge = FACE_AXIS[face] === p.grain_axis ? "end" : "edge";
+    out.push({
+      severity: "warning",
+      code: "rule_reads_cut_face",
+      message: `Rule ${ruleId} reads ${ref}, and ${who} wood off that ${edge}. ${ref} still means the blank's ${face}, ${BLANK_FACE[face]} before any cut, so the rule may not see what the cut took. To measure to the shape, use gap_${FACE_AXIS[face]}`,
+      parts: [id],
+    });
+  }
+  return out;
 }

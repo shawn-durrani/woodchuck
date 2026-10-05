@@ -110,6 +110,12 @@ describe("reading a design", () => {
       "rule near fails on copy 4",
     ]);
     expect(ruleFailures(d, { id: "gap", expr: "partition.left - left_side.right >= 372", severity: "error", message: "Wide" })).toEqual([]);
+    // A part a gap function measures to is read on each copy too.
+    expect(ruleFailures(d, { id: "near_gap", expr: "gap_x(partition, left_side) <= 500", severity: "error", message: "Near the left" })).toEqual([
+      "rule near_gap fails on copy 2",
+      "rule near_gap fails on copy 3",
+      "rule near_gap fails on copy 4",
+    ]);
     expect(ruleFailures(edit(d, undermount), d.rules[0]!)).toEqual([]);
     expect(ruleFailures(d, d.rules[0]!)).toEqual(["rule lp_fit fails", ...[2, 3, 4, 5].map((k) => `rule lp_fit fails on copy ${k}`)]);
   });

@@ -5,12 +5,15 @@
 // Parts are worked out in two passes. The nominal box is what you see:
 // where each part starts and ends. Housing joints then lengthen the guest
 // part into its host, which gives the box you cut. A part with cuts gets its
-// profile last, once every box is known (see profile.ts).
+// shape once every nominal box is known (see profile.ts). Joints are placed
+// on the wood its cuts leave, and its profile follows its housings.
 
-import { evaluate, evaluateNumber, ExprError, fmt, type Traced } from "./expr.js";
+import { evaluate, evaluateNumber, ExprError, fmt, type GapResolver, type Traced } from "./expr.js";
 import { JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
+import { contactWood, cutsInBox, fastenerStretches, slotWallsOnShape, spreadOver, type CutInBox } from "./jointShape.js";
 import { placeBox } from "./library.js";
-import { profileFor, solveFace, type CutValues, type PartProfile, type SolvedFace } from "./profile.js";
+import { partPrism, profileFor, solveFace, type CutValues, type PartProfile, type SolvedFace } from "./profile.js";
+import { prismGap, prismsOverlap, type Loop } from "./shape.js";
 import {
   AXES,
   AXIS_FACES,
@@ -525,24 +528,56 @@ function mid(b: Box, a: Axis): number {
   return (b.min[AXIS_INDEX[a]]! + b.max[AXIS_INDEX[a]]!) / 2;
 }
 
-/** The host left on each side of a through slot, one entry per axis across the pass axis. */
-function slotWalls(host: DerivedPart, overlap: Box, pass: Axis): SlotWall[] {
+/** The host left on each side of a through slot, one entry per axis across the pass axis. A host with cuts is measured to its outline. */
+function slotWalls(host: DerivedPart, overlap: Box, pass: Axis, face: SolvedFace | null = null): SlotWall[] {
+  if (face) return slotWallsOnShape(host, face, overlap, pass);
   return AXES.filter((a) => a !== pass).map((a) => {
     const i = AXIS_INDEX[a];
     return { lo: overlap.min[i]! - host.nominal.min[i]!, hi: host.nominal.max[i]! - overlap.max[i]!, along_length: a === host.grain_axis };
   });
 }
 
+/** The shapes of a joint's two parts, when either has cuts, and the wood where they meet. */
+interface JointShape {
+  host: SolvedFace | null;
+  guest: SolvedFace | null;
+  /** Where a guest meets its host face to face: the patch where both still have wood. */
+  contact?: Loop[];
+}
+
+/** Cut ids in words: "cut kick", or "cuts kick and slot". */
+const cutWords = (cs: { id: string }[]) => {
+  const ids = [...new Set(cs.map((c) => c.id))];
+  return ids.length === 1 ? `cut ${ids[0]}` : `cuts ${ids.slice(0, -1).join(", ")} and ${ids[ids.length - 1]}`;
+};
+/** How far a cut runs along an axis inside a joint, or the joint's own length there when the cut goes right through that way. */
+const runOf = (c: CutInBox, a: Axis, b: Box) => {
+  const s = c.span[a];
+  return s ? s[1] - s[0] : b.max[AXIS_INDEX[a]]! - b.min[AXIS_INDEX[a]]!;
+};
+
 /** Records the machining and see-through features for one placed joint. */
-function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart) {
+function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh: JointShape | null, issues: DeriveIssue[]) {
   const p = dj.params;
   const span = (b: Box, a: Axis) => b.max[AXIS_INDEX[a]]! - b.min[AXIS_INDEX[a]]!;
   const fit = p.fit ?? 0;
+  const name = JOINT_LIBRARY[dj.type].name.toLowerCase();
+  const cutJoint = (message: string) => issues.push({ severity: "error", code: "cut_joint", message: `Joint ${dj.id}: ${message}`, parts: [dj.host, dj.guest] });
+  const size2 = (c: CutInBox) => {
+    const sides = Object.values(c.span).map(([a, b]) => b - a);
+    return sides.length === 2 ? `${fmt(sides[0]!)} × ${fmt(sides[1]!)} mm` : `${fmt(sides[0] ?? 0)} mm`;
+  };
 
   if (dj.family === "through") {
     const pass = dj.axis!;
     const o = intersect(guest.nominal, host.nominal);
     dj.allowed = o;
+    // The slot is cut to the passing part's blank, so a cut there leaves it loose.
+    for (const c of sh ? cutsInBox(guest, sh.guest, o) : []) {
+      cutJoint(
+        `${cutWords([c])} on ${guest.id} takes ${size2(c)} of wood from where it passes through ${host.id}. The slot is cut to the blank, so ${guest.id} would sit loose in it. Move the cut clear of ${host.id}`,
+      );
+    }
     // The slot is the passing member's cross-section, plus any fit, right
     // through the host. At an open end it stops where the host does.
     let slot = o;
@@ -553,7 +588,7 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart) {
     }
     dj.depth_mm = span(slot, pass);
     dj.features.push({ kind: "removed", part: host.id, box: slot });
-    const shape = slotShape(slotWalls(host, o, pass), fit);
+    const shape = slotShape(slotWalls(host, o, pass, sh?.host ?? null), fit);
     if (shape.kind === "open") {
       const along = cross[shape.wall]!;
       const across = cross[1 - shape.wall]!;
@@ -589,6 +624,17 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart) {
   if (dj.family === "interlock") {
     const o = intersect(guest.nominal, host.nominal);
     dj.allowed = o;
+    // Each part keeps half the wood where they cross, so a cut there takes what holds the joint.
+    for (const [part, face] of sh
+      ? ([
+          [host, sh.host],
+          [guest, sh.guest],
+        ] as const)
+      : []) {
+      for (const c of cutsInBox(part, face, o)) {
+        cutJoint(`${cutWords([c])} on ${part.id} takes ${size2(c)} of wood from inside the ${name}, where both parts need all of theirs. Move the cut clear of the joint`);
+      }
+    }
     if (dj.type === "half_lap") {
       // The axis where the overlap runs through both parts' full thickness.
       const t = AXES.find((a) => Math.abs(span(o, a) - span(host.nominal, a)) < EPS && Math.abs(span(o, a) - span(guest.nominal, a)) < EPS);
@@ -683,6 +729,31 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart) {
     dj.features.push({ kind: "tongue", part: guest.id, box: tongue });
     dj.features.push({ kind: "removed", part: host.id, box: housing });
     const hostLabel = dj.type === "mortise_tenon" ? "mortise" : dj.type === "tongue" ? "groove for tongue" : dj.type;
+    if (sh && dj.type === "mortise_tenon") {
+      // A mortise needs wood all round, and a tenon needs its whole width.
+      for (const c of cutsInBox(host, sh.host, housing)) {
+        cutJoint(
+          `${cutWords([c])} on ${host.id} breaks into the mortise for ${guest.id}, over ${fmt(runOf(c, lAxis, housing))} mm of its ${fmt(span(housing, lAxis))} mm length. A mortise needs wood all round, so move the cut clear of it`,
+        );
+      }
+      const endAt = dj.side === "end" ? guest.nominal.max[i]! : guest.nominal.min[i]!;
+      const end = setRange(tongue, axis, endAt, endAt);
+      for (const c of cutsInBox(guest, sh.guest, end)) {
+        cutJoint(
+          `${cutWords([c])} on ${guest.id} takes wood from under its tenon, over ${fmt(runOf(c, lAxis, tongue))} mm of its ${fmt(span(tongue, lAxis))} mm width. Move the cut clear of the tenon, or set the tenon in further with a bigger shoulder`,
+        );
+      }
+    } else if (sh) {
+      // A housing runs out through an edge cut the way it runs out of a blank's edge, but a cutout across it leaves a gap in it.
+      for (const c of cutsInBox(host, sh.host, housing, ["cutout"])) {
+        issues.push({
+          severity: "warning",
+          code: "housing_runs_out",
+          message: `Joint ${dj.id}: the ${hostLabel} for ${guest.id} in ${host.id} runs out into ${cutWords([c])} for ${fmt(runOf(c, lAxis, housing))} mm, so ${guest.id} shows there and has less to hold it. Move the cut clear, unless that's the look you want`,
+          parts: [dj.host, dj.guest],
+        });
+      }
+    }
     host.machining.push({
       joint: dj.id,
       type: dj.type,
@@ -710,18 +781,19 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart) {
     return;
   }
 
-  // Fasteners: spread evenly along the edge that meets the host.
+  // Fasteners: spread evenly along the edge that meets the host, over the wood its cuts leave.
   if (dj.type === "butt") return;
   const patch = intersect(guest.nominal, host.nominal);
   patch.min[i] = contact;
   patch.max[i] = contact;
   const n = Math.max(1, p.count ?? 1);
   const lo = patch.min[AXIS_INDEX[lAxis]]!;
-  const len = patch.max[AXIS_INDEX[lAxis]]! - lo;
   const cT = mid(patch, tAxis);
+  const spots = sh?.contact ? fastenerStretches(sh.contact, axis, tAxis, cT) : [];
+  const len = spots.length ? spots.reduce((s, [a, b]) => s + b - a, 0) : patch.max[AXIS_INDEX[lAxis]]! - lo;
   const at = (k: number, along: number, across = cT): Vec3 => {
     const v: Vec3 = [0, 0, 0];
-    v[AXIS_INDEX[lAxis]] = lo + ((k + 0.5) / n) * len;
+    v[AXIS_INDEX[lAxis]] = spots.length ? spreadOver(spots, k, n) : lo + ((k + 0.5) / n) * len;
     v[AXIS_INDEX[tAxis]] = across;
     v[i] = along;
     return v;
@@ -883,6 +955,58 @@ export function derive(design: Design): DeriveResult {
     byId.set(u.id, dp);
   }
 
+  // Each part's shape on its blank, once every nominal box is known. An
+  // original is solved once, and its copies share it.
+  const faces = new Map<string, SolvedFace | null>();
+  const panels = new Map(design.parts.map((p) => [p.id, p]));
+  for (const p of parts) {
+    const panel = panels.get(p.source);
+    if (p.broken || p.unverified || !panel?.cuts?.length || faces.has(p.source)) continue;
+    const original = byId.get(p.source)!;
+    let face: SolvedFace | null = null;
+    try {
+      if (!original.broken) face = solveFace(panel, original.nominal, r.cutValues(panel), issues);
+    } catch (e) {
+      // Each cut's own problems are caught inside. This is for the shape itself, so a bad one never stops the rest.
+      issues.push({ severity: "error", code: "cut_error", message: `The shape of ${panel.id} couldn't be worked out: ${(e as Error).message}`, parts: [panel.id] });
+    }
+    faces.set(p.source, face);
+  }
+  const faceFor = (p: DerivedPart) => (p.broken || p.unverified ? null : (faces.get(p.source) ?? null));
+  // A part split in two is already an error, and its joints sit on its blank until it's whole again.
+  const shapeOf = (host: DerivedPart, guest: DerivedPart): JointShape | null => {
+    const whole = (p: DerivedPart) => {
+      const f = faceFor(p);
+      return f && !f.severed ? f : null;
+    };
+    const h = whole(host);
+    const g = whole(guest);
+    return h || g ? { host: h, guest: g } : null;
+  };
+  /**
+   * A joint refused because cuts took all the wood it would sit on. It names
+   * the cuts on whichever part has no wood left there, or on both.
+   */
+  const onCut = (dj: DerivedJoint, sh: JointShape, host: DerivedPart, guest: DerivedPart, patch: Box, where: string, name: string, bare: ("host" | "guest")[] = []) => {
+    const found = [
+      { part: guest.id, cuts: bare.length && !bare.includes("guest") ? [] : cutsInBox(guest, sh.guest, patch) },
+      { part: host.id, cuts: bare.length && !bare.includes("host") ? [] : cutsInBox(host, sh.host, patch) },
+    ].filter((x) => x.cuts.length);
+    const count = found.reduce((n, x) => n + new Set(x.cuts.map((c) => c.id)).size, 0);
+    const words = found.length ? found.map((x) => `${cutWords(x.cuts)} on ${x.part}`).join(" and ") : `the cuts on ${dj.guest} and ${dj.host}`;
+    issues.push({
+      severity: "error",
+      code: "joint_on_cut",
+      message: `Joint ${dj.id}: ${words} ${count === 1 ? "takes" : "take"} away all the wood where ${dj.guest} ${where} ${dj.host}, so the ${name} can't be placed. Move the cut, or join the parts somewhere else`,
+      parts: [dj.host, dj.guest],
+    });
+  };
+  /** Whether a joint's two parts overlap as you see them, each as its shape or its box. */
+  const shapesOverlap = (sh: JointShape, host: DerivedPart, guest: DerivedPart) => {
+    const seen = (p: DerivedPart, face: SolvedFace | null) => partPrism(face ? { ...p, profile: profileFor(face, []) } : p, "seen");
+    return prismsOverlap(seen(guest, sh.guest), seen(host, sh.host), EPS);
+  };
+
   // Expand joints and hardware across arrays.
   const copiesFor = (ids: string[]): { k: number; map: (id: string) => string }[] => {
     const arrays = new Set(ids.map((id) => r.arrayOf(id)).filter((a): a is ArrayPattern => !!a));
@@ -903,7 +1027,7 @@ export function derive(design: Design): DeriveResult {
   };
 
   const joints: DerivedJoint[] = [];
-  const placed: { dj: DerivedJoint; host: DerivedPart; guest: DerivedPart }[] = [];
+  const placed: { dj: DerivedJoint; host: DerivedPart; guest: DerivedPart; sh: JointShape | null }[] = [];
   for (const j of design.joints) {
     const family = JOINT_FAMILY[j.type];
     for (const { k, map } of copiesFor([j.host, j.guest])) {
@@ -941,17 +1065,22 @@ export function derive(design: Design): DeriveResult {
           });
           continue;
         }
+        const sh = shapeOf(host, guest);
+        if (sh && !shapesOverlap(sh, host, guest)) {
+          onCut(dj, sh, host, guest, intersect(guest.nominal, host.nominal), "passes through", name);
+          continue;
+        }
         const ctx: JointContext = {
           guestThickness: guest.finished.thickness,
           guestWidth: guest.finished.width,
           hostThickness: host.finished.thickness,
           hostDepth: host.nominal.max[AXIS_INDEX[pass]]! - host.nominal.min[AXIS_INDEX[pass]]!,
           hostAcross: host.finished.thickness,
-          slotWalls: slotWalls(host, intersect(guest.nominal, host.nominal), pass),
+          slotWalls: slotWalls(host, intersect(guest.nominal, host.nominal), pass, sh?.host ?? null),
         };
         if (!resolveJointParams(j, dj, ctx, r, issues)) continue;
         dj.axis = pass;
-        placed.push({ dj, host, guest });
+        placed.push({ dj, host, guest, sh });
         continue;
       }
 
@@ -966,6 +1095,11 @@ export function derive(design: Design): DeriveResult {
           continue;
         }
         const o = intersect(guest.nominal, host.nominal);
+        const sh = shapeOf(host, guest);
+        if (sh && !shapesOverlap(sh, host, guest)) {
+          onCut(dj, sh, host, guest, o, "crosses", name);
+          continue;
+        }
         const sizeOf = (b: Box, a: Axis) => b.max[AXIS_INDEX[a]]! - b.min[AXIS_INDEX[a]]!;
         const ctx: JointContext = {
           guestThickness: guest.finished.thickness,
@@ -975,7 +1109,7 @@ export function derive(design: Design): DeriveResult {
           hostAcross: host.finished.thickness,
         };
         if (!resolveJointParams(j, dj, ctx, r, issues)) continue;
-        placed.push({ dj, host, guest });
+        placed.push({ dj, host, guest, sh });
         continue;
       }
 
@@ -988,6 +1122,32 @@ export function derive(design: Design): DeriveResult {
           parts: [dj.host, dj.guest],
         });
         continue;
+      }
+      // The joint sits where both parts still have wood once their cuts are made.
+      const sh = shapeOf(host, guest);
+      if (sh) {
+        const at = touch.side === "end" ? host.nominal.min[AXIS_INDEX[touch.axis]]! : host.nominal.max[AXIS_INDEX[touch.axis]]!;
+        const patch = setRange(intersect(guest.nominal, host.nominal), touch.axis, at, at);
+        const wood = contactWood(
+          { part: guest, face: sh.guest, on: faceOf(touch.axis, touch.side === "end") },
+          { part: host, face: sh.host, on: faceOf(touch.axis, touch.side === "start") },
+          touch.axis,
+          patch,
+        );
+        const longest = Math.max(...AXES.filter((a) => a !== touch.axis).map((a) => patch.max[AXIS_INDEX[a]]! - patch.min[AXIS_INDEX[a]]!));
+        if (wood.area <= EPS * longest) {
+          // Which part has no wood there on its own.
+          const alone = (who: "host" | "guest") =>
+            contactWood(
+              { part: guest, face: who === "guest" ? sh.guest : null, on: faceOf(touch.axis, touch.side === "end") },
+              { part: host, face: who === "host" ? sh.host : null, on: faceOf(touch.axis, touch.side === "start") },
+              touch.axis,
+              patch,
+            ).area <= EPS * longest;
+          onCut(dj, sh, host, guest, patch, "meets", name, (["guest", "host"] as const).filter(alone));
+          continue;
+        }
+        sh.contact = wood.loops;
       }
       dj.axis = touch.axis;
       dj.side = touch.side;
@@ -1009,37 +1169,21 @@ export function derive(design: Design): DeriveResult {
         else guest.box.min[i] = guest.box.min[i]! - depth;
         guest.extensions.push({ joint: dj.id, host: dj.host, axis: touch.axis, side: touch.side, depth_mm: depth });
       }
-      placed.push({ dj, host, guest });
+      placed.push({ dj, host, guest, sh });
     }
   }
 
   // Joint detail is worked out once every guest has its final size, so each
   // housing matches the tongue that goes into it.
-  for (const { dj, host, guest } of placed) jointDetail(dj, host, guest);
+  for (const { dj, host, guest, sh } of placed) jointDetail(dj, host, guest, sh, issues);
 
   for (const p of parts) {
     p.cut = dimsOf(p.box, p.grain_axis, p.width_axis, p.thickness_axis);
   }
 
-  // Each part's shape, once every box is known. An original is solved once,
-  // and its copies share the result with their own housing extensions.
-  const faces = new Map<string, SolvedFace | null>();
-  const panels = new Map(design.parts.map((p) => [p.id, p]));
+  // Each profile carries its own part's housings, over the stretches of each end no cut touched.
   for (const p of parts) {
-    const panel = panels.get(p.source);
-    if (p.broken || p.unverified || !panel?.cuts?.length) continue;
-    if (!faces.has(p.source)) {
-      const original = byId.get(p.source)!;
-      let face: SolvedFace | null = null;
-      try {
-        if (!original.broken) face = solveFace(panel, original.nominal, r.cutValues(panel), issues);
-      } catch (e) {
-        // Each cut's own problems are caught inside. This is for the shape itself, so a bad one never stops the rest.
-        issues.push({ severity: "error", code: "cut_error", message: `The shape of ${panel.id} couldn't be worked out: ${(e as Error).message}`, parts: [panel.id] });
-      }
-      faces.set(p.source, face);
-    }
-    const face = faces.get(p.source);
+    const face = faceFor(p);
     if (face) p.profile = profileFor(face, p.extensions);
   }
 
@@ -1079,6 +1223,24 @@ export function derive(design: Design): DeriveResult {
     }
   }
 
+  // gap_x, gap_y and gap_z measure between the shapes you see, once every one is known.
+  const gap: GapResolver = (axis, a, b) => {
+    const solid = (ref: string) => {
+      const p = byId.get(ref);
+      if (!p) {
+        r.partFor(ref);
+        throw new ExprError(`Unknown part "${ref}"`);
+      }
+      if (p.broken) throw new ExprError(`${ref}'s size couldn't be worked out, so gap_${axis} can't measure to it`);
+      return partPrism(p, "seen");
+    };
+    const g = prismGap(solid(a), solid(b), axis, EPS);
+    if (g === null) {
+      throw new ExprError(`seen along ${axis}, ${a} and ${b} don't cover any of each other, so gap_${axis} has nothing to measure. Use the axis they're apart on`);
+    }
+    return g;
+  };
+
   return {
     params,
     parts,
@@ -1086,7 +1248,7 @@ export function derive(design: Design): DeriveResult {
     hardware,
     issues,
     byId,
-    evaluate: (expr: string) => evaluate(expr, r.value),
+    evaluate: (expr: string) => evaluate(expr, r.value, gap),
   };
 }
 

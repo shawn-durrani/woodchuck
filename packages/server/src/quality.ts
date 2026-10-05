@@ -16,6 +16,7 @@ import {
   finishedColour,
   finishOn,
   fmt,
+  gapPartsOf,
   literalValue,
   lookupFinish,
   parse,
@@ -285,6 +286,8 @@ function source(a: Ast): string {
       return `(${source(a.left)}) ${a.op} (${source(a.right)})`;
     case "call":
       return `${a.fn}(${a.args.map(source).join(", ")})`;
+    case "gap":
+      return `gap_${a.axis}(${a.a}, ${a.b})`;
   }
 }
 
@@ -330,12 +333,15 @@ export function ruleFailures(design: Design, rule: Rule): string[] {
     }
   };
   let refs: string[];
+  let measured: string[];
   try {
     refs = refsOf(rule.expr);
+    measured = gapPartsOf(rule.expr);
   } catch (e) {
     return [`rule ${rule.id} can't be read: ${(e as Error).message}`];
   }
-  const arrayed = [...new Set(refs.filter((r) => r.includes(".") && !r.includes("#")).map((r) => r.split(".")[0]!))].filter((id) => d.byId.has(`${id}#2`));
+  const named = [...refs.filter((r) => r.includes(".")).map((r) => r.split(".")[0]!), ...measured].filter((id) => !id.includes("#"));
+  const arrayed = [...new Set(named)].filter((id) => d.byId.has(`${id}#2`));
   let copies = arrayed.length ? Infinity : 1;
   for (const id of arrayed) {
     let k = 2;
@@ -345,7 +351,12 @@ export function ruleFailures(design: Design, rule: Rule): string[] {
   const out = run(rule.expr, "");
   for (let k = 2; k <= copies; k++) {
     let expr = rule.expr;
-    for (const id of arrayed) expr = expr.replace(new RegExp(`(?<![a-z0-9_#])${id}(?=\\.)`, "g"), `${id}#${k}`);
+    for (const id of arrayed) {
+      const copy = `${id}#${k}`;
+      expr = expr
+        .replace(new RegExp(`(?<![a-z0-9_#])${id}(?=\\.)`, "g"), copy)
+        .replace(/(gap_[xyz]\(\s*)([a-z0-9_#]+)(\s*,\s*)([a-z0-9_#]+)(\s*\))/gi, (_m, open, a, comma, b, close) => `${open}${a === id ? copy : a}${comma}${b === id ? copy : b}${close}`);
+    }
     out.push(...run(expr, ` on copy ${k}`));
   }
   return out;

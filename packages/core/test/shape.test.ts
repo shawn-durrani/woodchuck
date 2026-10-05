@@ -5,12 +5,14 @@ import {
   CURVE_TOLERANCE_MM,
   circleLoop,
   clipHalfPlane,
+  clipRect,
   insideConvex,
   outlineDistance,
   perimeter,
   piecesOf,
   pointInLoop,
   pointInRegion,
+  prismGap,
   prismsOverlap,
   rectLoop,
   regionArea,
@@ -18,6 +20,8 @@ import {
   roundedRectLoop,
   signedArea,
   sliceIntervals,
+  slicer,
+  spanGap,
   traceRegion,
   uncutStretches,
   type Loop,
@@ -228,5 +232,78 @@ describe("solids that overlap", () => {
     const withHole = minus(rectLoop([3, 3], [7, 7]));
     expect(regionsOverlap(withHole, [rectLoop([4, 4], [6, 6])])).toBe(false);
     expect(regionsOverlap(withHole, [rectLoop([2, 4], [6, 6])])).toBe(true);
+  });
+});
+
+describe("the gap between solids", () => {
+  // The same sloped side: 20 thick on x, 100 high at the back (z = 0) and 40 at the front (z = 300).
+  const sloped: Prism = { u: "y", v: "z", loops: [[[0, 0], [100, 0], [40, 300], [0, 300]]], t_mm: [0, 20] };
+  // A board lying flat, 12 thick from y0, over x 0 to 200 and z from z0 to z1.
+  const board = (y0: number, z0: number, z1: number): Prism => ({ u: "z", v: "x", loops: [rectLoop([z0, 0], [z1, 200])], t_mm: [y0, y0 + 12] });
+  /** A plain box as a prism lying with its thickness on t. */
+  const box = (min: [number, number, number], max: [number, number, number], t: "x" | "y" | "z"): Prism => {
+    const i = { x: 0, y: 1, z: 2 } as const;
+    const [u, v] = t === "x" ? (["y", "z"] as const) : t === "y" ? (["z", "x"] as const) : (["x", "y"] as const);
+    return { u, v, loops: [rectLoop([min[i[u]], min[i[v]]], [max[i[u]], max[i[v]]])], t_mm: [min[i[t]], max[i[t]]] };
+  };
+
+  it("takes the larger start less the smaller end, pair by pair", () => {
+    expect(spanGap([[0, 10]], [[15, 20]])).toBe(5);
+    expect(spanGap([[0, 10]], [[8, 20]])).toBe(-2);
+    // One inside the other overlaps by all of the smaller.
+    expect(spanGap([[0, 10]], [[3, 5]])).toBe(-2);
+    expect(spanGap([[0, 2], [8, 10]], [[4, 6]])).toBe(2);
+  });
+
+  it("measures to the slope where the boxes would only see the blank's top", () => {
+    // Over the whole depth the side's highest point is at the back.
+    expect(prismGap(sloped, board(110, 0, 300), "y")).toBe(10);
+    // Over the front third the side is at most 60 high.
+    expect(prismGap(sloped, board(110, 200, 300), "y")).toBe(50);
+    expect(prismGap(board(110, 200, 300), sloped, "y")).toBe(50);
+    // A board at 60 over z from 150 runs 10 into the slope, which is 70 high there.
+    expect(prismGap(sloped, board(60, 150, 300), "y")).toBe(-10);
+  });
+
+  it("gives two boxes the space between them, and minus their overlap", () => {
+    const shelf = box([0, 0, 0], [100, 18, 300], "y");
+    const side = box([0, 50, 0], [18, 200, 300], "x");
+    expect(prismGap(shelf, side, "y")).toBe(32);
+    expect(prismGap(box([0, 10, 0], [100, 28, 300], "y"), side, "y")).toBe(22);
+    expect(prismGap(box([0, 60, 0], [100, 78, 300], "y"), side, "y")).toBe(-18);
+  });
+
+  it("has nothing to measure when the two don't line up across the axis", () => {
+    const shelf = box([0, 0, 0], [100, 18, 300], "y");
+    expect(prismGap(shelf, box([0, 50, 0], [18, 200, 300], "x"), "x")).toBeNull();
+    // Touching along one edge, seen along y, isn't lining up.
+    expect(prismGap(box([0, 0, 0], [18, 100, 300], "x"), box([18, 200, 0], [300, 218, 300], "y"), "y")).toBeNull();
+  });
+
+  it("measures between two parts on edge at right angles, like a drawer side and its back", () => {
+    const back = (y0: number, z0: number, z1: number) => box([0, y0, z0], [300, y0 + 100, z1], "z");
+    const side: Prism = { ...sloped, t_mm: [0, 18] };
+    expect(prismGap(side, back(150, 0, 18), "y")).toBe(50);
+    // Over z 0 to 18 the slope drops from 100 to 96.4, so a back from 99 runs 1 into it.
+    expect(prismGap(side, back(99, 0, 18), "y")).toBe(-1);
+    expect(prismGap(side, back(99, 282, 300), "y")).toBe(55.4);
+    expect(prismGap(side, box([20, 150, 0], [300, 250, 18], "z"), "y")).toBeNull();
+  });
+
+  it("slices a region with many edges the same way, reading only the edges near each place", () => {
+    const board = rectLoop([0, 0], [300, 100]);
+    const holes = [0, 1, 2, 3, 4].map((i) => circleLoop([30 + i * 60, 50], 35).reverse());
+    const loops = traceRegion([board, ...holes], (p) => pointInRegion(p, [board, ...holes]));
+    const fast = slicer(loops, 0);
+    for (let x = -5; x <= 305; x += 0.37) expect(fast(x)).toEqual(sliceIntervals(loops, 0, x));
+    const across = slicer(loops, 1);
+    for (let y = -5; y <= 105; y += 0.13) expect(across(y)).toEqual(sliceIntervals(loops, 1, y));
+  });
+
+  it("clips a loop to a rectangle", () => {
+    // The circle's polygon has a corner at each quarter turn, so a quarter of it is a quarter of its area.
+    const circle = circleLoop([0, 0], 20);
+    expect(signedArea(clipRect(circle, [0, 0], [20, 20]))).toBeCloseTo(signedArea(circle) / 4, 9);
+    expect(clipRect(square, [20, 20], [30, 30])).toEqual([]);
   });
 });
