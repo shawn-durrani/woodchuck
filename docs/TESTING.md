@@ -44,13 +44,18 @@ pigment differs from what `scripts/fit-oil-colours.ts` would write.
 The server tests in `packages/server/test` drive the whole app through its
 HTTP API with stand-ins for every outside service. A scripted Claude plays
 back fixed replies, so the turn loop, previews, questions and tool requests
-run for real without a key. Stand-ins also take the place of OpenAI,
-GitHub, Tailscale and the picture camera, which is why a test can't send
-anything anywhere. A software passkey signs the passkey tests, so the whole
-sign-in runs without a browser. Any test that needs a repository names one
-from the roster, such as `globex/woodchuck`. With none named, the tests
-check that the app never calls GitHub, and that a missing tool's issue
-quotes the design only when asked.
+run for real without a key. One scripted reply can carry many tool calls.
+The tests hold those calls to running in order, each with its result, and
+to one undo step for all of them. A failed call leaves the rest running, and
+only one question, plan, part or preview can wait at a time. Every request
+asks the API to drop earlier thinking that a changed prompt, tool list or
+workshop doesn't match. Stand-ins also
+take the place of OpenAI, GitHub, Tailscale and the picture camera, which
+is why a test can't send anything anywhere. A software passkey signs the
+passkey tests, so the whole sign-in runs without a browser. Any test that
+needs a repository names one from the roster, such as `globex/woodchuck`.
+With none named, the tests check that the app never calls GitHub, and that
+a missing tool's issue quotes the design only when asked.
 
 The workshop tests hold Claude's standing instructions to two blocks, with
 your workshop last and the cache breakpoint on it. The same settings give
@@ -70,7 +75,9 @@ block held to the agreed shape.
 A stand-in that drops the connection mid-reply checks that Claude's
 request is sent again, and that the cut-off words leave the chat. A turn
 that an error or Stop ends has to say so to other apps and to the next
-turn, and never leave the typing cursor behind.
+turn, and never leave the typing cursor behind. A message sent during a
+reply that's cut off mid-tool call goes in after its not-run results, and
+answers no plan or question.
 
 ### The web app
 

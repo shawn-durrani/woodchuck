@@ -74,7 +74,7 @@ export type ChatItem =
   | { id: string; kind: "summary"; at: string };
 
 export interface Pending {
-  /** Results for tools that already ran, sent with the woodworker's reply. */
+  /** Results for the calls that aren't waiting, sent with the woodworker's next message. */
   held: Anthropic.Beta.BetaToolResultBlockParam[];
   /** Tool calls waiting on the woodworker. */
   waiting: { tool_use_id: string; kind: "question" | "plan" | "part" | "preview" }[];

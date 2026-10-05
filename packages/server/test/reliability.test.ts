@@ -230,3 +230,54 @@ describe("a message sent while Claude works, when the turn ends on a plan", () =
     );
   });
 });
+
+describe("a message sent while Claude works, when the reply is cut off mid-tool call", () => {
+  it("goes in after the not-run results, and answers no card", async () => {
+    const client = scriptedClient([
+      [call("t1", "add_panel", { id: "side", length_mm: 600, width_mm: 300, thickness_mm: 18 }), call("t2", "check_design", {})],
+      [{ type: "text", text: "Carrying on." }],
+    ]);
+    let id = "";
+    let cut = true;
+    const sayIt: MessagesClient = {
+      stream(body) {
+        const s = client.stream(body);
+        if (!id) {
+          const input = { text: "Make it oak", selection: [] };
+          const line = userLine(input, true);
+          store.project.addChat(line);
+          store.project.queued.push({ item: line.id, input });
+          id = line.id;
+        }
+        return {
+          on: (event, cb) => s.on(event, cb),
+          abort: () => s.abort(),
+          finalMessage: async () => {
+            const m = await s.finalMessage();
+            const out = cut ? { ...m, stop_reason: "max_tokens" as const } : m;
+            cut = false;
+            return out;
+          },
+        };
+      },
+    };
+    const p = store.project;
+    // A question card an earlier turn left open isn't what this message answers.
+    p.addChat({ id: "q-old", kind: "question", question: "Which timber?", options: [], at: new Date().toISOString() });
+    await turn(sayIt).run({ text: "Build a record cabinet", selection: [] });
+    expect(p.pending).toMatchObject({ waiting: [] });
+    expect(p.job).toMatchObject({ error: expect.stringMatching(/cut off/) });
+    expect(p.news).toHaveLength(1);
+
+    await turn(sayIt).run(followUp(p)!);
+    const reply = client.sent[1]!.messages.at(-1)!.content as unknown as Block[];
+    expect(reply.map((b) => b.tool_use_id ?? b.type)).toEqual(["t1", "t2", "text"]);
+    expect(reply.slice(0, 2).every((b) => b.is_error === true && /^Not run/.test(String(b.content)))).toBe(true);
+    const text = String(reply.at(-1)!.text);
+    expect(text).toMatch(/^Make it oak\n\n\(The woodworker sent this while you were still working\.\)\n\n\(News since your last turn: your last turn stopped early/);
+    expect(text).not.toContain("taken as their reply");
+    expect(p.chat.find((c) => c.id === "q-old")).not.toHaveProperty("answered");
+    expect(p.chat.some((c) => "answered_by" in c)).toBe(false);
+    expect(p.pending).toBeNull();
+  });
+});
