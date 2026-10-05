@@ -22,8 +22,8 @@ you're trying to do.
 
 1. [CONTRIBUTING.md](../CONTRIBUTING.md): how a change lands and how to
    write the docs.
-2. [docs/TESTING.md](TESTING.md): what the tests hold, and the acceptance
-   test.
+2. [docs/TESTING.md](TESTING.md): what the tests hold, the acceptance
+   test, and the quality benchmark for a faster setting.
 3. [CHANGELOG.md](../CHANGELOG.md): what's changed, release by release.
 
 ## Safety and credits

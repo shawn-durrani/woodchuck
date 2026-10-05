@@ -241,21 +241,154 @@ from older chats have no timing of their own. The script rebuilds their
 rounds and tool calls from the saved conversation, and their seconds from
 the chat's timestamps.
 
-The live benchmark sends a few invented tasks to Claude for real, through
-the same turn loop the app uses. It needs an Anthropic key and the
-`--live` flag, costs money and never runs in the tests or CI. Each task
-gets a throwaway data folder, and the script prints its cost estimate
-before it starts.
+## The quality benchmark
+
+The quality benchmark sends invented tasks to Claude for real, through the
+same turn loop the app uses, and checks what comes back. A faster setting,
+such as less thinking on a turn, has to keep every check passing. A lost
+requirement or a wrong size costs timber, and can make a piece unsafe.
+
+It needs an Anthropic key and the `--live` flag, costs money and never
+runs in the tests or CI. Each run gets a throwaway data folder, so your own
+designs are never touched.
 
 ```bash
-npx tsx scripts/bench.ts --live [build|lp-fix|colour|height ...]
+npx tsx scripts/bench.ts --live [--tasks height,lp-fix] [--repeat 2] [--configs routing,no-routing,medium]
 ```
 
-It reports each task's turns, requests, seconds, tool calls, edits, the
-levels its requests ran at, tokens and rough cost. It also counts the
-design's check errors before and after. Set `WOODCHUCK_MODEL` and
-`WOODCHUCK_EFFORT` to compare models and effort, and
-`WOODCHUCK_EFFORT_ROUTING=off` to hold every turn at that effort.
+`--tasks` picks some of the tasks, and all of them run when you name none.
+`--repeat` runs each task that many times, two by default, so you see how
+much a result varies. `--configs` compares settings side by side in one
+run. Each config runs in a process of its own, since the app reads the
+model and effort once at start.
+
+- `current` keeps your environment as it is, and runs when you name no
+  config.
+- `routing` lets each turn pick its level, up to `WOODCHUCK_EFFORT`.
+- `no-routing` holds every turn at `WOODCHUCK_EFFORT`.
+- An effort's name, such as `medium`, holds every turn at that level.
+- `routing-xhigh` and the like let turns pick up to that level.
+
+`WOODCHUCK_MODEL` picks the model for every config, and
+[CONFIG.md](CONFIG.md) says what the effort settings do.
+
+### What it costs
+
+The script prints its estimate and waits five seconds before it sends
+anything, so Ctrl-C can stop it. The estimate adds up each task's own range
+for the model you picked. On Sonnet 5.5, one pass of every task costs
+roughly US$1.80 to US$5.80. Three configs with two repeats cost six times
+that, about US$11 to US$35. Opus 5.5 costs about twice as much. The build
+and the bookshelf cost the most, and the two questions the least.
+
+Ctrl-C during a run stops it, and the runs that finished are still summed
+up and saved.
+
+`--dry-run` plays a stand-in for Claude that answers every message with
+one fixed line and changes nothing. It needs no key and costs nothing, so
+it tries the script itself. Every check that needs a change fails on a dry
+run.
+
+### What it prints
+
+The script prints a line for each run as it finishes, with the reason for
+each check that failed. A table follows, with a row for each config and
+task. It shows how many runs passed, which checks failed and how often,
+and the median seconds, requests and cost of a run. Each config then gets
+a verdict, such as "all quality checks passed in 14/14 runs".
+
+Every run's checks, timings, levels and tokens go into a JSON file in the
+system's temp folder, so you can compare runs later. The script prints its
+path. It never prints Claude's words, and a reason holds only numbers and
+ids from the design.
+
+### What each task checks
+
+Every task also checks that each turn finished without an error. Expected
+values come from the starting design wherever they can, so a change to the
+record console example moves them with it. When Claude stops to ask, plan
+or suggest, the script says to go ahead, up to three times a message. It
+applies a waiting preview and approves a waiting plan first, as the app's
+buttons do.
+
+| Task | What it sends |
+| --- | --- |
+| `height` | "Make the carcass 50 mm taller." on the record console. |
+| `colour` | "Oil the whole console in a dark walnut colour." on the record console. |
+| `lp-fix` | "The LP check fails. Change the drawers so 12-inch LPs fit, and tell me what you changed." on the record console. |
+| `build` | The record console's spec, on an empty design: a 2040 × 520 × 30 mm top, 30 mm carcass panels, about 400 mm tall, and one row of five drawers that hold 12 inch LPs. |
+| `question-bay` | "How wide is each drawer opening?" on the record console. |
+| `question-height` | "How tall is the whole console?" on the record console. |
+| `requirement-kept` | A bookshelf 900 mm wide and 1800 mm tall in 18 mm birch ply, whose shelves take 30 kg without visible sag. Then two more shelves, 300 mm deep, and a light oil, a message each. |
+
+| Task | Check | Passes when |
+| --- | --- | --- |
+| `height` | `sides-50-taller` | Each carcass side is 50 mm taller. |
+| | `overall-50-taller` | The whole piece is 50 mm taller. |
+| | `height-param-moved` | The parameter that sets the sides went up 50 mm, so its slider still drives them. |
+| | `footprint-kept` | The width and depth are as they were. |
+| | `drawers-kept` | There are as many drawers as before. |
+| | `other-sizes-kept` | Every other slider keeps its value. |
+| | `no-new-errors` | The checks find no error the start didn't have. |
+| `colour` | `every-face-finished` | Every face of every part has a finish, set on its material, its part or the face. |
+| | `one-finish` | Every face has the same finish, from the colour cards. |
+| | `dark` | The finish has a lightness of 45 or less on each part's own timber. |
+| | `walnut-brown` | Its hue on each timber runs from red to orange, and it isn't grey. |
+| | `geometry-kept` | No part moved, changed size, appeared or went, and no parameter, joint, array, hardware or rule changed. |
+| | `timber-kept` | No material changed thickness or the timber it shows as, so walnut can't come from swapping the timber. |
+| | `no-new-errors` | As for `height`. |
+| `lp-fix` | `not-weakened` | The `lp_fit` rule keeps its expression and stays an error, and no parameter it requires, such as `lp_clear`, went down. Otherwise it fails as "weakened the requirement". |
+| | `lp-fit-passes` | `lp_fit` passes on the first drawer and on each array copy. |
+| | `lps-fit-width` | Each drawer is at least 315 mm wide between its sides, the width of an LP sleeve. |
+| | `lps-fit-height` | Each drawer has at least 315 mm from its bottom to the carcass over it, so LPs stand up. |
+| | `drawers-kept` | There are still five drawers. |
+| | `width-kept` | The width is as it was, unless the reply gives the new width. |
+| | `says-what-changed` | The reply names a parameter that changed, by name or new value, or a part that moved. |
+| | `no-new-errors` | As for `height`. |
+| `build` | `top-size` | A part measures 2040 × 520 × 30 mm. |
+| | `carcass-30` | At least three carcass panels, such as sides, a bottom and partitions, and every one of them 30 mm thick. |
+| | `height-in-range` | The whole piece is 380 to 440 mm tall. |
+| | `five-drawers` | There are five drawer fronts. |
+| | `one-row` | The fronts all start at the same height. |
+| | `lp-rule` | A rule names LPs, records, vinyl or sleeves, so the requirement is kept as a rule. |
+| | `lp-rule-passes` | That rule passes on every drawer. |
+| | `lps-fit-width`, `lps-fit-height` | As for `lp-fix`. |
+| | `no-errors` | The checks find no errors. |
+| `question-bay` | `answer-gives-bay` | The reply gives the `bay` parameter's value, 372 mm on the example. |
+| | `design-unchanged` | Nothing in the design changed. |
+| `question-height` | `answer-gives-height` | The reply gives the overall height, 430 mm on the example. |
+| | `design-unchanged` | As for `question-bay`. |
+| `requirement-kept` | `width-900`, `height-1800`, `depth-300` | The finished bookshelf has that size, to within 0.5 mm. |
+| | `birch-ply-18` | At least three sides, shelves, tops or bottoms, every one 18 mm birch ply. A back or a lip can be anything. |
+| | `load-rule` | A rule about load, sag, weight or span exists at the end. |
+| | `load-rule-every-turn` | One existed after every message, so no follow-up dropped it. |
+| | `load-rule-passes` | It passes. A warning that fails passes only when a reply mentions sag. |
+| | `two-more-shelves` | The second message added two shelves, and later ones kept them. |
+| | `every-face-finished`, `one-finish` | As for `colour`. |
+| | `light` | The finish has a lightness of 65 or more on each part's timber. |
+| | `no-errors` | As for `build`. |
+
+### How the checks read a design
+
+A drawer is counted by its front. That's a panel named or tagged drawer
+that faces forward, with no bigger drawer panel in front of it, so a
+handle or the box behind a false front doesn't count. The room inside a
+drawer is measured between its two side panels, and from its bottom up to
+the lowest carcass part over it.
+
+Lightness runs from 0 for black to 100 for white, as the eye sees it. It's
+worked out from the colour the app draws for that finish on that timber,
+so the same oil can pass on pale birch and fail on walnut. Shelves are
+counted twice, as parts named shelf and as every flat panel, and either
+count will do.
+
+A number in a reply counts when it's within 1 mm of the one expected. It
+can be written as `372 mm`, `372mm`, `372.0` or `37.2 cm`. Numbers inside
+ids, such as `ply15`, don't count.
+
+`packages/server/test/quality.test.ts` holds every check to a pass and a
+fail on designs it makes. It also runs a task through the turn loop with a
+scripted Claude, and the script itself on a dry run.
 
 The live summary check tries a summary between turns on the real API,
 under the same rules as the benchmark. It needs a key and `--live`, warns
