@@ -126,6 +126,14 @@ no signature is summarised from the whole saved chat, unless that's too
 long for one request. A request the API refuses over a stored summary goes
 again once with the chat in full, and so does every later one in that chat.
 
+The size tests hold the whole chat to a fake token count. It's asked with
+the summary request's model, instructions, tools, thinking and betas, minus
+the web tools the count refuses. A chat is counted once for each length,
+and one over the model's limit isn't counted again. When the count fails,
+the rough count stands in. It counts a picture as 5,000 tokens and a
+document as 30,000, wherever they sit, and never reads a signature or
+encoded data as words.
+
 ### Timing, dropped connections and backups
 
 Each turn's usage line is held to its timing on a fake clock. That covers
@@ -431,6 +439,7 @@ text.
 - It reads from the prompt cache.
 - The API accepts it on a chat that holds an older summary. It's sent from
   that summary when it's signed, and as the whole chat without it when not.
+  The line gives the whole chat's size and what measured it.
 - The summary keeps the early requirement and the answer.
 - The next request carries the summary as stored, with no 400.
 - The kept turns' thinking passes the check, with no input

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultClient, ON_DEMAND_BETA, Turn, type MessagesClient } from "../src/agent.js";
 import { scriptedClient, type ScriptBlock } from "../src/scripted.js";
 import { Store } from "../src/store.js";
-import { RETRY_AFTER_MS, RETRY_GROWTH, Summaries, WHOLE_CHAT_MAX_TOKENS } from "../src/summaries.js";
+import { RETRY_AFTER_MS, RETRY_GROWTH, Summaries, wholeChatLimit } from "../src/summaries.js";
 
 type Body = Anthropic.Beta.MessageCreateParamsStreaming & Record<string, unknown>;
 type Event = Record<string, unknown>;
@@ -234,9 +234,11 @@ describe("a chat whose older summary has no signature", () => {
   });
 
   it("keeps the API's own summaries when the whole chat is too long for one request, and says so once", async () => {
-    await pastAnUnsignedSummary(`A fir bookshelf for Sam. ${"Long notes. ".repeat(Math.ceil((WHOLE_CHAT_MAX_TOKENS * 3) / 12))}`);
+    await pastAnUnsignedSummary(`A fir bookshelf for Sam. ${"Long notes. ".repeat(Math.ceil((wholeChatLimit("claude-sonnet-5-5") * 3) / 12))}`);
+    await summaries.settled();
     replies.push([{ type: "text", text: "Two oak shelves." }, tokens(140_000)]);
     await say(client, "Two shelves");
+    await summaries.settled();
     expect(client.summarised).toHaveLength(0);
     expect(logged(/too long to summarise instead/)).toBe(1);
     const last = client.sent.at(-1)! as Body;
