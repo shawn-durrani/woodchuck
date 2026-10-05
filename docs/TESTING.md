@@ -89,6 +89,26 @@ block held to the agreed shape. The size tool is held to one undo step
 mid-build, to refusing a name or formula that doesn't work, and to waiting
 for a yes on a big change. Its reply has to name each new problem.
 
+### Summaries of a long chat
+
+The summary tests use a scripted Claude that answers requests for a
+summary apart from turns, with token counts the test sets. With the
+setting unset, they hold every request to the API's own summary at
+100,000 tokens, with no summary between turns and no summaries file. With
+it set, a summary starts only once a turn ends past the threshold, and
+never while Claude waits on an answer or a message waits to be read. It covers
+the turn's last request, sent with that request's model, instructions,
+tools and thinking. The next request sends it first, as the API returned
+it, and the saved chat only grows. A turn that starts while it's written
+never waits, and gets it at its next step. A summary that fails, comes
+back empty or lands after the chat moved on is dropped. After one fails,
+the next try waits for 20,000 more tokens or an hour. A single long turn
+on a chat that already holds a summary gets one between two steps. The
+summary's instructions are held to keeping the woodworker's answers and
+the sizes they asked for.
+The restart gate names a summary being written, and closing the app
+abandons it.
+
 ### Timing, dropped connections and backups
 
 Each turn's usage line is held to its timing on a fake clock. That covers
@@ -236,6 +256,32 @@ levels its requests ran at, tokens and rough cost. It also counts the
 design's check errors before and after. Set `WOODCHUCK_MODEL` and
 `WOODCHUCK_EFFORT` to compare models and effort, and
 `WOODCHUCK_EFFORT_ROUTING=off` to hold every turn at that effort.
+
+The live summary check tries a summary between turns on the real API,
+under the same rules as the benchmark. It needs a key and `--live`, warns
+of the cost and waits five seconds before it starts. Its invented chat
+lives in a throwaway data folder.
+
+```bash
+npx tsx scripts/summary-check.ts --live
+```
+
+The chat states that every drawer must hold 12-inch LPs and answers a
+question Claude asks. It grows until the API summarises it inside a
+request, then asks for a summary between turns and runs one more turn.
+That turn sets `prefix_mismatch_behavior` to `"error"`, so kept thinking
+that fails the API's check fails the request. The script prints `PASS`,
+`FAIL` or `SKIP` for each check, and the summary's length but never its
+text.
+
+- The summary request comes back with `stop_reason` `"compaction"` and
+  `usage.iterations`.
+- It reads from the prompt cache.
+- The API accepts it on a chat that holds an older summary.
+- The summary keeps the early requirement and the answer.
+- The next request carries the summary as stored, with no 400.
+- The kept turns' thinking passes the check, with no input
+  transformations.
 
 ## Trying the chat without a key
 

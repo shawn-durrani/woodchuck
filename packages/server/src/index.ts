@@ -44,6 +44,7 @@ import { drawingsPdf, paperOf } from "./pdf.js";
 import { progress, type Item } from "./progress.js";
 import { scriptFromFile } from "./scripted.js";
 import { editSummary } from "./tools.js";
+import { Summaries } from "./summaries.js";
 import {
   bindHost,
   browserOrigin,
@@ -145,6 +146,11 @@ export function createApp(opts: {
   const repo = opts.repo === undefined ? REPO : opts.repo;
   let client: MessagesClient | null = opts.client ?? null;
   let turn: Turn | null = null;
+  /** Summaries of a long chat, written in the background between turns. */
+  const summaries = new Summaries(store, {
+    chat: (item) => send({ type: "chat", item }),
+    changed: () => broadcastState(),
+  });
   /** Set once the server is shutting down, so no new turn starts. */
   let closing = false;
   const sockets = new Set<WebSocket>();
@@ -287,6 +293,9 @@ export function createApp(opts: {
       },
       (project, views, o) => renderPng(project.design, views, o),
       { list: () => library.list().parts, get: (id) => library.get(id), propose: (input) => library.propose(input) },
+      undefined,
+      undefined,
+      summaries,
     );
     turn = t;
     broadcastState();
@@ -335,9 +344,9 @@ export function createApp(opts: {
             last_backup_at: backups.lastAt(),
             backups_kept: backups.list().length,
           });
-        // The restart gate: a script that restarts the app waits while Claude is mid-turn or a backup is being written.
+        // The restart gate: a script that restarts the app waits while Claude is mid-turn, a summary of the chat or a backup is being written.
         case "GET /api/busy": {
-          const reasons = [...(backups.busy ? ["backup"] : []), ...(turn ? ["claude_turn"] : [])];
+          const reasons = [...(backups.busy ? ["backup"] : []), ...(turn ? ["claude_turn"] : []), ...(summaries.busy ? ["chat_summary"] : [])];
           return json(200, { busy: reasons.length > 0, reasons });
         }
         // How Claude's current or last request is going, at once, for other apps to watch.
@@ -925,6 +934,8 @@ export function createApp(opts: {
       clearInterval(sessionSweep);
       closing = true;
       turn?.stop();
+      // A summary still being written is abandoned. The next turn's end asks again.
+      summaries.stop();
       for (const ws of sockets) ws.terminate();
       wss.close();
       // A snapshot being written finishes first, so nothing is left half done.
@@ -933,7 +944,7 @@ export function createApp(opts: {
       server.closeAllConnections();
     });
 
-  return { server, store, snapshot, close, lock, checkFunnel, backups };
+  return { server, store, snapshot, close, lock, checkFunnel, backups, summaries };
 }
 
 class TooLarge extends Error {}
