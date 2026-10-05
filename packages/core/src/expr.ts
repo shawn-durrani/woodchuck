@@ -6,6 +6,11 @@
 // gap_x, gap_y and gap_z take two parts, such as `gap_y(shelf, side_l)`,
 // and measure the clear space between their shapes. Shapes are worked out
 // after every size, so only a rule can use them.
+//
+// `overall.width`, `overall.height` and `overall.depth` read the whole
+// piece, and `overall.top` and the other faces its edges (see derive.ts).
+// It's worked out after every size too, so only a rule or a plan's key
+// size can use it.
 
 export type Ast =
   | { kind: "num"; value: number }

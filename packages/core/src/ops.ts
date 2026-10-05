@@ -4,7 +4,7 @@
 // fix the call.
 
 import { gapPartsOf, parse, refsOf, ExprError } from "./expr.js";
-import { partRefParts } from "./derive.js";
+import { OVERALL, OVERALL_NAMES, partRefParts } from "./derive.js";
 import { validateLibraryPart } from "./library.js";
 import { finishesInside, normaliseFinish, parseFinishTarget, PALETTES } from "./finishes.js";
 import { SPECIES, SPECIES_IDS } from "./species.js";
@@ -219,14 +219,15 @@ function checkExpr(raw: unknown, what: string): string {
 
 /**
  * Names an expression uses must already exist, so mistakes show at once.
- * Only a rule may measure with gap_x, gap_y or gap_z, since the shapes they
- * measure are worked out after every size.
+ * Only a rule may measure with gap_x, gap_y or gap_z, or read the whole
+ * piece with overall.depth and the like, since the shapes and the whole
+ * piece are worked out after every size.
  */
-function checkRefs(d: Design, src: string, what: string, extraParts: string[] = [], gaps = false) {
+function checkRefs(d: Design, src: string, what: string, extraParts: string[] = [], rule = false) {
   const params = new Set(d.params.map((p) => p.name));
   const parts = new Set([...d.parts.map((p) => p.id), ...d.unverified.map((u) => u.id), ...extraParts]);
   const measured = gapPartsOf(src);
-  if (measured.length && !gaps) {
+  if (measured.length && !rule) {
     throw new OpError(`${what} can't use gap_x, gap_y or gap_z. They measure the parts' shapes, which are worked out after every size, so only a rule can use them`);
   }
   for (const ref of measured) {
@@ -241,6 +242,13 @@ function checkRefs(d: Design, src: string, what: string, extraParts: string[] = 
         throw new OpError(
           `There's no size called "${name}" in ${what}. ${close.length ? `Did you mean ${close.join(" or ")}?` : "Pick one from Sizes, or ask Claude to add it as a parameter."}`,
         );
+      }
+      continue;
+    }
+    if (name.slice(0, dot) === OVERALL && !parts.has(OVERALL)) {
+      if (!rule) throw new OpError(`${what} can't use ${name}. It measures the whole piece, which is worked out after every size, so only a rule or a plan's key size can use it`);
+      if (!OVERALL_NAMES.includes(name.slice(dot + 1))) {
+        throw new OpError(`"${name}" in ${what} isn't something the whole piece has. Use overall.width, overall.height, overall.depth or a face such as overall.top`);
       }
       continue;
     }
@@ -538,6 +546,11 @@ function upsert<T>(list: T[], item: T, same: (x: T) => boolean): T[] {
   return out;
 }
 
+/** A new part can't be called overall, since overall.depth and the like read the whole piece. */
+function notOverall(id: unknown) {
+  if (id === OVERALL) throw new OpError(`Part id "${OVERALL}" is kept for the whole piece, which rules read as overall.width, overall.height and overall.depth. Pick another id`);
+}
+
 function partExists(d: Design, id: string): boolean {
   return d.parts.some((p) => p.id === id) || d.unverified.some((u) => u.id === id);
 }
@@ -767,6 +780,7 @@ function change(d: Design, op: Op): Design {
     case "add_panel": {
       const { op: _op, ...rest } = op;
       const existing = d.parts.find((p) => p.id === rest.id);
+      if (!existing) notOverall(rest.id);
       // add_panel brings no cuts of its own, so cuts made since don't count against it.
       if (existing) return readd(d, "Part", existing, () => checkPanel(d, rest as Panel), rest.cuts === undefined ? ["cuts"] : [], "Use update_panel to change it, or pick a new id");
       if (partExists(d, rest.id)) throw new OpError(`Part "${rest.id}" already exists as a stand-in box. delete_part it first to replace it, or pick a new id`);
@@ -912,6 +926,7 @@ function change(d: Design, op: Op): Design {
       const existing = d.unverified.find((u) => u.id === op.id);
       if (existing) return readd(d, "Stand-in box", existing, () => checkBox(op), [], "To change it, delete_part it and add it again, or pick a new id");
       if (partExists(d, op.id)) throw new OpError(`Part "${op.id}" already exists as a panel. Pick a new id`);
+      notOverall(op.id);
       return { ...d, unverified: [...d.unverified, checkBox(op)] };
     }
     case "set_plan": {
