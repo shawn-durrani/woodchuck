@@ -1,12 +1,12 @@
-// A design with no cuts derives exactly as it did before cuts existed. The
-// digests below are SHA-256 of the JSON that derive and the cut list gave
-// for each example on main before shapes were added. A change that means to
-// alter what these examples derive updates them in the same pull request,
-// and one that doesn't must leave them alone.
+// A design with no cuts derives and checks exactly as it did before cuts
+// existed. The digests below are SHA-256 of the JSON that derive, the cut
+// list and the checks gave for each example on main before shapes were
+// added. A change that means to alter what these examples give updates them
+// in the same pull request, and one that doesn't must leave them alone.
 
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { applyOp, applyOps, cutList, derive, emptyDesign, jointExample, recordConsoleOps, toPlain, type Design, type JointType } from "../src/index.js";
+import { applyOp, applyOps, cutList, derive, emptyDesign, jointExample, recordConsoleOps, runChecks, toPlain, type Design, type JointType, type Op } from "../src/index.js";
 
 const sha = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex");
 
@@ -49,7 +49,7 @@ describe("designs with no cuts", () => {
     expect(undone).toEqual(d);
   });
 
-  it("change nothing but the cut part when one part gets a cut", () => {
+  it("change nothing but the cut part, and the screws into what the cut took", () => {
     const d = designFor("record console");
     const before = toPlain(derive(d));
     const cut = applyOp(d, {
@@ -63,8 +63,97 @@ describe("designs with no cuts", () => {
     });
     const after = toPlain(derive(cut));
     const changed = after.parts.filter((p, i) => JSON.stringify(p) !== JSON.stringify(before.parts[i])).map((p) => p.id);
-    expect(changed).toEqual(["partition", "partition#2", "partition#3", "partition#4"]);
-    expect(after.parts.map(({ profile: _, ...p }) => p)).toEqual(before.parts);
+    expect(changed).toEqual(["top", "partition", "partition#2", "partition#3", "partition#4"]);
+    const notTop = (r: typeof before) => r.parts.filter((p) => p.id !== "top");
+    expect(notTop(after).map(({ profile: _, ...p }) => p)).toEqual(notTop(before));
+    // The chamfer takes 20 mm off the front of each partition's top end, so the screws into the top spread over the rest.
+    const top = (r: typeof before) => r.parts.find((p) => p.id === "top")!;
+    const screws = (r: typeof before) => top(r).machining.filter((m) => m.joint.startsWith("partition_to_top")).map((m) => m.length_mm);
+    expect(screws(before)).toEqual([511, 511, 511, 511]);
+    expect(screws(after)).toEqual([491, 491, 491, 491]);
+    expect({ ...top(after), machining: [] }).toEqual({ ...top(before), machining: [] });
     expect(after.issues).toEqual(before.issues);
+  });
+});
+
+/** The checks' report for each example, and for each with its joints taken out, so overlaps and contact get checked too. */
+const CHECKS_BEFORE_CUTS: Record<string, string> = {
+  "record console": "e9716086db017dfd8b62b9dfc39d0fd0b0a1fc2bbf65e901acdf65283af2156a",
+  "record console, no joints": "e9716086db017dfd8b62b9dfc39d0fd0b0a1fc2bbf65e901acdf65283af2156a",
+  "record console, no slide gap": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  butt: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "butt, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  screws: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "screws, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  pocket_screws: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "pocket_screws, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  dowels: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "dowels, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  dado: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "dado, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  groove: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "groove, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  rabbet: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "rabbet, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  tongue: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "tongue, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  mortise_tenon: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "mortise_tenon, no joint": "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  half_lap: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "half_lap, no joint": "74957142fb619f92edf82b6483e02322ebcd59bb73126938c848498496207129",
+  box_joint: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "box_joint, no joint": "c75ed4e209e6df745f6d459e39b849ac8660b161f1e22a8aac13131ea411d870",
+  through_slot: "87a5cbe9dff1df107d6f78aa812ccd47b2b33f8aa37e043465348890f55b9dab",
+  "through_slot, no joint": "d260b7f63f0979b91678aafd115dc2e62e1ff773c8bf26278fad400a4ca843ff",
+  "loose boards": "d15dcbfe59f85b2002bc8961210660e1d6cbfd4353afe5618dc8bff1fbd32377",
+};
+
+/** Boards that overlap, rest on each other, float and meet a bracket, so every box check has something to say. */
+const looseBoards = (): Design => {
+  const board = (id: string, y0: number, decor = false): Op => ({
+    op: "add_panel",
+    id,
+    name: id,
+    material: "ply18",
+    thickness_axis: "y",
+    grain_axis: "x",
+    x: { start: { at: "0" }, size: "400" },
+    y: { start: { at: String(y0) } },
+    z: { start: { at: "0" }, size: "300" },
+    ...(decor ? { decor: true } : {}),
+  });
+  return applyOps(emptyDesign("Loose boards"), [
+    { op: "define_material", id: "ply18", name: "18 mm ply", kind: "sheet", thickness_mm: 18, grained: true },
+    board("floor_board", 0),
+    board("resting", 18),
+    board("hovering", 100),
+    board("prop", 10, true),
+    {
+      op: "set_hardware",
+      id: "bracket",
+      kind: "bracket",
+      name: "Shelf bracket",
+      connects: ["floor_board"],
+      qty: 1,
+      shape: [{ name: "plate", min_mm: [0, 0, 0], max_mm: [50, 30, 20] }],
+      place: { x: "100", y: "5", z: "100" },
+    },
+  ]);
+};
+
+const withoutJoints = (d: Design) => d.joints.reduce((x, j) => applyOp(x, { op: "delete_joint", id: j.id }), d);
+
+const checkedDesign = (name: string): Design => {
+  if (name === "loose boards") return looseBoards();
+  if (name === "record console, no slide gap") return applyOp(designFor("record console"), { op: "set_param", name: "slide_gap", expr: "0", unit: "mm" });
+  const [base, variant] = name.split(", ");
+  const d = designFor(base!);
+  return variant ? withoutJoints(d) : d;
+};
+
+describe("checks on designs with no cuts", () => {
+  it.each(Object.keys(CHECKS_BEFORE_CUTS))("report the %s example exactly as before cuts reached the checks", (name) => {
+    const d = checkedDesign(name);
+    expect(sha(runChecks(d, derive(d)))).toBe(CHECKS_BEFORE_CUTS[name]);
   });
 });

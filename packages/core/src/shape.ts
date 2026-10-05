@@ -118,6 +118,24 @@ export function clipHalfPlane(loop: Loop, n: Pt, c: number): Loop {
   return tidy(out);
 }
 
+/**
+ * The part of a loop inside a rectangle. A convex loop comes out exact, and
+ * any other keeps its area, which is all the checks read from it.
+ */
+export function clipRect(loop: Loop, min: Pt, max: Pt): Loop {
+  let out = loop;
+  for (const [n, c] of [
+    [[-1, 0], -min[0]],
+    [[1, 0], max[0]],
+    [[0, -1], -min[1]],
+    [[0, 1], max[1]],
+  ] as [Pt, number][]) {
+    if (out.length < 3) return [];
+    out = clipHalfPlane(out, n, c);
+  }
+  return out.length < 3 ? [] : out;
+}
+
 /** Sides for a polygon whose corners sit on a circle of radius r and whose edges stay within tol of it, as a multiple of 4. */
 function sidesFor(r: number, tol: number): number {
   if (r <= tol) return 4;
@@ -444,6 +462,37 @@ export function sliceIntervals(loops: Loop[], axis: 0 | 1, at: number): [number,
   return out;
 }
 
+/**
+ * sliceIntervals for many places along one axis. The edges are sorted into
+ * buckets along it, so each slice reads only the edges near it, and every
+ * slice comes out the same as sliceIntervals gives.
+ */
+export function slicer(loops: Loop[], axis: 0 | 1): (at: number) => [number, number][] {
+  const edges = loops.flatMap(edgesOf);
+  if (edges.length < 64) return (at) => sliceIntervals(loops, axis, at);
+  const vs = edges.map(([a]) => a[axis]);
+  const lo = Math.min(...vs);
+  const hi = Math.max(...vs);
+  const n = Math.ceil(Math.sqrt(edges.length));
+  const w = (hi - lo) / n || 1;
+  const bucket = (v: number) => Math.min(n - 1, Math.max(0, Math.floor((v - lo) / w)));
+  const buckets: [Pt, Pt][][] = Array.from({ length: n }, () => []);
+  for (const [a, b] of edges) {
+    for (let i = bucket(Math.min(a[axis], b[axis])); i <= bucket(Math.max(a[axis], b[axis])); i++) buckets[i]!.push([a, b]);
+  }
+  const o = (1 - axis) as 0 | 1;
+  return (at) => {
+    const xs: number[] = [];
+    for (const [a, b] of buckets[bucket(at)]!) {
+      if (a[axis] > at !== b[axis] > at) xs.push(a[o] + ((b[o] - a[o]) * (at - a[axis])) / (b[axis] - a[axis]));
+    }
+    xs.sort((p, q) => p - q);
+    const out: [number, number][] = [];
+    for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i]!, xs[i + 1]!]);
+    return out;
+  };
+}
+
 /** How much two sets of spans share. */
 function sharedLength(a: [number, number][], b: [number, number][]): number {
   let total = 0;
@@ -516,7 +565,9 @@ export function regionsOverlap(a: Loop[], b: Loop[], eps = 0.01): boolean {
       }
     }
   }
-  return slicesOverlap(breaks, lo, hi, eps, (c) => sharedLength(sliceIntervals(a, 0, c), sliceIntervals(b, 0, c)) > eps);
+  const sa = slicer(a, 0);
+  const sb = slicer(b, 0);
+  return slicesOverlap(breaks, lo, hi, eps, (c) => sharedLength(sa(c), sb(c)) > eps);
 }
 
 /**
@@ -557,11 +608,257 @@ export function prismsOverlap(a: Prism, b: Prism, eps = 0.01): boolean {
   };
   crossings(a.loops, ia, b.t_mm);
   crossings(b.loops, ib, a.t_mm);
+  const sa = slicer(a.loops, ia);
+  const sb = slicer(b.loops, ib);
   return slicesOverlap(
     breaks,
     lo,
     hi,
     eps,
-    (c) => sharedLength(sliceIntervals(a.loops, ia, c), [b.t_mm]) > eps && sharedLength(sliceIntervals(b.loops, ib, c), [a.t_mm]) > eps,
+    (c) => sharedLength(sa(c), [b.t_mm]) > eps && sharedLength(sb(c), [a.t_mm]) > eps,
   );
+}
+
+// ---------------------------------------------------------------------------
+// The gap between solids
+
+type Span = [number, number];
+
+/**
+ * The gap between two sets of stretches on one line. For each pair it's the
+ * larger start less the smaller end, which is the clear space between them,
+ * or minus their overlap where they overlap. The smallest pair counts.
+ */
+export function spanGap(a: Span[], b: Span[]): number {
+  let least = Infinity;
+  for (const [a0, a1] of a) for (const [b0, b1] of b) least = Math.min(least, Math.max(a0, b0) - Math.min(a1, b1));
+  return least;
+}
+
+/** Where the edges of one set of loops cross another's, or a level line, as places along the first coordinate. */
+function crossingsOf(a: Loop[], b: Loop[]): number[] {
+  const out: number[] = [];
+  for (const la of a) {
+    for (const [p, q] of edgesOf(la)) {
+      for (const lb of b) {
+        for (const [r, s] of edgesOf(lb)) {
+          const d1 = sub(q, p);
+          const d2 = sub(s, r);
+          const den = cross(d1, d2);
+          if (den === 0) continue;
+          const w = sub(r, p);
+          const t = cross(w, d2) / den;
+          const u = cross(w, d1) / den;
+          if (t >= 0 && t <= 1 && u >= 0 && u <= 1) out.push(p[0] + d1[0] * t);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function levelCrossings(loops: Loop[], levels: number[]): number[] {
+  const out: number[] = [];
+  for (const loop of loops) {
+    for (const [p, q] of edgesOf(loop)) {
+      for (const level of levels) {
+        if ((p[1] - level) * (q[1] - level) < 0) out.push(p[0] + ((q[0] - p[0]) * (level - p[1])) / (q[1] - p[1]));
+      }
+    }
+  }
+  return out;
+}
+
+/** A prism's loops with its coordinates in the order asked for. */
+const ordered = (p: Prism, first: Axis): Loop[] => (p.u === first ? p.loops : p.loops.map((l) => l.map(([x, y]): Pt => [y, x])));
+
+/** The places between lo and hi where a sweep stops, in order, with every break inside. */
+function stops(breaks: number[], lo: number, hi: number): number[] {
+  return [...new Set([lo, hi, ...breaks.filter((b) => b > lo && b < hi)])].sort((a, b) => a - b);
+}
+
+/** Each stretch at a strip's two ends, read off a straight line through two samples inside it. */
+function stretchesAtEnds(at: (c: number) => Span[], c0: number, c1: number): [Span[], Span[]] | null {
+  const s1 = c0 + (c1 - c0) / 3;
+  const s2 = c0 + ((c1 - c0) * 2) / 3;
+  const a = at(s1);
+  const b = at(s2);
+  if (a.length !== b.length) return null;
+  const end = (c: number): Span[] => a.map(([x0, x1], i) => [x0 + ((b[i]![0] - x0) * (c - s1)) / (s2 - s1), x1 + ((b[i]![1] - x1) * (c - s1)) / (s2 - s1)]);
+  return [end(c0), end(c1)];
+}
+
+/**
+ * One solid seen along a sweep: at each place c on the sweep axis, the
+ * stretches it fills along the measuring axis, and the stretches it fills
+ * across, on the third axis.
+ */
+interface Sweep {
+  lo: number;
+  hi: number;
+  breaks: number[];
+  /** The loops in sweep and measuring coordinates, when it has an edge towards the measuring axis. */
+  side?: Loop[];
+  /** The loops in sweep and across coordinates, when it lies flat across the measuring axis. */
+  flat?: Loop[];
+  t_mm: Span;
+  along(c: number): Span[];
+  across(c: number): Span[];
+}
+
+function sweepOf(p: Prism, axis: Axis, s: Axis): Sweep {
+  const loops = ordered(p, s);
+  const [lo, hi] = span(loops, 0);
+  const breaks = loops.flatMap((l) => l.map((q) => q[0]));
+  if (thirdAxis(p) === axis) {
+    const across = slicer(loops, 0);
+    return { lo, hi, breaks, flat: loops, t_mm: p.t_mm, across, along: (c) => (across(c).length ? [p.t_mm] : []) };
+  }
+  const along = slicer(loops, 0);
+  return { lo, hi, breaks, side: loops, t_mm: p.t_mm, along, across: (c) => (along(c).length ? [p.t_mm] : []) };
+}
+
+/**
+ * The gap along one axis between two solids, exactly for straight edges. It
+ * looks along the axis wherever the two solids line up across it, and takes
+ * the smallest gap over all of those places. Positive is clear space, and
+ * negative is the deepest the two overlap along the axis. Two boxes give
+ * the larger of their starts less the smaller of their ends.
+ *
+ * It's null when the two don't line up across the axis by more than eps
+ * both ways, so there's nowhere to measure.
+ */
+export function prismGap(a: Prism, b: Prism, axis: Axis, eps = 0.01): number | null {
+  const ta = thirdAxis(a);
+  const tb = thirdAxis(b);
+  // Both flat across the axis: their thicknesses, wherever their faces overlap.
+  if (ta === axis && tb === axis) {
+    return regionsOverlap(a.loops, ordered(b, a.u), eps) ? tidyGap(spanGap([a.t_mm], [b.t_mm])) : null;
+  }
+  // Each one stands on edge towards the axis, at right angles to the other.
+  if (ta !== axis && tb !== axis && ta !== tb) return crossedGap(a, b, axis, eps);
+  // Otherwise one sweep across the axis reads both: along the face axis of
+  // whichever stands on edge, since a flat one lies across both.
+  const s = AXES.find((x) => x !== axis && x !== (ta === axis ? tb : ta))!;
+  const sa = sweepOf(a, axis, s);
+  const sb = sweepOf(b, axis, s);
+  const lo = Math.max(sa.lo, sb.lo);
+  const hi = Math.min(sa.hi, sb.hi);
+  if (hi - lo <= eps) return null;
+  const breaks = [...sa.breaks, ...sb.breaks];
+  // Where the answer can bend: an edge crossing the other's edge or faces.
+  for (const [x, y] of [
+    [sa, sb],
+    [sb, sa],
+  ] as const) {
+    if (x.flat && y.side) breaks.push(...levelCrossings(x.flat, y.t_mm), ...levelCrossings(y.side, x.t_mm));
+  }
+  if (sa.side && sb.side) breaks.push(...crossingsOf(sa.side, sb.side));
+  const cuts = stops(breaks, lo, hi);
+  let shared = 0;
+  let least = Infinity;
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const [c0, c1] = [cuts[i]!, cuts[i + 1]!];
+    if (c1 - c0 <= 1e-9) continue;
+    const m = (c0 + c1) / 2;
+    if (!sa.along(m).length || !sb.along(m).length || sharedLength(sa.across(m), sb.across(m)) <= eps) continue;
+    shared += c1 - c0;
+    least = Math.min(least, spanGap(sa.along(m), sb.along(m)));
+    const ea = stretchesAtEnds(sa.along, c0, c1);
+    const eb = stretchesAtEnds(sb.along, c0, c1);
+    if (ea && eb) least = Math.min(least, spanGap(ea[0], eb[0]), spanGap(ea[1], eb[1]));
+  }
+  return shared > eps ? tidyGap(least) : null;
+}
+
+/** Clears the float noise a straight line read off two samples leaves, at a millionth of a mm. */
+const tidyGap = (g: number) => Math.round(g * 1e6) / 1e6 + 0;
+
+/** A straight line over a strip: its value at the strip's start, and its slope. */
+type Line = { at: number; k: number };
+
+/** Each stretch over a strip as two straight lines, from samples inside it. */
+function linesOver(at: (c: number) => Span[], c0: number, c1: number): [Line, Line][] | null {
+  const ends = stretchesAtEnds(at, c0, c1);
+  if (!ends) return null;
+  const w = c1 - c0;
+  return ends[0].map(([x0, x1], i) => {
+    const [y0, y1] = ends[1][i]!;
+    return [
+      { at: x0, k: (y0 - x0) / w },
+      { at: x1, k: (y1 - x1) / w },
+    ];
+  });
+}
+
+/**
+ * The gap between two solids on edge towards the axis, at right angles to
+ * each other, such as a drawer side and a drawer back. One's stretches
+ * change across p and the other's across q, so each cell of the two sweeps
+ * is searched where the answer can bend: its corners, and where the
+ * stretches' starts or ends meet.
+ */
+function crossedGap(a: Prism, b: Prism, axis: Axis, eps: number): number | null {
+  // a's face lies on axis and p, so its thickness runs across q, and b the other way round.
+  const p = AXES.find((x) => x !== axis && x !== thirdAxis(a))!;
+  const q = thirdAxis(a);
+  const la = ordered(a, p);
+  const lb = ordered(b, q);
+  const strips = (loops: Loop[], t: Span) => {
+    const [lo0, hi0] = span(loops, 0);
+    const lo = Math.max(lo0, t[0]);
+    const hi = Math.min(hi0, t[1]);
+    const cuts = stops([...loops.flatMap((l) => l.map((pt) => pt[0])), ...t], lo, hi);
+    const at = slicer(loops, 0);
+    const out: { c0: number; c1: number; lines: [Line, Line][] | null; mid: Span[] }[] = [];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const [c0, c1] = [cuts[i]!, cuts[i + 1]!];
+      if (c1 - c0 <= 1e-9) continue;
+      const mid = at((c0 + c1) / 2);
+      if (mid.length) out.push({ c0, c1, mid, lines: linesOver(at, c0, c1) });
+    }
+    return out;
+  };
+  const sp = strips(la, b.t_mm);
+  const sq = strips(lb, a.t_mm);
+  const width = (s: { c0: number; c1: number }[]) => s.reduce((n, x) => n + x.c1 - x.c0, 0);
+  if (width(sp) <= eps || width(sq) <= eps) return null;
+  let least = Infinity;
+  for (const cp of sp) {
+    for (const cq of sq) {
+      least = Math.min(least, spanGap(cp.mid, cq.mid));
+      if (!cp.lines || !cq.lines) continue;
+      for (const [a0, a1] of cp.lines) {
+        for (const [b0, b1] of cq.lines) {
+          const val = (x: Line, c: number, c0: number) => x.at + x.k * (c - c0);
+          const g = (pp: number, qq: number) => Math.max(val(a0, pp, cp.c0), val(b0, qq, cq.c0)) - Math.min(val(a1, pp, cp.c0), val(b1, qq, cq.c0));
+          const ps = [cp.c0, cp.c1];
+          const qs = [cq.c0, cq.c1];
+          const pts: Pt[] = ps.flatMap((pp) => qs.map((qq): Pt => [pp, qq]));
+          // Where a's start or end meets b's along an edge of the cell.
+          for (const [x, y] of [
+            [a0, b0],
+            [a1, b1],
+          ] as const) {
+            for (const pp of ps) if (y.k !== 0) pts.push([pp, cq.c0 + (val(x, pp, cp.c0) - y.at) / y.k]);
+            for (const qq of qs) if (x.k !== 0) pts.push([cp.c0 + (val(y, qq, cq.c0) - x.at) / x.k, qq]);
+          }
+          // Where both meet at once, inside the cell.
+          const det = b0.k * a1.k - a0.k * b1.k;
+          if (Math.abs(det) > 1e-12) {
+            const r0 = b0.at - a0.at;
+            const r1 = b1.at - a1.at;
+            const dp = (b0.k * r1 - b1.k * r0) / det;
+            const dq = (a0.k * r1 - a1.k * r0) / det;
+            pts.push([cp.c0 + dp, cq.c0 + dq]);
+          }
+          for (const [pp, qq] of pts) {
+            if (pp < cp.c0 - 1e-9 || pp > cp.c1 + 1e-9 || qq < cq.c0 - 1e-9 || qq > cq.c1 + 1e-9) continue;
+            least = Math.min(least, g(pp, qq));
+          }
+        }
+      }
+    }
+  }
+  return tidyGap(least);
 }

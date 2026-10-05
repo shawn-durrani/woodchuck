@@ -3,7 +3,7 @@
 // and either returns a new design or throws an OpError that says how to
 // fix the call.
 
-import { parse, refsOf, ExprError } from "./expr.js";
+import { gapPartsOf, parse, refsOf, ExprError } from "./expr.js";
 import { partRefParts } from "./derive.js";
 import { validateLibraryPart } from "./library.js";
 import { finishesInside, normaliseFinish, parseFinishTarget, PALETTES } from "./finishes.js";
@@ -131,10 +131,22 @@ function checkExpr(src: unknown, what: string): string {
   return src;
 }
 
-/** Names an expression uses must already exist, so mistakes show at once. */
-function checkRefs(d: Design, src: string, what: string, extraParts: string[] = []) {
+/**
+ * Names an expression uses must already exist, so mistakes show at once.
+ * Only a rule may measure with gap_x, gap_y or gap_z, since the shapes they
+ * measure are worked out after every size.
+ */
+function checkRefs(d: Design, src: string, what: string, extraParts: string[] = [], gaps = false) {
   const params = new Set(d.params.map((p) => p.name));
   const parts = new Set([...d.parts.map((p) => p.id), ...d.unverified.map((u) => u.id), ...extraParts]);
+  const measured = gapPartsOf(src);
+  if (measured.length && !gaps) {
+    throw new OpError(`${what} can't use gap_x, gap_y or gap_z. They measure the parts' shapes, which are worked out after every size, so only a rule can use them`);
+  }
+  for (const ref of measured) {
+    const { source } = partRefParts(ref);
+    if (!parts.has(source)) throw new OpError(`There's no part called "${source}" for ${what}, which measures to it. Check the name, or add the part first.`);
+  }
   for (const name of refsOf(src)) {
     const dot = name.indexOf(".");
     if (dot < 0) {
@@ -379,6 +391,7 @@ function usedBy(d: Design, name: string, isPart: boolean): string[] {
   const uses = (src: string | undefined) => {
     if (!src) return false;
     try {
+      if (isPart && gapPartsOf(src).some((r) => partRefParts(r).source === name)) return true;
       return refsOf(src).some((r) => (isPart ? partRefParts(r.split(".")[0]!).source === name : r === name));
     } catch {
       return false;
@@ -713,7 +726,7 @@ export function applyOp(d: Design, op: Op): Design {
     case "set_rule": {
       const id = checkId(op.id, "Rule id");
       const expr = checkExpr(op.expr, `rule ${id}`);
-      checkRefs(d, expr, `rule ${id}`);
+      checkRefs(d, expr, `rule ${id}`, [], true);
       const r: Rule = { id, expr, severity: oneOf(op.severity ?? "error", SEVERITIES, "severity"), message: need(op.message, "message") };
       return { ...d, rules: upsert(d.rules, r, (x) => x.id === id) };
     }

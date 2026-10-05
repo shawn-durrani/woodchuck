@@ -82,6 +82,11 @@ describe("Show me", () => {
     expect(ruleParts(d.rules.find((r) => r.id === "book_gap_ok")!, d)).toContain("rail_front_top");
   });
 
+  it("picks the parts a rule measures between with a gap function", () => {
+    const d = bench([{ op: "set_rule", id: "knee_room", expr: "gap_y(seat, rail_front_top) >= 0", severity: "warning", message: "Leave room under the seat." }]);
+    expect(ruleParts(d.rules.find((r) => r.id === "knee_room")!, d).sort()).toEqual(["rail_front_top", "seat"]);
+  });
+
   it("has nothing to show for a problem that names no parts and comes from no rule", () => {
     expect(showMeParts({ code: "finish_target", message: "The finish on shelf#9 has nothing to go on", parts: [] }, s.design, s.derived.parts)).toEqual([]);
   });

@@ -17,16 +17,19 @@ import {
   CURVE_TOLERANCE_MM,
   circleLoop,
   clipHalfPlane,
+  clipRect,
   insideConvex,
   perimeter,
   piecesOf,
   rectLoop,
   roundedRectLoop,
+  segmentDistance,
   signedArea,
   traceRegion,
   uncutStretches,
   pointInRegion,
   type Loop,
+  type Prism,
   type Pt,
 } from "./shape.js";
 import { AXIS_FACES, FACE_AXIS, FACE_IS_MAX, FACES, type Axis, type AxisSpec, type Bound, type Cutout, type EdgeCut, type Face, type Panel } from "./types.js";
@@ -54,6 +57,8 @@ export interface ProfileCut {
   text: string;
   /** How its positions were worked out. */
   trace: string;
+  /** The blank's edges and ends it takes wood from. A hole takes none. */
+  faces?: Face[];
 }
 
 /** A housing joint's extension, as far as the part's cuts leave it. */
@@ -87,6 +92,13 @@ export interface CutValues {
   number(src: string): Step;
 }
 
+/** The wood one cut takes off the blank, from the corner at nominal.min. Each one is convex. */
+export interface CutRegion {
+  id: string;
+  kind: "edge" | "cutout";
+  loop: Loop;
+}
+
 /** One original part's face, solved once and shared with its copies. */
 export interface SolvedFace {
   u: Axis;
@@ -97,6 +109,10 @@ export interface SolvedFace {
   edge_faces: Face[];
   holes: ProfileHole[];
   cuts: ProfileCut[];
+  /** What each cut that took wood took, for placing joints. */
+  regions: CutRegion[];
+  /** The cuts split it, and the outline is its biggest piece. */
+  severed: boolean;
 }
 
 /** Below this a cut, a size or a web of wood counts as nothing, as in the checks. */
@@ -128,10 +144,14 @@ class CutProblem extends Error {}
 
 /** The edge cut's line: wood goes where n·p > c. */
 interface Line {
+  id: string;
   edge: Face;
   n: Pt;
   c: number;
 }
+
+/** The least wood a cut may leave: 6 mm, or half the part's thickness when that's more. */
+const minWeb = (thickness_mm: number) => Math.max(6, thickness_mm / 2);
 
 /**
  * Works out the shape of one original part from its cuts, on the blank's
@@ -216,8 +236,17 @@ export function solveFace(panel: Panel, nominal: Box, values: CutValues, issues:
 
   if (!made.size && !taken.length) return null;
 
+  // Each cutout's box, widened past where a corner's edges could still read as within ON, so a point is
+  // only tested against the cutouts it could be in or on. Every cutout's corners are 90° or more.
+  const pad = 10 * ON;
+  const boxes = taken.map((t) => {
+    const xs = t.loop.map((q) => q[0]);
+    const ys = t.loop.map((q) => q[1]);
+    return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad] as const;
+  });
+  const inBox = (k: number, p: Pt) => p[0] >= boxes[k]![0] && p[1] >= boxes[k]![1] && p[0] <= boxes[k]![2] && p[1] <= boxes[k]![3];
   const loops = taken.length
-    ? traceRegion([blank, ...taken.map((t) => t.loop)], (p) => insideConvex(p, blank) > 0 && taken.every((t) => insideConvex(p, t.loop) < 0))
+    ? traceRegion([blank, ...taken.map((t) => t.loop)], (p) => insideConvex(p, blank) > 0 && taken.every((t, k) => !inBox(k, p) || insideConvex(p, t.loop) < 0))
     : [blank];
   const pieces = piecesOf(loops);
   if (!pieces.length) {
@@ -234,7 +263,10 @@ export function solveFace(panel: Panel, nominal: Box, values: CutValues, issues:
   }
   const piece = pieces[0]!;
   const outline = startAtCorner(piece.outline);
-  const onCutout = (loop: Loop, t: (typeof taken)[number]) => loop.some((p) => Math.abs(insideConvex(p, t.loop)) <= ON);
+  const onCutout = (loop: Loop, t: (typeof taken)[number]) => {
+    const k = taken.indexOf(t);
+    return loop.some((p) => inBox(k, p) && Math.abs(insideConvex(p, t.loop)) <= ON);
+  };
   for (const t of taken) {
     const kind = onCutout(outline, t) ? "notch" : piece.holes.some((h) => onCutout(h, t)) ? "hole" : "notch";
     made.set(t.cut.id, { id: t.cut.id, kind, text: t.text(kind), trace: t.trace });
@@ -253,7 +285,54 @@ export function solveFace(panel: Panel, nominal: Box, values: CutValues, issues:
     return cut ? cut.edge : facing(a, b, u, v);
   });
 
-  return { u, v, size, outline, edge_faces, holes, cuts: cuts.flatMap((c) => made.get(c.id) ?? []) };
+  // What each cut takes off the blank, and the edges and ends it reaches.
+  const whole = rectLoop([0, 0], size);
+  const regions: CutRegion[] = [
+    ...lines.map((l): CutRegion => ({ id: l.id, kind: "edge", loop: clipHalfPlane(whole, [-l.n[0], -l.n[1]], -l.c) })),
+    ...taken.map((t): CutRegion => ({ id: t.cut.id, kind: "cutout", loop: clipRect(t.loop, [0, 0], size) })),
+  ];
+  for (const r of regions) {
+    const cut = made.get(r.id);
+    if (!cut) continue;
+    cut.faces = FACES.filter((f) => FACE_AXIS[f] !== panel.thickness_axis).filter((f) => {
+      const i = at(FACE_AXIS[f]);
+      const line = FACE_IS_MAX[f] ? size[i] : 0;
+      return uncutStretches([r.loop], i, line, 0, size[1 - i]!).reduce((n, [s0, s1]) => n + s1 - s0, 0) > EPS;
+    });
+  }
+
+  // Wood left too narrow between a cut and an edge, or between two cutouts.
+  if (pieces.length === 1) {
+    const labelOf = (a: Pt, b: Pt): string => {
+      for (const i of [0, 1] as const) {
+        for (const line of [0, size[i]]) if (Math.abs(a[i] - line) <= ON && Math.abs(b[i] - line) <= ON) return `face:${faceOf([u, v][i]!, line > 0)}`;
+      }
+      const l = lines.find((x) => [a, b].every((p) => Math.abs(p[0] * x.n[0] + p[1] * x.n[1] - x.c) <= ON));
+      if (l) return l.id;
+      return taken.find((t, k) => inBox(k, a) && inBox(k, b) && [a, b].every((p) => Math.abs(insideConvex(p, t.loop)) <= ON))?.cut.id ?? "?";
+    };
+    const thickness = nominal.max[IDX[panel.thickness_axis]] - nominal.min[IDX[panel.thickness_axis]];
+    const least = minWeb(thickness);
+    const isCutout = (label: string) => taken.some((t) => t.cut.id === label);
+    const thin = narrowPlaces([outline, ...holes.map((h) => h.points_mm)], labelOf, least - ON)
+      .filter((n) => n.a !== "?" && n.b !== "?")
+      .sort((x, y) => x.mm - y.mm);
+    const what = (label: string) => (label.startsWith("face:") ? `the ${side(label.slice(5) as Face)}` : `cut ${label}`);
+    const limit = `Wood narrower than ${mm(least)} mm${least > 6 ? `, half the part's ${mm(thickness)} mm thickness,` : ""} can split or snap off, so leave at least that much`;
+    for (const code of ["cut_thin", "cut_web"] as const) {
+      const places = thin.filter((n) => (isCutout(n.a) && isCutout(n.b)) === (code === "cut_web"));
+      if (!places.length) continue;
+      const [first, ...rest] = places.map((n) => (n.a.startsWith("face:") ? { ...n, a: n.b, b: n.a } : n));
+      const lead = first!.b.startsWith("face:")
+        ? `Cut ${first!.a} on ${panel.id} leaves only ${mm(first!.mm)} mm of wood between it and ${what(first!.b)}`
+        : `Cuts ${first!.a} and ${first!.b} on ${panel.id} leave only ${mm(first!.mm)} mm of wood between them`;
+      const more = rest.slice(0, 3).map((n) => ` It's ${mm(n.mm)} mm between ${what(n.a)} and ${what(n.b)} too.`);
+      const others = rest.length > 3 ? ` ${rest.length - 3} more places are under ${mm(least)} mm.` : "";
+      issues.push({ severity: "warning", code, message: `${lead}. ${limit}.${more.join("")}${others}`, parts: [panel.id] });
+    }
+  }
+
+  return { u, v, size, outline, edge_faces, holes, cuts: cuts.flatMap((c) => made.get(c.id) ?? []), regions, severed: pieces.length > 1 };
 
   /** The line an edge cut clips along, and how it reads on the cut list. */
   function edgeLine(cut: EdgeCut): [Line, ProfileCut] {
@@ -286,7 +365,7 @@ export function solveFace(panel: Panel, nominal: Box, values: CutValues, issues:
     const l = Math.hypot(d[0], d[1]);
     let n: Pt = [-d[1] / l, d[0] / l];
     if (n[ie] * (FACE_IS_MAX[cut.edge] ? 1 : -1) < 0) n = [-n[0], -n[1]];
-    const line: Line = { edge: cut.edge, n, c: n[0] * p0[0] + n[1] * p0[1] };
+    const line: Line = { id: cut.id, edge: cut.edge, n, c: n[0] * p0[0] + n[1] * p0[1] };
 
     // The wood left across the part at each end of the run, from the blank's opposite edge.
     const width = size[ie];
@@ -406,6 +485,58 @@ export function solveFace(panel: Panel, nominal: Box, values: CutValues, issues:
       trace: parts.join("; "),
     };
   }
+}
+
+/**
+ * The narrowest wood under `under` mm between each pair of a region's
+ * features, where a feature is every edge with the same label: one face of
+ * the blank, one edge cut, or one cutout. Features that meet at a corner
+ * aren't compared, and nor are edges that don't face each other, so a slope
+ * running out to a point or a chamfer between two edges isn't read as thin.
+ */
+function narrowPlaces(loops: Loop[], labelOf: (a: Pt, b: Pt) => string, under: number): { a: string; b: string; mm: number }[] {
+  const features = new Map<string, { a: Pt; b: Pt; n: Pt }[]>();
+  const meet = new Set<string>();
+  const pair = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
+  for (const loop of loops) {
+    const ends = loop.map((a, i) => [a, loop[(i + 1) % loop.length]!] as const);
+    const labels = ends.map(([a, b]) => labelOf(a, b));
+    ends.forEach(([a, b], i) => {
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (l <= 0) return;
+      // The wood lies on each edge's left, so its right looks out of it.
+      const n: Pt = [(b[1] - a[1]) / l, (a[0] - b[0]) / l];
+      features.set(labels[i]!, [...(features.get(labels[i]!) ?? []), { a, b, n }]);
+      const next = labels[(i + 1) % labels.length]!;
+      if (next !== labels[i]) meet.add(pair(labels[i]!, next));
+    });
+  }
+  const names = [...features.keys()].sort();
+  // Each feature's box, so a pair already further apart than `under` is passed over.
+  const box = new Map(
+    names.map((name) => {
+      const pts = features.get(name)!.flatMap((e) => [e.a, e.b]);
+      return [name, [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))]] as const;
+    }),
+  );
+  const apart = (p: readonly number[], q: readonly number[]) => Math.hypot(Math.max(0, p[0]! - q[2]!, q[0]! - p[2]!), Math.max(0, p[1]! - q[3]!, q[1]! - p[3]!));
+  const out: { a: string; b: string; mm: number }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const [a, b] = [names[i]!, names[j]!];
+      if (meet.has(pair(a, b)) || (a.startsWith("face:") && b.startsWith("face:"))) continue;
+      if (apart(box.get(a)!, box.get(b)!) >= under) continue;
+      let least = Infinity;
+      for (const ea of features.get(a)!) {
+        for (const eb of features.get(b)!) {
+          if (ea.n[0] * eb.n[0] + ea.n[1] * eb.n[1] > -0.5) continue;
+          least = Math.min(least, segmentDistance(ea.a, ea.b, eb.a, eb.b));
+        }
+      }
+      if (least < under) out.push({ a, b, mm: least });
+    }
+  }
+  return out;
 }
 
 /** The face an edge looks out of, from its outward normal: the region lies on its left. */
@@ -531,4 +662,20 @@ export function faceAreas(p: Pick<DerivedPart, "profile" | "nominal" | "thicknes
   edges(pr.outline_mm, (i) => pr.edge_faces[i]!);
   for (const h of pr.holes) edges(h.points_mm, (i) => facing(h.points_mm[i]!, h.points_mm[(i + 1) % h.points_mm.length]!, pr.u, pr.v));
   return out;
+}
+
+/**
+ * A part's solid in world mm, for the checks: its outline and holes carried
+ * through its thickness. As seen, it's the part you look at. As cut, it adds
+ * each housing's tongue. A part with no cuts is its box either way.
+ */
+export function partPrism(p: Pick<DerivedPart, "profile" | "nominal" | "box" | "thickness_axis" | "grain_axis">, as: "seen" | "cut"): Prism {
+  const [u, v] = faceAxes(p.thickness_axis);
+  const b = as === "seen" ? p.nominal : p.box;
+  const t_mm: [number, number] = [b.min[IDX[p.thickness_axis]], b.max[IDX[p.thickness_axis]]];
+  if (!p.profile) return { u, v, loops: [rectLoop([b.min[IDX[u]], b.min[IDX[v]]], [b.max[IDX[u]], b.max[IDX[v]]])], t_mm };
+  const shape = as === "seen" ? { outline: p.profile.outline_mm, holes: p.profile.holes.map((h) => h.points_mm) } : cutOutline(p)!;
+  const o: Pt = [p.nominal.min[IDX[u]], p.nominal.min[IDX[v]]];
+  const move = (l: Loop): Loop => l.map(([x, y]): Pt => [x + o[0], y + o[1]]);
+  return { u, v, loops: [move(shape.outline), ...shape.holes.map(move)], t_mm };
 }
