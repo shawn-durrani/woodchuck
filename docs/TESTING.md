@@ -505,7 +505,9 @@ values come from the starting design wherever they can, so a change to the
 record console example moves them with it. When Claude stops to ask, plan
 or suggest, the script says to go ahead, up to three times a message. It
 applies a waiting preview and approves a waiting plan first, as the app's
-buttons do.
+buttons do. A task can answer a question it expects instead. The bookshelf
+task answers "in total" when Claude asks whether two more shelves means two
+in total or two in each section.
 
 | Task | What it sends |
 | --- | --- |

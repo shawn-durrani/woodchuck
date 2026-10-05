@@ -75,6 +75,8 @@ export interface QualityTask {
   messages: string[];
   /** Rough cost of one run on Sonnet 5.5 at high effort, low and high, in US dollars. */
   usd: [number, number];
+  /** What the woodworker says to a question that matches, instead of the go-ahead. */
+  answers?: { question: RegExp; reply: string }[];
   checks(o: Outcome): Check[];
 }
 
@@ -786,6 +788,7 @@ export const QUALITY_TASKS: QualityTask[] = [
       "Oil it in a light colour.",
     ],
     usd: [0.8, 2.5],
+    answers: [{ question: /\b(total|each|per)\b/i, reply: "Two in total." }],
     checks(o) {
       const after = last(o);
       const e = extent(after);
@@ -848,9 +851,15 @@ export const MAX_GO_AHEADS = 3;
  * The woodworker's go-ahead, the way the app's buttons give it: a waiting
  * preview is applied and a waiting plan approved before the reply goes in.
  */
-export function goAhead(project: Project): string {
+export function goAhead(project: Project, answers: QualityTask["answers"] = []): string {
   let text = GO_AHEAD;
   const waiting = project.pending?.waiting ?? [];
+  // A question the task has an answer for gets that answer, as the woodworker would give it.
+  if (waiting.some((w) => w.kind === "question")) {
+    const asked = [...project.chat].reverse().find((c) => c.kind === "question");
+    const answer = asked?.kind === "question" ? answers.find((a) => a.question.test(asked.question)) : undefined;
+    if (answer) text = answer.reply;
+  }
   if (waiting.some((w) => w.kind === "preview")) {
     const preview = [...project.chat].reverse().find((c) => c.kind === "preview" && c.status === "proposed");
     if (preview?.kind === "preview") {
@@ -920,7 +929,7 @@ export async function runTask(task: QualityTask, store: Store, client: MessagesC
   for (const message of task.messages) {
     const seen = new Set(project.chat.map((c) => c.id));
     await turn(message);
-    for (let i = 0; i < MAX_GO_AHEADS && project.pending?.waiting.length; i++) await turn(goAhead(project));
+    for (let i = 0; i < MAX_GO_AHEADS && project.pending?.waiting.length; i++) await turn(goAhead(project, task.answers));
     after.push(structuredClone(project.design));
     replies.push(wordsIn(project.chat.filter((c) => !seen.has(c.id))));
   }

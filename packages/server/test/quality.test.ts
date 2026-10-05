@@ -504,6 +504,17 @@ describe("running a task through the turn loop", () => {
     expect(usage.turns).toBe(2);
   });
 
+  it("answers a question the task has an answer for, and goes ahead on any other", () => {
+    const store = new Store(dir);
+    const project = store.create("Bench question");
+    project.chat.push({ id: "q1", kind: "question", question: "Two shelves in total, or two in each bay?", options: [], at: "" });
+    project.pending = { held: [], waiting: [{ tool_use_id: "x", kind: "question" }] };
+    const answers = task("requirement-kept").answers;
+    expect(goAhead(project, answers)).toBe("Two in total.");
+    project.chat.push({ id: "q2", kind: "question", question: "Which oil would you like?", options: [], at: "" });
+    expect(goAhead(project, answers)).toBe("Yes, go ahead with what you suggest.");
+  });
+
   it("approves a waiting plan on the go-ahead", () => {
     const store = new Store(dir);
     const project = store.create("Bench plan");
