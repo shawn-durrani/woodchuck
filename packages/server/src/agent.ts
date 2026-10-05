@@ -78,6 +78,37 @@ export function hasCredentials(): boolean {
 }
 const MAX_ROUNDS = 60;
 
+/**
+ * How long to wait before each new try when a request to Claude fails on
+ * the way, such as a dropped connection. The SDK only retries a request
+ * that never got going, so a reply cut off mid-stream is tried again here.
+ */
+export const RETRY_DELAYS_MS = [1_000, 4_000] as const;
+
+/** A network error underneath, such as a socket closing mid-reply. */
+const DROPPED = /terminated|socket|network|connection|closed|ECONN|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR/i;
+
+/**
+ * Whether a failed request is worth sending again: a dropped connection or
+ * time-out, an overloaded API (529) or a server error (5xx). A refusal, a
+ * bad key or a rate limit is never tried again.
+ */
+export function transient(e: unknown): boolean {
+  if (e instanceof Anthropic.APIUserAbortError) return false;
+  if (e instanceof Anthropic.APIConnectionError) return true;
+  if (e instanceof Anthropic.APIError) {
+    // An error event mid-stream has no status, only its type.
+    if (e.status === undefined) return e.type === "overloaded_error" || e.type === "api_error";
+    return e.status >= 500;
+  }
+  // A connection that drops mid-reply reaches here as the SDK's plain error, with the network's own error as its cause.
+  if (e instanceof Anthropic.AnthropicError) {
+    const cause = (e as { cause?: { message?: unknown; code?: unknown } }).cause;
+    return !!cause && DROPPED.test(`${String(cause.message ?? "")} ${String(cause.code ?? "")}`);
+  }
+  return false;
+}
+
 export interface TurnEvents {
   chat(item: ChatItem): void;
   delta(id: string, text: string): void;
@@ -240,6 +271,10 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
 export class Turn {
   private stream: ReturnType<MessagesClient["stream"]> | null = null;
   private stopped = false;
+  /** Cuts short the wait before a new try, so Stop never waits on it. */
+  private wake: (() => void) | null = null;
+  /** Tool calls this turn, for saying how far it got. */
+  private steps = 0;
 
   constructor(
     private store: Store,
@@ -247,11 +282,14 @@ export class Turn {
     private events: TurnEvents,
     private renderPng: (project: Project, views: ViewName[], opts: { highlight?: string[]; isolate?: string[]; xray?: boolean }) => Buffer,
     private library: LibraryAccess = EMPTY_LIBRARY,
+    /** Tests pass no waits. */
+    private retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
   ) {}
 
   stop() {
     this.stopped = true;
     this.stream?.abort();
+    this.wake?.();
   }
 
   async run(input: TurnInput): Promise<void> {
@@ -271,13 +309,27 @@ export class Turn {
 
     // A reply to a question, plan, part or preview answers the tool calls that were waiting.
     const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+    // A message sent while Claude worked can be what answers its plan or question, so both cards and Claude are told.
+    let answering = "";
     if (project.pending) {
       content.push(...project.pending.held);
       for (const w of project.pending.waiting) {
         content.push({ type: "tool_result", tool_use_id: w.tool_use_id, content: input.text });
       }
       for (const item of project.chat) {
-        if (item.kind === "question" && item.answered === undefined) item.answered = input.text;
+        if (item.kind === "question" && item.answered === undefined) {
+          item.answered = input.text;
+          if (queued.length) item.answered_by = queued[0]!;
+        }
+      }
+      const asked = project.pending.waiting.filter((w) => w.kind === "plan" || w.kind === "question").map((w) => w.kind);
+      if (queued.length && asked.length) {
+        const plan = asked.includes("plan") ? project.chat.findLast((c) => c.kind === "plan") : undefined;
+        if (plan?.kind === "plan") {
+          plan.answered = input.text;
+          plan.answered_by = queued[0]!;
+        }
+        answering = ` It's taken as their reply to your ${asked.includes("plan") ? "plan" : "question"}, though they may not have seen it yet. If it doesn't answer it, ask again.`;
       }
       project.pending = null;
     }
@@ -286,7 +338,7 @@ export class Turn {
     project.notes = [];
     const news = project.news.length ? `\n\n(News since your last turn: ${project.news.join("; ")}.)` : "";
     project.news = [];
-    const late = queued.length ? "\n\n(The woodworker sent this while you were still working.)" : "";
+    const late = queued.length ? `\n\n(The woodworker sent this while you were still working.${answering})` : "";
     // Pictures go before the words that refer to them.
     content.push(...pictures(input));
     content.push({ type: "text", text: `${input.text}${pointedAt(input)}${late}${notes}${news}` });
@@ -318,10 +370,7 @@ export class Turn {
     const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
-        const textId = nextId("a");
-        let textItem: ChatItem | null = null;
-        let thinkingItem: (ChatItem & { kind: "thinking" }) | null = null;
-        this.stream = this.client.stream({
+        const message = await this.ask(project, {
           // Switching models mid-conversation is fine: other models skip the
           // earlier thinking blocks, and the history stays append-only.
           model: project.model ?? MODEL,
@@ -347,28 +396,6 @@ export class Turn {
           betas: ["server-side-fallback-2026-07-01", ...(compactTrigger ? ["compact-2026-01-12"] : [])],
           fallbacks: "default",
         } as Anthropic.Beta.MessageCreateParamsStreaming);
-        this.stream.on("thinking", (delta) => {
-          if (!thinkingItem) {
-            thinkingItem = { id: nextId("t"), kind: "thinking", text: "", at: now() };
-            project.addChat(thinkingItem);
-            this.events.chat(thinkingItem);
-          }
-          thinkingItem.text += delta;
-          this.events.delta(thinkingItem.id, delta);
-        });
-        this.stream.on("text", (delta) => {
-          if (!textItem) {
-            textItem = { id: textId, kind: "assistant", text: "", at: now(), streaming: true };
-            project.addChat(textItem);
-            this.events.chat(textItem);
-          }
-          (textItem as { text: string }).text += delta;
-          this.events.delta(textId, delta);
-        });
-
-        const message = await this.stream.finalMessage();
-        this.stream = null;
-        if (textItem) delete (textItem as { streaming?: boolean }).streaming;
         // The summary's own cost is reported apart from the reply's.
         const parts = [message.usage, ...(message.usage.iterations ?? []).filter((i) => i.type === "compaction")];
         for (const u of parts) {
@@ -388,12 +415,12 @@ export class Turn {
         }
 
         if (message.stop_reason === "refusal") {
-          this.error(project, "Claude declined that request, so nothing more was changed.");
+          this.fail(project, job, "Claude declined that request, so nothing more was changed.", false);
           break;
         }
         const calls = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
         if (message.stop_reason === "max_tokens" && calls.length) {
-          this.error(project, "Claude's reply was cut off mid-tool call, so that call didn't run. Ask it to carry on.");
+          this.fail(project, job, "Claude's reply was cut off mid-tool call, so that call didn't run. Ask it to carry on.");
           break;
         }
         if (message.stop_reason === "pause_turn") continue;
@@ -413,6 +440,7 @@ export class Turn {
                 ? `read ${inp.url ?? "a page"}`
                 : "sift what it found";
           const item: ChatItem = { id: nextId("w"), kind: "tool", name: b.name, summary, is_error: false, at: now() };
+          this.steps++;
           project.addChat(item);
           this.events.chat(item);
         }
@@ -441,6 +469,7 @@ export class Turn {
             at: now(),
             ...(image ? { image } : {}),
           };
+          this.steps++;
           project.addChat(item);
           this.events.chat(item);
           // A missing tool gets its own card, so it can't be missed in the chat.
@@ -494,20 +523,20 @@ export class Turn {
         project.messages.push({ role: "user", content: [...results, ...this.takeIn(project)] });
         project.save();
       }
-      if (this.stopped) this.error(project, "Stopped.");
+      if (this.stopped) this.halt(project, job);
     } catch (e) {
       if (this.stopped) {
-        this.error(project, "Stopped.");
+        this.halt(project, job);
       } else if (e instanceof Anthropic.AuthenticationError) {
-        this.error(project, NO_KEY);
+        this.fail(project, job, NO_KEY);
       } else if (e instanceof Anthropic.RateLimitError) {
-        this.error(project, "Claude is rate limited right now. Try again in a minute.");
+        this.fail(project, job, "Claude is rate limited right now. Try again in a minute.");
       } else if (e instanceof Anthropic.APIError) {
-        this.error(project, `Claude's API returned an error (${e.status ?? "no status"}): ${e.message}`);
+        this.fail(project, job, `Claude's API returned an error (${e.status ?? "no status"}): ${e.message}`);
       } else if (/authentication method|api ?key/i.test((e as Error).message)) {
-        this.error(project, NO_KEY);
+        this.fail(project, job, NO_KEY);
       } else {
-        this.error(project, `Something went wrong: ${(e as Error).message}`);
+        this.fail(project, job, `Something went wrong: ${(e as Error).message}`);
       }
     } finally {
       this.stream = null;
@@ -550,8 +579,95 @@ export class Turn {
     return out;
   }
 
-  private error(project: Project, text: string) {
-    const item: ChatItem = { id: nextId("e"), kind: "error", text, at: now() };
+  /**
+   * One request to Claude, streamed into the chat as it comes. A dropped
+   * connection, or an overloaded or failing API, is tried again after a
+   * short wait. Nothing was added to the history, so the same request is
+   * safe to send again, and what the failed try streamed leaves the chat.
+   */
+  private async ask(project: Project, body: Anthropic.Beta.MessageCreateParamsStreaming): Promise<Anthropic.Beta.BetaMessage> {
+    for (let attempt = 0; ; attempt++) {
+      const live: { text?: ChatItem & { kind: "assistant" }; thinking?: ChatItem & { kind: "thinking" } } = {};
+      const stream = (this.stream = this.client.stream(body));
+      stream.on("thinking", (delta) => {
+        if (!live.thinking) {
+          live.thinking = { id: nextId("t"), kind: "thinking", text: "", at: now() };
+          project.addChat(live.thinking);
+          this.events.chat(live.thinking);
+        }
+        live.thinking.text += delta;
+        this.events.delta(live.thinking.id, delta);
+      });
+      stream.on("text", (delta) => {
+        if (!live.text) {
+          live.text = { id: nextId("a"), kind: "assistant", text: "", at: now(), streaming: true };
+          project.addChat(live.text);
+          this.events.chat(live.text);
+        }
+        live.text.text += delta;
+        this.events.delta(live.text.id, delta);
+      });
+      try {
+        return await stream.finalMessage();
+      } catch (e) {
+        const wait = this.retryDelaysMs[attempt];
+        if (this.stopped || wait === undefined || !transient(e)) throw e;
+        // The next try streams its own thinking and words, so the cut-off ones go.
+        const partial = [live.text?.id, live.thinking?.id];
+        project.chat = project.chat.filter((c) => !partial.includes(c.id));
+        const why = e instanceof Anthropic.APIConnectionError || !(e instanceof Anthropic.APIError) ? "The connection to Claude dropped" : "Claude's API is busy";
+        this.error(project, `${why}, so Woodchuck is trying again (${attempt + 1} of ${this.retryDelaysMs.length}).`, true);
+        this.events.changed();
+        await this.pause(wait);
+        if (this.stopped) throw e;
+      } finally {
+        this.stream = null;
+        // However the reply ends, it's no longer being typed.
+        if (live.text) delete live.text.streaming;
+      }
+    }
+  }
+
+  /** Waits before a new try, or until Stop. */
+  private pause(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.stopped) return resolve();
+      const timer = setTimeout(resolve, ms);
+      this.wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+  }
+
+  /** Ends the turn on Stop. */
+  private halt(project: Project, job: Job) {
+    job.stopped = true;
+    this.error(project, "Stopped.");
+    project.news.push(`your last turn was stopped by the woodworker after ${this.stepCount()}, so it may have left work half done. Read the design and finish what was left, if the woodworker wants`);
+  }
+
+  /**
+   * Ends the turn on an error, and records it on the job so other apps
+   * hear it stopped early. The next turn is told, unless Claude already
+   * knows why, as it does when it declined.
+   */
+  private fail(project: Project, job: Job, text: string, tellNext = true) {
+    job.error = text;
+    this.error(project, text);
+    if (tellNext) {
+      project.news.push(
+        `your last turn stopped early with an error after ${this.stepCount()}, so it may have left work half done (${text.replace(/\.$/, "")}). Read the design and finish what was left, if the woodworker wants`,
+      );
+    }
+  }
+
+  private stepCount() {
+    return `${this.steps} step${this.steps === 1 ? "" : "s"}`;
+  }
+
+  private error(project: Project, text: string, retry = false) {
+    const item: ChatItem = { id: nextId("e"), kind: "error", text, at: now(), ...(retry ? { retry: true as const } : {}) };
     project.addChat(item);
     this.events.chat(item);
   }

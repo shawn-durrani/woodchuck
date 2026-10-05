@@ -167,7 +167,10 @@ describe("a message sent while Claude works", () => {
     await turn(client).run(next);
     const reply = lastSent(client, 1);
     expect(reply[0]).toMatchObject({ type: "tool_result", tool_use_id: "q1", content: "Ply, please" });
-    expect(reply.at(-1)).toMatchObject({ text: "Ply, please\n\n(The woodworker sent this while you were still working.)" });
+    expect(reply.at(-1)).toMatchObject({
+      text: "Ply, please\n\n(The woodworker sent this while you were still working. It's taken as their reply to your question, though they may not have seen it yet. If it doesn't answer it, ask again.)",
+    });
+    expect(p.chat.find((c) => c.kind === "question")).toMatchObject({ answered: "Ply, please", answered_by: id });
     // The message starts the new request, and isn't shown twice.
     expect(p.chat.filter((c) => c.kind === "user")).toHaveLength(2);
     expect(p.chat.find((c) => c.id === id)).toMatchObject({ taken: "turn" });

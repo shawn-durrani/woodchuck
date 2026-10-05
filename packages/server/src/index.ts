@@ -326,6 +326,7 @@ export function createApp(opts: {
         // How Claude's current or last request is going, at once, for other apps to watch.
         case "GET /api/progress": {
           const p = store.project;
+          const open = p.openChange;
           return json(
             200,
             progress({
@@ -335,6 +336,10 @@ export function createApp(opts: {
               waiting: p.pending?.waiting.map((w) => w.kind) ?? [],
               queued: p.queued.map((q) => ({ id: q.item, text: q.input.text })),
               now: Date.now(),
+              parts: p.design.parts.length,
+              openEdits: open?.author === "claude" ? open.edits : 0,
+              toolRequests: store.toolRequests(),
+              repo,
             }),
           );
         }

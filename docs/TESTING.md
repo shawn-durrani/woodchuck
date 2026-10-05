@@ -67,6 +67,11 @@ flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
 block held to the agreed shape.
 
+A stand-in that drops the connection mid-reply checks that Claude's
+request is sent again, and that the cut-off words leave the chat. A turn
+that an error or Stop ends has to say so to other apps and to the next
+turn, and never leave the typing cursor behind.
+
 ### The web app
 
 The web tests in `packages/web/test` cover the logic kept out of the

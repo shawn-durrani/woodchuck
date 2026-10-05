@@ -14,7 +14,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { finishLabel, JOINT_TYPES, normaliseFinish, PALETTES, speciesOf, type Design, type JointType } from "@woodchuck/core";
-import { background, describe, itemsAfter, progressText, type Item, type Progress } from "./progress.js";
+import { background, describe, hasReply, itemsAfter, progressText, type Item, type Progress } from "./progress.js";
 
 const BASE = (process.env.WOODCHUCK_URL ?? "http://127.0.0.1:8905").replace(/\/$/, "");
 /** Named in the note the Woodchuck window shows when its view is changed. */
@@ -102,7 +102,7 @@ const unreachable = (e: unknown) =>
 
 /** What to say once a request has been handed over: the answer if it's ready, or how it's going. */
 function answer(p: Progress): string {
-  if (p.state === "done" || p.state === "waiting") return p.reply;
+  if (hasReply(p.state)) return p.reply;
   if (p.state === "idle") return progressText(p);
   return `Woodchuck's Claude has started on it, and the Woodchuck window shows it working.\n${progressText(p)}\nCall woodchuck_progress when the woodworker asks how it's going.`;
 }
@@ -187,7 +187,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     async () => {
       try {
         const p = await getProgress();
-        const said = p.state === "done" || p.state === "waiting" ? `\n\n${p.reply}` : "";
+        const said = hasReply(p.state) ? `\n\n${p.reply}` : "";
         return withProgress(`${progressText(p)}${said}`, p);
       } catch (e) {
         return unreachable(e);

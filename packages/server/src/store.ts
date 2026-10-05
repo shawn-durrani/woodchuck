@@ -48,8 +48,9 @@ export type ChatItem =
   | { id: string; kind: "assistant"; text: string; at: string; streaming?: boolean }
   | { id: string; kind: "thinking"; text: string; at: string }
   | { id: string; kind: "tool"; name: string; summary: string; is_error: boolean; image?: string; at: string }
-  | { id: string; kind: "question"; question: string; options: string[]; answered?: string; at: string }
-  | { id: string; kind: "plan"; plan: Plan; image?: string; at: string }
+  /** answered_by names a message sent while Claude worked that was taken as the answer. */
+  | { id: string; kind: "question"; question: string; options: string[]; answered?: string; answered_by?: string; at: string }
+  | { id: string; kind: "plan"; plan: Plan; image?: string; answered?: string; answered_by?: string; at: string }
   | { id: string; kind: "part"; proposal: string; part: LibraryPart; status: "proposed" | "approved" | "changes_requested"; at: string }
   /** A change set. It's marked undone while Undo has taken it back. */
   | { id: string; kind: "change"; change: number; author: Author; label: string; edits: number; undone?: true; at: string }
@@ -66,7 +67,8 @@ export type ChatItem =
       at: string;
     }
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
-  | { id: string; kind: "error"; text: string; at: string }
+  /** retry marks a dropped connection that Claude's turn is trying again after, rather than one that ended it. */
+  | { id: string; kind: "error"; text: string; retry?: true; at: string }
   | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; at: string }
   /** The API summarised the older chat to keep Claude quick. */
   | { id: string; kind: "summary"; at: string };
@@ -93,6 +95,10 @@ export interface Job {
   after: string;
   started_at: string;
   ended_at?: string;
+  /** Why it ended early, when an error ended it. */
+  error?: string;
+  /** Set when Stop ended it. */
+  stopped?: true;
 }
 
 /** Where a tool request stands: waiting, sent to build, built, or not needed. */
@@ -255,6 +261,11 @@ export class Project {
     this.design = next;
     if (this.open) this.open.edits += ops.length;
     return next;
+  }
+
+  /** Who the change set still open belongs to, and how many edits it holds so far. */
+  get openChange(): { author: Author; edits: number } | null {
+    return this.open ? { author: this.open.author, edits: this.open.edits } : null;
   }
 
   /** Closes the change set. Returns its history entry if anything changed. */

@@ -68,23 +68,38 @@ A chat app reads it to watch a long build without holding its turn.
     "elapsed_s": 312,
     "waiting_for": null,
     "ask": "",
-    "reply": ""
+    "reply": "",
+    "outcome": null,
+    "error": "",
+    "parts": 18,
+    "edits": 42
 } }
 ```
 
 - `job` names the message that started the request. A new one means a new
   turn, such as one a late message started.
-- `state` is `running`, `waiting`, `done` or `idle`.
+- `state` is `running`, `waiting`, `done` or `idle`. A request that an
+  error or Stop ended early is `done` here too, so a chat app that knows
+  only these four still hears it's over.
+- `outcome` says how a request that's over ended, as `finished`, `failed`
+  or `stopped`. It's null while Claude works or waits. `error` holds the
+  error that ended a failed request.
 - `progress_tool` names the tool that gives a fresh block. It takes no
   arguments and answers within a second.
 - `stage` is one plain line, from Claude's latest narration, the start of
   its thinking or its latest step.
 - `waiting_for` and `ask` say what Claude waits on, with the question or
   the preview's title.
-- `reply` holds what Claude said and did, once it's done or waiting.
+- `reply` holds what Claude said and did, once it's done or waiting. A
+  failed or stopped request's reply opens with how it ended, and says the
+  woodworker can ask Claude to carry on.
+- `parts` counts the parts in the design, and `edits` counts Claude's edits
+  in this request. Both grow during a build, and the Woodchuck window
+  shows each part as it's added.
 
 The app's own `GET /api/progress` gives the same facts, with the last
-three steps and any messages Claude hasn't read yet.
+three steps and any messages Claude hasn't read yet. Its `state` names
+`failed` and `stopped` as states of their own.
 
 ## Pictures
 

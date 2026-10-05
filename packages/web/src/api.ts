@@ -25,8 +25,8 @@ export type ChatItem =
   | { id: string; kind: "assistant"; text: string; at: string; streaming?: boolean }
   | { id: string; kind: "thinking"; text: string; at: string }
   | { id: string; kind: "tool"; name: string; summary: string; is_error: boolean; image?: string; at: string }
-  | { id: string; kind: "question"; question: string; options: string[]; answered?: string; at: string }
-  | { id: string; kind: "plan"; plan: Plan; image?: string; at: string }
+  | { id: string; kind: "question"; question: string; options: string[]; answered?: string; answered_by?: string; at: string }
+  | { id: string; kind: "plan"; plan: Plan; image?: string; answered?: string; answered_by?: string; at: string }
   | { id: string; kind: "part"; proposal: string; part: LibraryPart; status: "proposed" | "approved" | "changes_requested"; at: string }
   /** A change set. It's marked undone while Undo has taken it back. */
   | { id: string; kind: "change"; change: number; author: Author; label: string; edits: number; undone?: true; at: string }
@@ -43,7 +43,7 @@ export type ChatItem =
       at: string;
     }
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
-  | { id: string; kind: "error"; text: string; at: string }
+  | { id: string; kind: "error"; text: string; retry?: true; at: string }
   | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; at: string }
   | { id: string; kind: "summary"; at: string };
 
