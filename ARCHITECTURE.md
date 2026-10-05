@@ -187,6 +187,28 @@ is worked out after every size. A drawer side that slopes down under a rail
 shows why. `rail.bottom - side.top` reads the side's tallest point and
 fails, while `gap_y(rail, side)` reads the slope under the rail and passes.
 
+## A requirement is a rule in every direction it limits
+
+Claude's instructions ask for a rule for each requirement you state, and
+one for each direction it limits. A 12-inch LP needs room across a drawer
+and room to stand up in it, so an LP drawer gets two rules. A shelf's load
+limits both its span and its thickness.
+
+An overall size means the whole piece, with the back, feet, top and any
+overhang in it. `overall.width`, `overall.height` and `overall.depth` read
+the box around every part, and `overall.top` and the other faces read its
+edges. Stand-in boxes count, and props and hardware don't. Claude holds a
+size you give with a rule such as `overall.depth == 300`, then fits the
+parts inside it. A back put on behind 300 mm sides fails that rule. Its
+working names the part at each end, such as the back and a side, so the
+part that sticks out is plain to see.
+
+The whole piece is worked out after every size, the same as a shape. Only
+a rule or a plan's key size can read it, and no part can be called
+`overall`. Its height runs from its lowest part to its highest. Hardware
+isn't in the box, so a piece on bought legs has its height from the floor
+in `overall.top`.
+
 ## Checks run after every change
 
 Overlaps, parts nothing holds up, joints out of proportion, parts too big

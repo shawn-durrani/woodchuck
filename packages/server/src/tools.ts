@@ -376,7 +376,11 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "set_rule",
-    description: "Create or change a rule: a true/false expression the design must keep meeting, with a message for when it doesn't. Use one for every requirement the woodworker states.",
+    description:
+      "Create or change a rule: a true/false expression the design must keep meeting, with a message for when it doesn't. Use one for every requirement the woodworker states, and one for each direction it limits. " +
+      'LPs need lp_clear across a drawer, "drawer_side_r.left - drawer_side_l.right >= lp_clear", and standing up in it, "top.bottom - drawer_bottom.top >= lp_clear". ' +
+      'An overall size is the whole piece: overall.width, overall.height and overall.depth are the box around every part, back, feet and top included, such as "overall.depth == 300", and overall.top and the other faces are its edges. ' +
+      "Props and hardware aren't in it, so for a piece on bought legs, overall.top is its height from the floor.",
     input_schema: obj(
       {
         id: { type: "string" },

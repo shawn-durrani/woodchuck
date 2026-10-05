@@ -8,7 +8,7 @@
 // shape once every nominal box is known (see profile.ts). Joints are placed
 // on the wood its cuts leave, and its profile follows its housings.
 
-import { evaluate, evaluateNumber, ExprError, fmt, type GapResolver, type Traced } from "./expr.js";
+import { evaluate, evaluateNumber, ExprError, fmt, refsOf, type GapResolver, type Traced } from "./expr.js";
 import { JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
 import { contactWood, cutsInBox, fastenerStretches, slotWallsOnShape, spreadOver, type CutInBox } from "./jointShape.js";
 import { placeBox } from "./library.js";
@@ -180,8 +180,28 @@ export interface Derived {
 
 export interface DeriveResult extends Derived {
   byId: Map<string, DerivedPart>;
+  /** The box around the whole piece, which overall.width and the like read, or why there's none. */
+  overall: WholePiece | { error: string };
   /** Evaluates any expression against this design. */
   evaluate: (expr: string) => Traced;
+}
+
+/**
+ * The whole piece, as a rule reads it: overall.width, overall.height and
+ * overall.depth, the same sizes as overall.size_x, size_y and size_z, and
+ * its faces, such as overall.top. It's the box around every part, stand-ins
+ * included, with no props and no hardware. It's worked out after every
+ * size, like a gap, so a part or a parameter can't use it.
+ */
+export const OVERALL = "overall";
+export const OVERALL_SIZES: Record<string, Axis> = { width: "x", height: "y", depth: "z", size_x: "x", size_y: "y", size_z: "z" };
+/** Everything after "overall." that an expression can read. */
+export const OVERALL_NAMES: readonly string[] = [...Object.keys(OVERALL_SIZES), ...FACES];
+
+export interface WholePiece {
+  box: Box;
+  /** The part at each end of each axis, the start's then the end's. */
+  ends: Record<Axis, [string, string]>;
 }
 
 const EPS = 0.01;
@@ -276,6 +296,9 @@ class Resolver {
     if (dot < 0) return this.param(name).value;
     const ref = name.slice(0, dot);
     const prop = name.slice(dot + 1);
+    if (ref === OVERALL && !this.parts.has(OVERALL)) {
+      throw new ExprError(`${name} measures the whole piece, which is worked out after every size, so only a rule or a plan's key size can use it`);
+    }
     if ((FACES as readonly string[]).includes(prop)) return this.face(ref, prop as Face);
     const part = this.partFor(ref);
     const sizeOf = (a: Axis) => this.size(ref, a);
@@ -1241,6 +1264,10 @@ export function derive(design: Design): DeriveResult {
     return g;
   };
 
+  // overall.width and the like read the box around every part, once every one is known.
+  const overall = wholePiece(parts);
+  const value = (name: string) => (name.startsWith(`${OVERALL}.`) && !byId.has(OVERALL) ? overallValue(overall, name) : r.value(name));
+
   return {
     params,
     parts,
@@ -1248,8 +1275,75 @@ export function derive(design: Design): DeriveResult {
     hardware,
     issues,
     byId,
-    evaluate: (expr: string) => evaluate(expr, r.value, gap),
+    overall,
+    evaluate: (expr: string) => evaluate(expr, value, gap),
   };
+}
+
+/**
+ * The box around every part, stand-ins included, and the part at each end
+ * of each axis. Props and hardware aren't in it. The first part in the list
+ * names an end that several share.
+ */
+export function wholePiece(parts: readonly DerivedPart[]): WholePiece | { error: string } {
+  const solid = parts.filter((p) => !p.decor);
+  const broken = solid.find((p) => p.broken);
+  if (broken) return { error: `${broken.id}'s size couldn't be worked out` };
+  if (!solid.length) return { error: "there are no parts yet" };
+  const box = zeroBox();
+  const ends = {} as Record<Axis, [string, string]>;
+  for (const a of AXES) {
+    const i = AXIS_INDEX[a];
+    const lo = Math.min(...solid.map((p) => p.nominal.min[i]));
+    const hi = Math.max(...solid.map((p) => p.nominal.max[i]));
+    box.min[i] = lo;
+    box.max[i] = hi;
+    ends[a] = [solid.find((p) => p.nominal.min[i] <= lo + EPS)!.id, solid.find((p) => p.nominal.max[i] >= hi - EPS)!.id];
+  }
+  return { box, ends };
+}
+
+function overallValue(whole: WholePiece | { error: string }, name: string): number {
+  const prop = name.slice(OVERALL.length + 1);
+  if (!OVERALL_NAMES.includes(prop)) {
+    throw new ExprError(`"${name}" isn't something the whole piece has. Use overall.width, overall.height, overall.depth or a face such as overall.top`);
+  }
+  if ("error" in whole) throw new ExprError(`${name} can't be worked out, since ${whole.error}`);
+  const axis = OVERALL_SIZES[prop];
+  if (axis) return whole.box.max[AXIS_INDEX[axis]] - whole.box.min[AXIS_INDEX[axis]];
+  const face = prop as Face;
+  const i = AXIS_INDEX[FACE_AXIS[face]];
+  return FACE_IS_MAX[face] ? whole.box.max[i] : whole.box.min[i];
+}
+
+const OVERALL_SIZE_OF: Record<Axis, string> = { x: "width", y: "height", z: "depth" };
+
+/**
+ * Where the whole piece starts and ends along each axis an expression reads
+ * it on, with the part at each end, such as "overall.depth runs from
+ * back.back (-6) to side_l.front (300)". Empty when it doesn't read it.
+ */
+export function overallWorking(d: Pick<DeriveResult, "overall" | "byId">, expr: string): string[] {
+  if (d.byId.has(OVERALL) || "error" in d.overall) return [];
+  let refs: string[];
+  try {
+    refs = refsOf(expr);
+  } catch {
+    return [];
+  }
+  const axes = new Set<Axis>();
+  for (const ref of refs) {
+    if (!ref.startsWith(`${OVERALL}.`)) continue;
+    const prop = ref.slice(OVERALL.length + 1);
+    const axis = OVERALL_SIZES[prop] ?? FACE_AXIS[prop as Face];
+    if (axis) axes.add(axis);
+  }
+  const { box, ends } = d.overall;
+  return AXES.filter((a) => axes.has(a)).map((a) => {
+    const i = AXIS_INDEX[a];
+    const [lo, hi] = ends[a];
+    return `overall.${OVERALL_SIZE_OF[a]} runs from ${lo}.${faceOf(a, false)} (${fmt(box.min[i])}) to ${hi}.${faceOf(a, true)} (${fmt(box.max[i])})`;
+  });
 }
 
 /** Strips the functions so the result can be sent as JSON. */

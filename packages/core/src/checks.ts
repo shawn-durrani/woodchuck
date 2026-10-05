@@ -6,7 +6,7 @@
 // part is its box, and the box checks run first, so a design with no cuts
 // is checked exactly as a set of boxes.
 
-import { AXIS_INDEX, type Box, type DeriveResult, type DeriveIssue, type DerivedPart } from "./derive.js";
+import { AXIS_INDEX, OVERALL, overallWorking, type Box, type DeriveResult, type DeriveIssue, type DerivedPart } from "./derive.js";
 import { roundCut } from "./cutlist.js";
 import { fmt, gapPartsOf, refsOf } from "./expr.js";
 import { fitsLengths, fitsSheet, materialStock, stockSettings } from "./layout.js";
@@ -284,13 +284,15 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
       if (typeof r.value !== "boolean") {
         out.push({ severity: "error", code: "rule_error", message: `Rule ${rule.id} must be true or false, but it gives a number`, parts: [], trace: r.text });
       } else if (!r.value) {
+        // A rule on the whole piece names the part at each end, so the one that sticks out shows.
+        const ends = overallWorking(d, rule.expr);
         out.push({
           severity: rule.severity,
           code: "rule_failed",
           // Plain words first. The rule's id comes after, for finding it again.
           message: `${rule.message} (rule ${rule.id})`,
           parts: partsIn(rule.expr),
-          trace: r.text,
+          trace: ends.length ? `${r.text}, where ${ends.join(" and ")}` : r.text,
         });
       }
     } catch (e) {
@@ -325,7 +327,8 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
 
 function partsIn(expr: string): string[] {
   const out = new Set<string>();
-  for (const m of expr.matchAll(/([a-z][a-z0-9_]*(?:#\d+)?)\.[a-z_]+/g)) out.add(m[1]!);
+  // overall.depth and the like read the whole piece, which isn't a part.
+  for (const m of expr.matchAll(/([a-z][a-z0-9_]*(?:#\d+)?)\.[a-z_]+/g)) if (m[1] !== OVERALL) out.add(m[1]!);
   try {
     for (const p of gapPartsOf(expr)) out.add(p);
   } catch {

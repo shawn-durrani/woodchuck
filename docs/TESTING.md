@@ -162,6 +162,26 @@ true or false, is refused the same way. The core tests hold each key size
 to the number it works out to, or the reason it can't. The web tests hold
 a plan's card to the model's number for each size.
 
+### Requirements and the whole piece
+
+The core tests hold `overall.width`, `overall.height` and `overall.depth`
+to an invented hall cabinet on plinth runners. Its back is fixed on behind
+its sides, and its top overhangs them. The box takes in the back, the
+runners, the top and a stand-in, and leaves out a prop and a handle. A rule
+on the overall depth fails while the back sits behind 300 mm sides, and its
+working names the back and a side. It passes once the sides give up the
+back's thickness. A parameter or a part's place that reads the whole piece
+is refused, and so is a part called `overall`.
+
+The server tests pin the words in Claude's instructions and in `set_rule`
+that ask for a rule in each direction a requirement limits. They also pin
+the words that hold an overall size to the whole piece. Every rule those
+words quote has to work out on the record console. A scripted Claude builds
+an invented bookshelf 300 deep with its back behind the sides.
+`check_design` shows it the failing rule, and Claude takes the back's
+thickness off the sides until the checks pass. The benchmark's depth check
+reads the same 300 mm.
+
 ### Edits Claude nearly got right
 
 The core tests hold an invented plant stand to how an edit reads what it's

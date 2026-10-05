@@ -1,7 +1,7 @@
 // Read-only questions about a design: explain a number, measure between
 // faces, describe a part, and check the model against its plan.
 
-import { AXIS_INDEX, partRefParts, type DeriveResult, type DerivedPart } from "./derive.js";
+import { AXIS_INDEX, overallWorking, partRefParts, type DeriveResult, type DerivedPart } from "./derive.js";
 import { fmt } from "./expr.js";
 import { machiningText } from "./cutlist.js";
 import { JOINT_LIBRARY, type JointParam } from "./joints.js";
@@ -89,7 +89,7 @@ export function explain(design: Design, d: DeriveResult, target: string): string
   if (rule) {
     try {
       const r = d.evaluate(rule.expr);
-      return [`${rule.id}: ${rule.expr}`, `  = ${r.text}`, `  → ${r.value ? "passes" : "fails"}`];
+      return [`${rule.id}: ${rule.expr}`, `  = ${r.text}`, `  → ${r.value ? "passes" : "fails"}`, ...overallWorking(d, rule.expr).map((w) => `  ${w}`)];
     } catch (e) {
       return [`${rule.id} can't be worked out: ${(e as Error).message}`];
     }
@@ -98,7 +98,7 @@ export function explain(design: Design, d: DeriveResult, target: string): string
   // Any other expression, such as "right_side.left - left_side.right".
   try {
     const r = d.evaluate(t);
-    return [`${t}`, `  = ${r.text}`, `  = ${typeof r.value === "number" ? fmt(r.value) : r.value}`];
+    return [`${t}`, `  = ${r.text}`, `  = ${typeof r.value === "number" ? fmt(r.value) : r.value}`, ...overallWorking(d, t).map((w) => `  ${w}`)];
   } catch (e) {
     throw new QueryError(`Can't explain "${t}": ${(e as Error).message}`);
   }
