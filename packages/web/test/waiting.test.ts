@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { ChatItem, ServerState } from "../src/api.js";
-import { boxPlaceholder, boxReply, buttonReply, NO_SLOTS, openSlot, waitingMoments, type Moment } from "../src/waiting.js";
+import { boxPlaceholder, boxReply, buttonReply, keySizeLine, NO_SLOTS, openSlot, waitingMoments, type Moment } from "../src/waiting.js";
 
 const at = "2026-10-04T09:00:00Z";
 const plan: ChatItem = {
@@ -138,5 +138,14 @@ describe("a worked example never hides a waiting preview", () => {
   it("picking another joint keeps the preview too", () => {
     const both = openSlot({ preview: "v1", example: { joint: "mortise_tenon" } }, { kind: "example", joint: "half_lap" });
     expect(both).toEqual({ preview: "v1", example: { joint: "half_lap" } });
+  });
+});
+
+describe("a plan's card", () => {
+  it("gives the model's number for each key size", () => {
+    const gap = { label: "Clear gap between shelves", expr: "shelf#2.bottom - shelf.top", expected_mm: 302.3 };
+    expect(keySizeLine({ ...gap, model_mm: 302 })).toBe("Clear gap between shelves: 302 mm");
+    // A plan saved before the app kept the model's number gives the size Claude expected.
+    expect(keySizeLine(gap)).toBe("Clear gap between shelves: 302.3 mm");
   });
 });

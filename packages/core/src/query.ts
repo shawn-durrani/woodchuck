@@ -5,7 +5,7 @@ import { AXIS_INDEX, partRefParts, type DeriveResult, type DerivedPart } from ".
 import { fmt } from "./expr.js";
 import { machiningText } from "./cutlist.js";
 import { JOINT_LIBRARY, type JointParam } from "./joints.js";
-import { AXES, FACE_AXIS, FACES, type Axis, type Design, type Face } from "./types.js";
+import { AXES, FACE_AXIS, FACES, type Axis, type Design, type Face, type PlanDim } from "./types.js";
 
 export class QueryError extends Error {}
 
@@ -173,6 +173,40 @@ export interface PlanCheck {
   detail: string;
 }
 
+/** One of a plan's key sizes, worked out on the model. */
+export interface KeySizeCheck {
+  label: string;
+  expr: string;
+  expected_mm: number;
+  /** The plan's own tolerance, or 0.5 mm. */
+  tolerance_mm: number;
+  ok: boolean;
+  /** What the model gives, when the expression works out to a size. */
+  model_mm?: number;
+  /** The expression with each name's value, such as "right.left (582) - left.right (18)". */
+  working?: string;
+  /** Why there's no size, such as "can't work out top.bottom: Unknown part". */
+  error?: string;
+}
+
+/**
+ * Works out each key size on the model and holds it to its expected value.
+ * submit_plan refuses a plan when one fails, and verify_against_plan
+ * reports them.
+ */
+export function checkKeySizes(dims: readonly PlanDim[], d: DeriveResult): KeySizeCheck[] {
+  return dims.map((dim) => {
+    const base = { label: dim.label, expr: dim.expr, expected_mm: dim.expected_mm, tolerance_mm: dim.tolerance_mm ?? 0.5 };
+    try {
+      const r = d.evaluate(dim.expr);
+      if (typeof r.value !== "number") return { ...base, ok: false, error: `${dim.expr} gives true/false, not a size` };
+      return { ...base, ok: Math.abs(r.value - dim.expected_mm) <= base.tolerance_mm, model_mm: r.value, working: r.text };
+    } catch (e) {
+      return { ...base, ok: false, error: `can't work out ${dim.expr}: ${(e as Error).message}` };
+    }
+  });
+}
+
 export function verifyPlan(design: Design, d: DeriveResult): PlanCheck[] {
   const plan = design.plan;
   if (!plan) throw new QueryError("There's no plan to check against. Submit one with submit_plan");
@@ -185,19 +219,12 @@ export function verifyPlan(design: Design, d: DeriveResult): PlanCheck[] {
       detail: `planned ${pp.qty}, model has ${found.length}${found.length ? `: ${found.map((p) => p.id).slice(0, 12).join(", ")}` : ""}`,
     });
   }
-  for (const dim of plan.key_dims) {
-    const tol = dim.tolerance_mm ?? 0.5;
-    try {
-      const r = d.evaluate(dim.expr);
-      if (typeof r.value !== "number") {
-        out.push({ item: dim.label, ok: false, detail: `${dim.expr} gives true/false, not a size` });
-        continue;
-      }
-      const ok = Math.abs(r.value - dim.expected_mm) <= tol;
-      out.push({ item: dim.label, ok, detail: `planned ${fmt(dim.expected_mm)} ± ${fmt(tol)}, model ${fmt(r.value)} (${r.text})` });
-    } catch (e) {
-      out.push({ item: dim.label, ok: false, detail: `can't work out ${dim.expr}: ${(e as Error).message}` });
-    }
+  for (const k of checkKeySizes(plan.key_dims, d)) {
+    out.push({
+      item: k.label,
+      ok: k.ok,
+      detail: k.error ?? `planned ${fmt(k.expected_mm)} ± ${fmt(k.tolerance_mm)}, model ${fmt(k.model_mm!)} (${k.working})`,
+    });
   }
   return out;
 }

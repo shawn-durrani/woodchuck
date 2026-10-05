@@ -3,7 +3,7 @@
 // box holds the live buttons, and the chat box says what it answers. The
 // card in the chat stays as the record.
 
-import type { JointType } from "@woodchuck/core";
+import { fmt, type JointType, type PlanDim } from "@woodchuck/core";
 import type { ChatItem, ServerState } from "./api";
 
 export type WaitKind = ServerState["waiting"][number];
@@ -105,6 +105,15 @@ function moment(item: ChatItem): Moment | null {
       };
   }
   return null;
+}
+
+/**
+ * A key size on a plan's card. It gives the model's own number, which the app
+ * worked out when the plan was pinned, so the size you approve is the one
+ * you'll cut. A plan saved without it gives the size Claude expected.
+ */
+export function keySizeLine(d: PlanDim): string {
+  return `${d.label}: ${fmt(d.model_mm ?? d.expected_mm)} mm`;
 }
 
 /** What Claude is waiting on now, oldest card first. Nothing while Claude is working. */

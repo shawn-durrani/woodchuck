@@ -195,6 +195,21 @@ changes. A design is ready to cut only when nothing is in error and no
 stand-in part is left. Claude runs the same checks before it says it's
 done.
 
+## A plan's sizes come from the model
+
+For a new piece, Claude builds a draft first and then pins a plan beside
+it for you to approve. The plan lists the parts, the joints, the
+assumptions and a few key sizes. Each key size is an expression on the
+model, such as the clear gap between two shelves, with the size Claude
+means. The app works out every one before it pins the plan.
+
+A size more than 0.5 mm from what the model gives refuses the whole plan,
+and so does one that can't be worked out. Claude can set a wider tolerance
+for a size. The refusal lists each size with its expression, what Claude
+expected and what the model gives. Claude then fixes the number, its label
+or the model, and submits the plan again. The card gives each size as the
+model has it.
+
 ## Every change undoes in one step
 
 A change set is one undo, whether you made it with a slider or Claude made

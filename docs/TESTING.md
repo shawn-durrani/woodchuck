@@ -133,6 +133,19 @@ hole's wall names its cut, and another chat reads each part's shape. A
 scripted Claude slopes the sides and measures the room under a rail with
 `gap_y`, and the checks find nothing wrong.
 
+### A plan's key sizes
+
+The plan tests run a scripted Claude on an invented bookcase, with a shelf
+repeated up its sides. A plan whose key sizes match the model pins and
+waits, and the plan on its card carries the model's number for each size.
+A plan that gives the shelf pitch as the clear gap between shelves is
+refused, and nothing is pinned. The refusal is held to its words, which
+name the size, its expression, what Claude expected and what the model
+gives. A plan with an expression that names a missing part, or that gives
+true or false, is refused the same way. The core tests hold each key size
+to the number it works out to, or the reason it can't. The web tests hold
+a plan's card to the model's number for each size.
+
 ### Summaries of a long chat
 
 The summary tests use a scripted Claude that answers requests for a
