@@ -103,6 +103,7 @@ function PlanCard({ item, live }: { item: ChatItem & { kind: "plan" }; live: boo
           </ul>
         </>
       )}
+      {item.answered_by && <div className="muted small">Your message sent while Claude worked was taken as the reply: {item.answered}</div>}
       {live && <WaitingNote />}
     </div>
   );
@@ -544,7 +545,11 @@ export function ChatPanel({
                   <div className="card-title">Question</div>
                   <p>{c.question}</p>
                   {c.answered === undefined && c.options.length > 0 && <div className="muted small">Options: {c.options.join(" · ")}</div>}
-                  {c.answered !== undefined && <div className="muted">You said: {c.answered}</div>}
+                  {c.answered !== undefined && (
+                    <div className="muted">
+                      {c.answered_by ? "Your message sent while Claude worked was taken as the answer" : "You said"}: {c.answered}
+                    </div>
+                  )}
                   {waitingOn.has(c.id) && <WaitingNote />}
                 </div>
               );

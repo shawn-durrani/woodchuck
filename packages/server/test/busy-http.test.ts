@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 import { createApp } from "../src/index.js";
 import type { Progress } from "../src/progress.js";
 import { scriptedClient, type ScriptBlock } from "../src/scripted.js";
@@ -15,10 +16,13 @@ const replies: ScriptBlock[][] = [];
 let dir: string;
 let base: string;
 let close: () => Promise<void>;
+let sent: Anthropic.Beta.MessageCreateParamsStreaming[];
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "woodchuck-busy-"));
-  const app = createApp({ dataDir: dir, client: scriptedClient(replies), watchTools: false, takePicture: async () => Buffer.from("png") });
+  const client = scriptedClient(replies);
+  sent = client.sent;
+  const app = createApp({ dataDir: dir, client, watchTools: false, takePicture: async () => Buffer.from("png") });
   await new Promise<void>((r) => app.server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   close = app.close;
@@ -125,6 +129,26 @@ describe("while Claude works", () => {
     ]);
   });
 
+  it("says a message sent mid-build answered the plan the turn ended on, so another app doesn't think the plan still waits", async () => {
+    const held = gate();
+    const plan = { summary: "A walnut record cabinet", parts: [{ label: "Side", qty: 2, tag: "side" }], key_dims: [], joints: [], assumptions: [] };
+    replies.push([held.block, call("p1", "submit_plan", plan)], [{ type: "text", text: "Oak it is." }]);
+    await post("/api/chat", { text: "Build a record cabinet", selection: [] });
+    const late = ((await (await post("/api/chat", { text: "Make it oak", selection: [] })).json()) as { item: string }).item;
+    held.open();
+    await until(async () => {
+      const p = await progress();
+      return p.job === late && p.state === "done";
+    });
+    const p = await progress();
+    const line = 'A message the woodworker sent while Woodchuck\'s Claude worked was taken as the reply to its plan, "A walnut record cabinet", so it isn\'t waiting on that any more.';
+    expect(p).toMatchObject({ waiting_for: null, answered: line });
+    expect(p.reply).toBe(`${line}\n\nOak it is.`);
+    const state = await get<{ chat: { kind: string; answered_by?: string }[]; waiting: string[] }>("/api/state");
+    expect(state.waiting).toEqual([]);
+    expect(state.chat.find((c) => c.kind === "plan")).toMatchObject({ answered_by: late });
+  });
+
   it("stops what Claude is doing, then starts on a message it hadn't read", async () => {
     // The first reply never arrives on its own, so only Stop ends that turn.
     replies.push([gate().block, { type: "text", text: "Never said." }], [{ type: "text", text: "Doing that instead." }]);
@@ -138,5 +162,7 @@ describe("while Claude works", () => {
     const chat = (await get<{ chat: { kind: string; text?: string }[] }>("/api/state")).chat;
     expect(chat.filter((c) => c.kind === "error").at(-1)).toMatchObject({ text: "Stopped." });
     expect((await progress()).reply).toBe("Doing that instead.");
+    // The turn that starts with the late message hears the last one was stopped.
+    expect(JSON.stringify(sent.at(-1)!.messages.at(-1))).toContain("your last turn was stopped by the woodworker after 0 steps");
   });
 });

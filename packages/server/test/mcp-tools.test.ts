@@ -10,18 +10,29 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { MessagesClient } from "../src/agent.js";
 import { createApp } from "../src/index.js";
 import type { Background } from "../src/progress.js";
 import { scriptedClient, type ScriptBlock } from "../src/scripted.js";
 
 const replies: ScriptBlock[][] = [];
+/** Errors the next requests fail with, before the scripted replies go on. */
+const failures: Error[] = [];
+const scripted = scriptedClient(replies);
+const flaky: MessagesClient = {
+  stream(body) {
+    const e = failures.shift();
+    if (!e) return scripted.stream(body);
+    return { on: () => undefined, finalMessage: () => Promise.reject(e), abort: () => undefined };
+  },
+};
 let dir: string;
 let closeApp: () => Promise<void>;
 let client: Client;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "woodchuck-mcp-"));
-  const app = createApp({ dataDir: dir, client: scriptedClient(replies), watchTools: false });
+  const app = createApp({ dataDir: dir, client: flaky, watchTools: false });
   await new Promise<void>((r) => app.server.listen(0, "127.0.0.1", r));
   closeApp = app.close;
   // The MCP server finds the app when it loads, so it's loaded once this one is up.
@@ -64,6 +75,7 @@ const idle = () => until(async () => !(await app("/api/busy")).busy);
 // A test that fails part way leaves no replies or turn behind for the next one.
 afterEach(async () => {
   replies.length = 0;
+  failures.length = 0;
   await fetch(`${process.env.WOODCHUCK_URL}/api/chat/stop`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   await idle();
 });
@@ -109,14 +121,49 @@ describe("the MCP tools while Claude builds", () => {
     expect(now.ms).toBeLessThan(2000);
     expect(now.text).toMatch(/^Woodchuck's Claude is working: Sides first\. \(1 step, \d+ s so far\.\)/);
     expect(now.text).toContain("One message is waiting to reach it after its current step.");
-    expect(Object.keys(now.bg!)).toEqual(["job", "state", "title", "progress_tool", "stage", "steps", "elapsed_s", "waiting_for", "ask", "reply"]);
+    expect(Object.keys(now.bg!)).toEqual([
+      "job",
+      "state",
+      "title",
+      "progress_tool",
+      "stage",
+      "steps",
+      "elapsed_s",
+      "waiting_for",
+      "ask",
+      "reply",
+      "outcome",
+      "error",
+      "parts",
+      "edits",
+    ]);
+    // Claude's edit so far counts before its change set closes, so another app hears the design is growing.
+    expect(now.bg).toMatchObject({ outcome: null, error: "", parts: 0, edits: 1 });
+    expect(now.text).toContain("No parts in the design so far, from 1 edit by Woodchuck's Claude in this request, showing live in the Woodchuck window.");
 
     second.open();
     last.open();
     await idle();
     const reply = await tool("woodchuck_reply");
-    expect(reply.bg).toMatchObject({ job, state: "done", steps: 2 });
+    expect(reply.bg).toMatchObject({ job, state: "done", outcome: "finished", steps: 2, edits: 2 });
     expect(reply.text).toContain("Built it.");
+  });
+
+  it("says plainly when a request stopped with an error, and keeps the block's state one Crossband knows", async () => {
+    failures.push(new Error("The disk is full"));
+    const r = await tool("woodchuck_ask", { message: "Build a record cabinet" });
+    expect(r.bg).toMatchObject({ state: "done", outcome: "failed", error: "Something went wrong: The disk is full" });
+    expect(r.text).toMatch(/^Woodchuck's Claude stopped with an error before it finished, after 0 steps\. The error: Something went wrong: The disk is full The woodworker can ask it to carry on/);
+    expect(r.text).not.toContain("Woodchuck reported an error");
+    const p = await tool("woodchuck_progress");
+    expect(p.text).toMatch(/^Woodchuck's Claude stopped with an error before it finished \(0 steps, \d+ s\)\. The error: Something went wrong: The disk is full\nThe woodworker can ask it to carry on\./);
+    expect((await app("/api/progress")).state).toBe("failed");
+
+    // The next request hears the last one stopped early.
+    replies.push([{ type: "text", text: "Carrying on." }]);
+    expect((await tool("woodchuck_ask", { message: "Carry on" })).bg).toMatchObject({ state: "done", outcome: "finished", error: "" });
+    const sent = JSON.stringify(scripted.sent.at(-1)!.messages.at(-1));
+    expect(sent).toContain("your last turn stopped early with an error after 0 steps");
   });
 
   it("changes colours mid-build, as a step of its own", async () => {

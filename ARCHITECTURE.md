@@ -106,8 +106,22 @@ Claude's earlier reasoning valid.
 A message that arrives after Claude's last step starts a new turn as soon
 as the old one ends, and so does one waiting when you press Stop. The app
 stays busy across that hand-off, so a restart that waits for it to be free
-can't land in the gap. Undo, redo and switching designs wait until Claude
-is done, since they'd move the design out from under it.
+can't land in the gap. When the old turn ended on a plan or a question,
+that message is taken as the reply. The card says so, and Claude is told
+it may not answer what was asked. Undo, redo and switching designs wait
+until Claude is done, since they'd move the design out from under it.
+
+## A dropped connection is tried again
+
+A build sends Claude dozens of requests, and a connection can drop in the
+middle of one. The app sends that request again after a second, and again
+after four more, before it gives up. It does the same when the API is
+overloaded or has a server error. The chat says it's trying again, and the
+words the cut-off reply had streamed leave the chat. A bad key, a rate
+limit or a refusal ends the turn straight away.
+
+A turn that an error or Stop ends says so to other apps watching it. The
+next turn is told how far the last one got, so it can finish what was left.
 
 ## A long chat is summarised, and the whole of it stays searchable
 
