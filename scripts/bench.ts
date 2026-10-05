@@ -1,126 +1,171 @@
-// A live benchmark: a few invented tasks sent to Claude for real, through
-// the app's own turn loop, timed. It needs an Anthropic key, costs money
-// and never runs in the tests or CI. Each task gets a throwaway data folder
-// in the system's temp folder, so your own designs are never touched.
+// The quality benchmark: invented tasks sent to Claude for real, through
+// the app's own turn loop, with every result checked. It needs an Anthropic
+// key and --live, costs money and never runs in CI. Each run gets a
+// throwaway data folder in the system's temp folder, so your own designs
+// are never touched.
 //
-//   npx tsx scripts/bench.ts --live [task ...]
+//   npx tsx scripts/bench.ts --live [--tasks height,lp-fix] [--repeat 2] [--configs routing,no-routing,medium]
 //
-// The tasks are build, lp-fix, colour and height, and all four run when
-// none is named. WOODCHUCK_MODEL and WOODCHUCK_EFFORT pick the model and
-// effort, the same as for the app. Each turn picks its own level up to that
-// effort unless WOODCHUCK_EFFORT_ROUTING is off, and the report shows the
-// levels each task's requests ran at.
+// The tasks and their checks live in packages/server/src/quality.ts. Each
+// task runs --repeat times, two by default. Each config runs in a process
+// of its own, because the app reads the model and effort once at start:
+// current keeps your environment, routing and no-routing turn the effort
+// routing on and off, an effort's name such as medium holds every turn at
+// that level, and routing-<effort> lets turns pick up to it.
+//
+// --dry-run plays a stand-in for Claude that answers every message with one
+// fixed line and changes nothing. It needs no key and costs nothing, so it
+// tries the script itself, and every check that needs a change fails.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { derive, recordConsoleOps, runChecks } from "../packages/core/src/index.ts";
-import { defaultClient, EFFORT, hasCredentials, MODEL, Turn } from "../packages/server/src/agent.ts";
+import { fileURLToPath } from "node:url";
+import { defaultClient, hasCredentials, MODEL, type MessagesClient } from "../packages/server/src/agent.ts";
 import { cacheTtl } from "../packages/server/src/prompt.ts";
+import {
+  costUsd,
+  describeConfig,
+  envFor,
+  estimateUsd,
+  formatTable,
+  judge,
+  parseBenchArgs,
+  runTask,
+  summarise,
+  verdict,
+  type BenchArgs,
+  type RunResult,
+} from "../packages/server/src/quality.ts";
 import { renderPng } from "../packages/server/src/render.ts";
-import { effortRouting } from "../packages/server/src/route.ts";
-import { Store, type ChatItem } from "../packages/server/src/store.ts";
-import { effortPath } from "../packages/server/src/turnstats.ts";
+import { scriptedClient } from "../packages/server/src/scripted.ts";
+import { Store } from "../packages/server/src/store.ts";
 
-interface Task {
-  name: string;
-  /** Starts from the record console example, or from an empty design. */
-  example: boolean;
-  text: string;
-}
+const USAGE = "npx tsx scripts/bench.ts --live [--tasks height,lp-fix] [--repeat 2] [--configs routing,no-routing,medium]";
+const SCRIPT = fileURLToPath(import.meta.url);
 
-const TASKS: Task[] = [
-  {
-    name: "build",
-    example: false,
-    text: "Build a long, low record console: a 2040 x 520 x 30 mm top, 30 mm carcass panels, about 400 mm tall, and one row of five drawers that hold 12 inch LPs.",
-  },
-  { name: "lp-fix", example: true, text: "The LP check fails. Change the drawers so 12-inch LPs fit, and tell me what you changed." },
-  { name: "colour", example: true, text: "Oil the whole console in a dark walnut colour." },
-  { name: "height", example: true, text: "Make the carcass 50 mm taller." },
-];
-
-/** What Claude is told when it stops to ask or to show a plan, so a task runs to the end. */
-const GO_AHEAD = "Yes, go ahead with what you suggest.";
-const MAX_REPLIES = 3;
-
-/**
- * Price per million tokens on Sonnet 5.5, in US dollars. The app's model list puts Opus 5.5 at about twice and Fable 5.1 at about five times.
- * Writing the cache costs twice the input price for an hour's cache, and 1.25 times for five minutes.
- */
-const PRICE = { input: 2, cached: 0.2, written: cacheTtl() === "1h" ? 4 : 2.5, output: 10 };
-const SCALE: Record<string, number> = { "claude-sonnet-5-5": 1, "claude-opus-5-5": 2, "claude-fable-5-1": 5 };
-
-type Usage = Extract<ChatItem, { kind: "usage" }>;
-
-const args = process.argv.slice(2);
-if (!args.includes("--live")) {
-  console.error("This calls Claude for real and costs money. Run it with --live to go ahead:\n\n  npx tsx scripts/bench.ts --live [build|lp-fix|colour|height ...]");
+const parsed = parseBenchArgs(process.argv.slice(2));
+if ("error" in parsed) {
+  console.error(`${parsed.error}\n\n  ${USAGE}`);
   process.exit(1);
 }
-if (!hasCredentials()) {
+const args: BenchArgs = parsed;
+if (!args.live && !args.dry) {
+  console.error(`This calls Claude for real and costs money. Run it with --live to go ahead:\n\n  ${USAGE}`);
+  process.exit(1);
+}
+if (args.live && !hasCredentials()) {
   console.error("There's no Anthropic key. Put ANTHROPIC_API_KEY in the environment and try again.");
   process.exit(1);
 }
-const named = args.filter((a) => !a.startsWith("--"));
-const unknown = named.filter((n) => !TASKS.some((t) => t.name === n));
-if (unknown.length) {
-  console.error(`There's no task called ${unknown.join(", ")}. The tasks are ${TASKS.map((t) => t.name).join(", ")}.`);
-  process.exit(1);
+
+/** Claude, or the stand-in for a dry run. */
+const client = (): MessagesClient => (args.dry ? scriptedClient([]) : defaultClient());
+
+/** One line a run, with a line for each check that failed. Numbers and ids only, never chat text. */
+function report(r: RunResult): string {
+  const head = `${r.config}  ${r.task} #${r.run}  ${r.passed ? "pass" : "FAIL"}  ${r.secs.toFixed(1)} s  ${r.rounds} round${r.rounds === 1 ? "" : "s"}  US$${r.usd.toFixed(2)}`;
+  return [head, ...r.checks.filter((c) => !c.ok).map((c) => `    ${c.name}: ${c.reason ?? ""}`)].join("\n");
 }
-const tasks = named.length ? TASKS.filter((t) => named.includes(t.name)) : TASKS;
 
-const scale = SCALE[MODEL] ?? 1;
-console.log(
-  `Cost warning: this sends ${tasks.length} task${tasks.length === 1 ? "" : "s"} to ${MODEL} at ${effortRouting() ? `up to ${EFFORT}` : EFFORT} effort, and your Anthropic account pays for it.`,
-);
-console.log(`Expect roughly US$${(0.25 * tasks.length * scale).toFixed(2)} to US$${(0.75 * tasks.length * scale).toFixed(2)}. A build costs the most.`);
-console.log("Starting in 5 seconds. Press Ctrl-C to stop.\n");
-await new Promise((r) => setTimeout(r, 5_000));
-
-const cost = (u: { input: number; cached: number; written: number; output: number }) =>
-  ((u.input * PRICE.input + u.cached * PRICE.cached + u.written * PRICE.written + u.output * PRICE.output) / 1e6) * scale;
-
-const client = defaultClient();
-const header = ["task", "turns", "rounds", "secs", "tool calls", "edits", "effort", "output", "cached", "written", "input", "US$", "check errors"];
-const widths = [7, 5, 6, 6, 10, 5, 16, 7, 8, 8, 7, 5, 12];
-const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i]!)).join("  ").trimEnd();
-console.log(line(header));
-
-for (const task of tasks) {
-  const dir = mkdtempSync(path.join(tmpdir(), "woodchuck-bench-"));
-  try {
-    const store = new Store(dir);
-    const project = store.create(`Bench ${task.name}`, task.example ? recordConsoleOps().filter((o) => o.op !== "rename_design") : []);
-    const errors = () => runChecks(project.design, derive(project.design)).errors;
-    const before = errors();
-    const run = (text: string) => new Turn(store, client, { chat() {}, delta() {}, changed() {} }, (p, views, o) => renderPng(p.design, views, o)).run({ text, selection: [] });
-    await run(task.text);
-    for (let i = 0; i < MAX_REPLIES && project.pending?.waiting.length; i++) await run(GO_AHEAD);
-    const usages = project.chat.filter((c): c is Usage => c.kind === "usage");
-    const rounds = usages.flatMap((u) => u.rounds ?? []);
-    const sum = (k: "input" | "cached" | "written" | "output") => usages.reduce((s, u) => s + (u[k] ?? 0), 0);
-    const total = { input: sum("input"), cached: sum("cached"), written: sum("written"), output: sum("output") };
-    const failed = project.chat.some((c) => c.kind === "error" && !c.retry);
-    console.log(
-      line([
-        task.name,
-        String(usages.length),
-        String(rounds.length),
-        (usages.reduce((s, u) => s + (u.ms ?? 0), 0) / 1000).toFixed(1),
-        String(rounds.reduce((s, r) => s + r.calls, 0)),
-        // Edits listed in apply_edits calls, each of which counts as one tool call.
-        String(rounds.reduce((s, r) => s + (r.edits ?? 0), 0)),
-        effortPath(rounds.map((r) => r.effort)).slice(0, 16),
-        String(total.output),
-        String(total.cached),
-        String(total.written),
-        String(total.input),
-        cost(total).toFixed(2),
-        `${before} -> ${errors()}${failed ? ", turn failed" : ""}`,
-      ]),
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+/** Runs every task for one config, writing a JSON line a run so a stopped run keeps what it finished. */
+async function runConfig(config: string, out: string) {
+  const ttl = cacheTtl();
+  for (const task of args.tasks) {
+    for (let run = 1; run <= args.repeat; run++) {
+      const dir = mkdtempSync(path.join(tmpdir(), "woodchuck-bench-"));
+      let result: RunResult;
+      try {
+        const { outcome, usage } = await runTask(task, new Store(dir), client(), (p, views, o) => renderPng(p.design, views, o));
+        const checks = judge(task, outcome);
+        result = { config, task: task.name, run, passed: checks.every((c) => c.ok), checks, ...usage, usd: costUsd(usage.tokens, MODEL, ttl) };
+      } catch (e) {
+        const checks = [{ name: "finished", ok: false, reason: `the run stopped: ${(e as Error).message.split("\n")[0]}` }];
+        const tokens = { input: 0, cached: 0, written: 0, output: 0 };
+        result = { config, task: task.name, run, passed: false, checks, secs: 0, turns: 0, rounds: 0, tool_calls: 0, edits: 0, efforts: "-", tokens, usd: 0 };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      appendFileSync(out, `${JSON.stringify(result)}\n`);
+      console.log(report(result));
+    }
   }
 }
+
+/** Runs each config in a process of its own with its settings, then sums up. */
+async function compare() {
+  const started = new Date();
+  const stamp = started.toISOString().replace(/[:.]/g, "-");
+  const total = args.tasks.length * args.repeat * args.configs.length;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  console.log(
+    `${args.dry ? "Dry run: a stand-in plays Claude, so nothing is sent and nothing is spent." : "Cost warning:"} ` +
+      `${plural(args.tasks.length, "task")} x ${plural(args.repeat, "repeat")} x ${plural(args.configs.length, "config")} is ${plural(total, "run")} on ${MODEL}.`,
+  );
+  for (const c of args.configs) console.log(`  ${c}: ${describeConfig(c, process.env)}`);
+  if (!args.dry) {
+    const [low, high] = estimateUsd(args.tasks, args.repeat, args.configs.length, MODEL);
+    console.log(`Expect roughly US$${low.toFixed(2)} to US$${high.toFixed(2)}, and your Anthropic account pays for it. A build costs the most.`);
+    console.log("Starting in 5 seconds. Press Ctrl-C to stop.\n");
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+
+  // Ctrl-C stops the config that's running and skips the rest, and the runs that finished are still summed up. A second one stops at once.
+  let stopped = false;
+  process.once("SIGINT", () => {
+    stopped = true;
+  });
+  const runs: RunResult[] = [];
+  for (const config of args.configs) {
+    const out = path.join(tmpdir(), `woodchuck-quality-${stamp}-${config}.jsonl`);
+    writeFileSync(out, "");
+    const code = await new Promise<number | null>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        [
+          ...process.execArgv,
+          SCRIPT,
+          args.dry ? "--dry-run" : "--live",
+          "--child",
+          config,
+          "--out",
+          out,
+          "--repeat",
+          String(args.repeat),
+          "--tasks",
+          args.tasks.map((t) => t.name).join(","),
+        ],
+        { env: envFor(config, process.env), stdio: "inherit" },
+      );
+      child.on("exit", resolve);
+    });
+    runs.push(...readFileSync(out, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as RunResult));
+    rmSync(out, { force: true });
+    if (code !== 0) console.log(`${config} stopped early, with exit code ${code ?? "none"}.`);
+    if (stopped) break;
+  }
+
+  const rows = summarise(runs);
+  console.log("");
+  for (const l of formatTable(rows)) console.log(l);
+  console.log("");
+  for (const c of args.configs.filter((c) => rows.some((r) => r.config === c))) console.log(verdict(c, rows));
+  const file = path.join(tmpdir(), `woodchuck-quality-${stamp}.json`);
+  const results = {
+    started_at: started.toISOString(),
+    finished_at: new Date().toISOString(),
+    model: MODEL,
+    dry_run: args.dry,
+    repeat: args.repeat,
+    tasks: args.tasks.map((t) => t.name),
+    configs: args.configs.map((name) => ({ name, settings: describeConfig(name, process.env) })),
+    runs,
+    summary: rows,
+  };
+  writeFileSync(file, `${JSON.stringify(results, null, 2)}\n`);
+  console.log(`\nResults: ${file}`);
+}
+
+if (args.child) await runConfig(args.child, args.out ?? path.join(tmpdir(), `woodchuck-quality-${args.child}.jsonl`));
+else await compare();
