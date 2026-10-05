@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { MessagesClient } from "../src/agent.js";
@@ -187,19 +187,19 @@ describe("the MCP tools while Claude builds", () => {
   });
 });
 
-describe("woodchuck_view", () => {
-  /** An open window, keeping each view change the app sends it. */
-  async function windowOpen() {
-    const ws = new WebSocket(`${process.env.WOODCHUCK_URL!.replace("http", "ws")}/ws`);
-    await new Promise((r) => ws.addEventListener("open", r, { once: true }));
-    const views: Record<string, unknown>[] = [];
-    ws.addEventListener("message", (m) => {
-      const msg = JSON.parse(String(m.data)) as { type: string; view?: Record<string, unknown> };
-      if (msg.type === "view") views.push(msg.view!);
-    });
-    return { ws, views, got: (n: number) => until(async () => views.length >= n) };
-  }
+/** An open window, keeping each view change the app sends it. */
+async function windowOpen() {
+  const ws = new WebSocket(`${process.env.WOODCHUCK_URL!.replace("http", "ws")}/ws`);
+  await new Promise((r) => ws.addEventListener("open", r, { once: true }));
+  const views: Record<string, unknown>[] = [];
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(String(m.data)) as { type: string; view?: Record<string, unknown> };
+    if (msg.type === "view") views.push(msg.view!);
+  });
+  return { ws, views, got: (n: number) => until(async () => views.length >= n) };
+}
 
+describe("woodchuck_view", () => {
   it("starts an orbit at the default speed or the one asked for, and stops it", async () => {
     const win = await windowOpen();
     const start = await tool("woodchuck_view", { orbit: "start" });
@@ -219,5 +219,174 @@ describe("woodchuck_view", () => {
     expect((await tool("woodchuck_view", { orbit: "start", orbit_degrees_per_second: 0.5 })).text).toMatch(/^Woodchuck refused that: orbitSpeed must be/);
     expect((await tool("woodchuck_view", { orbit: "start", plan_views: true })).text).toMatch(/can't go with the plan views/);
     win.ws.close();
+  });
+});
+
+describe("woodchuck_set_param and woodchuck_design", () => {
+  type State = { design: { params: { name: string; expr: string }[] }; history: { author: string; label: string }[] };
+  const state = () => app("/api/state") as unknown as Promise<State>;
+  const expr = async (name: string) => (await state()).design.params.find((p) => p.name === name)?.expr;
+  const post = (p: string, body: unknown) =>
+    fetch(`${process.env.WOODCHUCK_URL}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  // Each test starts on a fresh record console, the invented example the app ships.
+  beforeEach(async () => {
+    expect((await post("/api/projects", { name: "Record console", example: "record_console" })).status).toBe(200);
+  });
+
+  it("lists both, and tells the calling model to say a size back before changing it", async () => {
+    const { tools } = await client.listTools();
+    const set = tools.find((t) => t.name === "woodchuck_set_param")!;
+    expect(set.description).toMatch(/say the change back \(parameter, old → new in mm\) and get a yes/);
+    expect(set.description).toContain("call woodchuck_design first");
+    expect(set.description).toMatch(/adds, removes or reshapes parts[^.]*goes to woodchuck_ask/);
+    // Crossband keeps the first 900 characters of a description.
+    expect(set.description!.length).toBeLessThan(900);
+    expect(Object.keys(set.inputSchema.properties!)).toEqual(["params", "confirmed"]);
+    expect(tools.find((t) => t.name === "woodchuck_design")!.description).toMatch(/never changes anything/);
+  });
+
+  it("reads the design in a few short lines, with its parameters and sizes", async () => {
+    const r = await tool("woodchuck_design");
+    expect(r.ms).toBeLessThan(2000);
+    for (const line of [
+      "Design: Record console",
+      "Woodchuck's Claude isn't working on anything.",
+      "Overall: 2040 mm wide, 430 mm high and 520 mm deep.",
+      "- top_length = 2040 mm: Length of the top",
+      "- drawers = 5, a count",
+      "- partition ×4: 370 × 511 × 30, carcass_30",
+      "- false_front ×5 (Drawer front): 368 × 366 × 18, front_18",
+      "- drawer_box_front ×5: 316.6 × 340 × 15, ply15",
+      "Checks: 1 error and no warnings, not ready to cut yet:",
+      "- Error: 12-inch LPs need at least lp_clear inside each drawer (rule lp_fit)",
+    ]) {
+      expect(r.text.split("\n")).toContain(line);
+    }
+    expect(r.text).toMatch(/^- bay = 372 mm, worked out as \(top_length - left_side\.thickness/m);
+    // Short enough for a voice model's context.
+    expect(r.text.length).toBeLessThan(2500);
+  });
+
+  it("changes parameters as one undo step, and says old and new, what followed and what it fixed", async () => {
+    const before = (await state()).history.length;
+    const r = await tool("woodchuck_set_param", {
+      params: [
+        { name: "slide_gap", value_mm: 11 },
+        { name: "top_length", value_mm: 2100 },
+      ],
+    });
+    expect(r.ms).toBeLessThan(2000);
+    expect(r.text).toMatch(/^Done: slide_gap 12\.7 mm → 11 mm and top_length 2040 mm → 2100 mm\./);
+    expect(r.text).toContain("Sizes worked out from them changed too: bay 372 mm → 384 mm.");
+    expect(r.text).toMatch(/\n\d+ parts moved or changed size: /);
+    expect(r.text).toContain("Checks: no errors and no warnings, ready to cut.\nNo new errors or warnings.");
+    expect(r.text).toContain("Fixed: 12-inch LPs need at least lp_clear inside each drawer (rule lp_fit).");
+    expect(r.text).toContain("It's one change the woodworker can undo in one step, and Woodchuck's Claude will be told.");
+    const after = await state();
+    expect(after.history.length).toBe(before + 1);
+    expect(after.history.at(-1)).toMatchObject({ author: "you", label: "Another app: set slide_gap from 12.7 mm to 11 mm and top_length from 2040 mm to 2100 mm" });
+    expect([await expr("slide_gap"), await expr("top_length")]).toEqual(["11", "2100"]);
+    // One undo takes both back.
+    expect((await post("/api/undo", {})).status).toBe(200);
+    expect([await expr("slide_gap"), await expr("top_length")]).toEqual(["12.7", "2040"]);
+  });
+
+  it("brings the whole model into view in an open window, with a note naming the change", async () => {
+    const win = await windowOpen();
+    const r = await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 2100 }] });
+    expect(r.text).toMatch(/The Woodchuck window shows it now\.$/);
+    await win.got(1);
+    expect(win.views).toEqual([{ fit: true, from: "another app", note: "set top_length from 2040 mm to 2100 mm." }]);
+    win.ws.close();
+  });
+
+  it("refuses a parameter the design doesn't have and a formula that doesn't work out, and changes nothing", async () => {
+    const before = await state();
+    const refusals: [Record<string, unknown>, RegExp][] = [
+      [{ name: "height", value_mm: 450 }, /^Nothing changed\. There's no parameter called "height"\. Did you mean carcass_height\? .*Making a new one is a job for woodchuck_ask\.$/],
+      [{ name: "top_depth", expression: "top_length +" }, /^Nothing changed\. Couldn't read "top_length \+" for parameter top_depth/],
+      [{ name: "top_depth", expression: "width * 2" }, /^Nothing changed\. There's no size called "width"/],
+      [{ name: "top_length", expression: "bay * 5" }, /^Nothing changed\. top_length wouldn't work out: Circular reference/],
+      [{ name: "drawers", value_mm: 4 }, /^Nothing changed\. drawers is a count, so give it as value\.$/],
+      [{ name: "top_length", value: 2100 }, /^Nothing changed\. top_length is a size in mm, so give it as value_mm\.$/],
+      [{ name: "top_length" }, /^Nothing changed\. Give top_length one of value_mm or expression\.$/],
+    ];
+    for (const [change, said] of refusals) {
+      expect((await tool("woodchuck_set_param", { params: [{ name: "slide_gap", value_mm: 12 }, change] })).text).toMatch(said);
+    }
+    // The good change listed beside each bad one didn't go in either.
+    expect(await state()).toEqual(before);
+  });
+
+  it("names every new problem a change makes", async () => {
+    await tool("woodchuck_set_param", { params: [{ name: "slide_gap", value_mm: 11 }, { name: "top_length", value_mm: 2100 }] });
+    const r = await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 2000 }] });
+    expect(r.text).toMatch(/^Done: top_length 2100 mm → 2000 mm\.\nSizes worked out from it changed too: bay 384 mm → 364 mm\./);
+    expect(r.text).toContain("Checks: 1 error and no warnings, not ready to cut yet.\n- New error: 12-inch LPs need at least lp_clear inside each drawer (rule lp_fit)");
+  });
+
+  it("asks for the woodworker's yes before a change over 20%, or to 0 or below", async () => {
+    const before = await state();
+    const big = await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 1500 }] });
+    expect(big.text).toBe(
+      'Nothing changed yet. This change needs the woodworker\'s yes first, in case a number was misheard: top_length from 2040 mm to 1500 mm, 26% less. Say it back to them, such as "Top length from 2040 mm to 1500 mm, is that right?", and once they say yes, call again with the same values and confirmed true.',
+    );
+    expect((await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 1630 }] })).text).toMatch(/^Nothing changed yet\..*20% less/);
+    expect((await tool("woodchuck_set_param", { params: [{ name: "front_gap", value_mm: 0 }] })).text).toMatch(
+      /^Nothing changed yet\. .*front_gap from 2 mm to 0 mm, and a value of 0 or below is almost always a mishearing/,
+    );
+    // A formula is held to the value it works out to.
+    expect((await tool("woodchuck_set_param", { params: [{ name: "top_depth", expression: "top_length / 2" }] })).text).toMatch(
+      /top_depth from 520 mm to top_length \/ 2 \(1020 mm\), 96% more/,
+    );
+    expect(await state()).toEqual(before);
+
+    // Up to a fifth goes straight in, and a yes lets the rest through.
+    expect((await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 1640 }] })).text).toMatch(/^Done: top_length 2040 mm → 1640 mm\./);
+    expect((await tool("woodchuck_set_param", { params: [{ name: "top_length", value_mm: 1200 }], confirmed: true })).text).toMatch(/^Done: top_length 1640 mm → 1200 mm\./);
+    expect(await expr("top_length")).toBe("1200");
+  });
+
+  it("says when a size it sets stops following the sizes its formula used", async () => {
+    const r = await tool("woodchuck_set_param", { params: [{ name: "bay", value_mm: 380 }] });
+    expect(r.text).toMatch(/^Done: bay 372 mm → 380 mm\./);
+    expect(r.text).toContain(
+      "so it followed top_length, left_side.thickness, right_side.thickness, drawers and partition.thickness. It's now a plain 380 mm and stops following them; undo puts the formula back.",
+    );
+    expect(r.text).toContain("- New error: right_side and false_front#5 overlap");
+    // A formula in place of a plain size, or of another formula, says what it follows now.
+    const f = await tool("woodchuck_set_param", { params: [{ name: "bay", expression: "top_length / 5 - 30" }] });
+    expect(f.text).toMatch(/^Done: bay 380 mm → top_length \/ 5 - 30 \(378 mm\)\.\nbay now follows top_length, and moves when they do\./);
+    await post("/api/undo", {});
+    await post("/api/undo", {});
+    const g = await tool("woodchuck_set_param", { params: [{ name: "bay", expression: "(top_length - 180) / drawers" }] });
+    expect(g.text).toContain("so it followed top_length, left_side.thickness, right_side.thickness, drawers and partition.thickness. It's now worked out as (top_length - 180) / drawers; undo puts the formula back.");
+  });
+
+  it("works while Claude is mid-build, as its own undo step, and Claude is told after its current step", async () => {
+    const held = gate();
+    replies.push([held.block, call("t1", "set_param", { name: "lp_clear", expr: "321", unit: "mm" })], [{ type: "text", text: "Done." }]);
+    const started = tool("woodchuck_ask", { message: "Make room for thicker sleeves" });
+    await until(async () => (await app("/api/busy")).busy === true);
+    expect((await tool("woodchuck_design")).text).toContain("Woodchuck's Claude is working right now.");
+
+    const r = await tool("woodchuck_set_param", { params: [{ name: "carcass_height", value_mm: 420 }] });
+    expect(r.ms).toBeLessThan(2000);
+    expect(r.text).toMatch(/^Done: carcass_height 400 mm → 420 mm\./);
+    held.open();
+    await started;
+    await idle();
+
+    const told = JSON.stringify(scripted.sent.at(-1)!.messages.at(-1));
+    expect(told).toContain("(While you were working, the woodworker changed: Another app: set carcass_height from 400 mm to 420 mm. Read the design again before editing those parts.)");
+    const s = await state();
+    expect(s.history.slice(-2).map((e) => e.author)).toEqual(["you", "claude"]);
+    expect([await expr("carcass_height"), await expr("lp_clear")]).toEqual(["420", "321"]);
+    // Undo takes Claude's change back first, then this one.
+    await post("/api/undo", {});
+    expect([await expr("carcass_height"), await expr("lp_clear")]).toEqual(["420", "320"]);
+    await post("/api/undo", {});
+    expect(await expr("carcass_height")).toBe("400");
   });
 });

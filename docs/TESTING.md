@@ -78,7 +78,9 @@ an undo step of its own between Claude's, and the history to only
 growing. A message Claude didn't read starts the next turn, and the busy
 flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
-block held to the agreed shape.
+block held to the agreed shape. The size tool is held to one undo step
+mid-build, to refusing a name or formula that doesn't work, and to waiting
+for a yes on a big change. Its reply has to name each new problem.
 
 ### Timing, dropped connections and backups
 

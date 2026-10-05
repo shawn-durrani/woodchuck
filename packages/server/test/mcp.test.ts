@@ -4,7 +4,7 @@
 
 import { describe as group, expect, it } from "vitest";
 import { applyOps, emptyDesign, recordConsoleOps } from "@woodchuck/core";
-import { colourCards, describe, itemsAfter, summarise, type AppState } from "../src/mcp.js";
+import { colourCards, describe, designText, itemsAfter, summarise, type AppState } from "../src/mcp.js";
 
 group("the Woodchuck MCP server", () => {
   const chat = [
@@ -51,6 +51,24 @@ group("the Woodchuck MCP server", () => {
     expect(text).toMatch(/18 mm drawer-front panel \(front_18\): Birch plywood, 1 Wien/);
     expect(text).toContain("- Osmo 3044 Raw: top");
     expect(text).toContain("waiting for an answer to a preview");
+  });
+
+  it("caps each list in the design's lines, with how many more there are", () => {
+    const ops = Array.from({ length: 30 }, (_, i) => ({ op: "set_param" as const, name: `shelf_${i + 1}`, expr: String(200 + i), unit: "mm" as const }));
+    const s: AppState = {
+      busy: false,
+      waiting: ["question"],
+      design: applyOps(emptyDesign("Shelf wall"), ops),
+      project: { slug: "shelves", name: "Shelf wall" },
+      report: { errors: 0, warnings: 0, ready_to_cut: false },
+      chat: [],
+    };
+    const lines = designText(s).split("\n");
+    expect(lines).toContain("Woodchuck's Claude is waiting for an answer to a question.");
+    expect(lines).toContain("It has no parts yet.");
+    expect(lines).toContain("- shelf_19 = 218 mm");
+    expect(lines).not.toContain("- shelf_20 = 219 mm");
+    expect(lines).toContain("- and 11 more");
   });
 
   it("lists both colour cards by number and name", () => {

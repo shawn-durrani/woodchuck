@@ -627,6 +627,44 @@ export function changeSummary(before: DeriveResult, beforeReport: CheckReport, a
   };
 }
 
+/**
+ * What a change made outside Claude did, for the app that asked for it: the
+ * parts that moved, as Claude's edits report them, and each parameter whose
+ * formula or value moved. A value is null where it can't be worked out.
+ * Every problem the change made comes back with its severity, since the app
+ * that asked has to say each one to the woodworker.
+ */
+export function editSummary(beforeDesign: Design, afterDesign: Design) {
+  const before = derive(beforeDesign);
+  const after = derive(afterDesign);
+  const beforeReport = runChecks(beforeDesign, before);
+  const afterReport = runChecks(afterDesign, after);
+  const { ok: _ok, problems: _problems, ...changed } = changeSummary(before, beforeReport, after, afterReport);
+  const oldKeys = new Set(beforeReport.issues.map((i) => i.key));
+  const newKeys = new Set(afterReport.issues.map((i) => i.key));
+  const problems = {
+    errors: afterReport.errors,
+    warnings: afterReport.warnings,
+    ready_to_cut: afterReport.ready_to_cut,
+    new: afterReport.issues.filter((i) => !oldKeys.has(i.key)).map((i) => ({ severity: i.severity, message: i.message })),
+    fixed: beforeReport.issues.filter((i) => !newKeys.has(i.key)).map((i) => i.message),
+  };
+  const valueOf = (d: DeriveResult, name: string) => {
+    const v = d.params[name];
+    return v && "value" in v ? Math.round(v.value * 100) / 100 : null;
+  };
+  const oldExpr = new Map(beforeDesign.params.map((p) => [p.name, p.expr]));
+  const params = afterDesign.params.flatMap((p) => {
+    const from = valueOf(before, p.name);
+    const to = valueOf(after, p.name);
+    if (oldExpr.get(p.name) === p.expr && from === to) return [];
+    return [{ name: p.name, unit: p.unit, from_expr: oldExpr.get(p.name) ?? null, to_expr: p.expr, from_value: from, to_value: to }];
+  });
+  return { ...changed, params, problems };
+}
+
+export type EditSummary = ReturnType<typeof editSummary>;
+
 /** A library part brings its own specs and model into set_hardware. */
 function withLibraryPart(name: string, input: Record<string, unknown>, library: LibraryAccess): Record<string, unknown> {
   if (name !== "set_hardware" || !input.library_part) return input;
