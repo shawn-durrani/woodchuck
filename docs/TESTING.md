@@ -53,7 +53,11 @@ runs. The tests hold the list to the same order and one undo step. They
 check that a refused edit stops it with the edits before it kept, and that
 the problems come back once for the whole list. Every request
 asks the API to drop earlier thinking that a changed prompt, tool list or
-workshop doesn't match. Stand-ins also
+workshop doesn't match. A table of invented messages pins the level each
+turn thinks at. The turn tests hold an effort message to going in only when
+the level changes, and the request's own settings to staying the same all
+chat long. A tool that needs judgement raises the level for the rest of the
+turn, and with routing off no effort message goes in. Stand-ins also
 take the place of OpenAI, GitHub, Tailscale and the picture camera, which
 is why a test can't send anything anywhere. A software passkey signs the
 passkey tests, so the whole sign-in runs without a browser. Any test that

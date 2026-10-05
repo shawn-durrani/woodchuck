@@ -7,6 +7,7 @@ import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { applyOps, emptyDesign, type Design, type JointType, type LibraryPart, type Op, type Plan } from "@woodchuck/core";
 import type { TurnInput } from "./agent.js";
+import type { Effort, RouteReason } from "./route.js";
 import type { ToolRequest } from "./tools.js";
 import { DesignHistory } from "./versions.js";
 import { readWorkshop, workshopFromFile, type Workshop } from "./workshop.js";
@@ -69,7 +70,8 @@ export type ChatItem =
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
   /** retry marks a dropped connection that Claude's turn is trying again after, rather than one that ended it. */
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
-  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; at: string }
+  /** efforts holds the level each request was written at, in order, and route the rule that picked the turn's level. */
+  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; efforts?: Effort[]; route?: RouteReason; at: string }
   /** The API summarised the older chat to keep Claude quick. */
   | { id: string; kind: "summary"; at: string };
 

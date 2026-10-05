@@ -143,6 +143,21 @@ leaves those out. The whole chat stays saved on disk, and Claude searches
 it with a recall tool when you refer back to something. The app never
 trims the chat itself, since that would break Claude's earlier reasoning.
 
+## Each turn thinks as hard as it needs
+
+Thinking is most of the wait on a turn, and a colour try needs far less of
+it than a new build. Each turn picks a level from plain rules about the
+message, with no model call. A colour try, a question about the design or
+"looks right" to a plan runs at low. A small size change runs at medium. A
+new build, a photo, joints, strength and anything the rules don't know get
+the configured level. Once Claude reaches for a joint, a plan or a question,
+the turn goes back to the configured level until it ends.
+
+The request's own level never changes, since a change there would restart
+the cache. A turn sets its level with a message in the chat that carries
+only the level, and it adds one only when the level changes. The chat
+stays append-only, so Claude's earlier reasoning stays valid.
+
 ## It runs on this computer, and your tailnet if you ask
 
 The server listens on 127.0.0.1 and checks the host and origin of every

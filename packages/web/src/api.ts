@@ -44,7 +44,7 @@ export type ChatItem =
     }
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
-  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; at: string }
+  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; efforts?: string[]; route?: string; at: string }
   | { id: string; kind: "summary"; at: string };
 
 export interface ToolRequest {

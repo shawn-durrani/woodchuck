@@ -19,7 +19,8 @@ setting has a default that suits one person on one computer.
 | Setting | Default | What it does |
 |---|---|---|
 | `WOODCHUCK_MODEL` | `claude-sonnet-5-5` | The Claude model a new design starts with. Each design can pick its own in the chat. |
-| `WOODCHUCK_EFFORT` | `high` | How hard Claude thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Lower is quicker and cheaper. |
+| `WOODCHUCK_EFFORT` | `high` | How hard Claude thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Lower is quicker and cheaper. A turn that needs less thought can go lower, and none goes higher. |
+| `WOODCHUCK_EFFORT_ROUTING` | `on` | Lets each turn pick how hard Claude thinks. A colour try or a question about the design runs at `low`, a small size change at `medium`, and anything else at `WOODCHUCK_EFFORT`. `off` runs every turn at `WOODCHUCK_EFFORT`. |
 | `WOODCHUCK_COMPACT_AT` | `100000` | The chat size, in tokens, at which the API summarises the older turns so Claude stays quick. The whole chat stays saved, and Claude searches it when you refer back. The lowest is 50000, and `off` sends the whole chat every time. |
 | `WOODCHUCK_SEARCH_COUNTRY` | none | The country Claude's web searches favour, as a two-letter code. It wins over the country in Your workshop, which starts as `AU`. |
 | `WOODCHUCK_IMAGE_MODEL` | `gpt-image-2.5-sunburst` | OpenAI's image model for the AI blend. `gpt-image-2.5-flare` is faster and cheaper. |
