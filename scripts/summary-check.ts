@@ -11,7 +11,8 @@
 // the chat holds one, then asks for a summary between turns with a low
 // threshold, and runs one more turn. It prints a PASS, FAIL or SKIP line for
 // each thing the docs left to a live request, and the summary's length.
-// It never prints the summary or anything else Claude wrote.
+// It never prints the summary or anything else Claude wrote. It watches the
+// raw stream too, to say which event carried a summary's signature.
 //
 // WOODCHUCK_MODEL and WOODCHUCK_EFFORT pick the model and effort, the same
 // as for the app.
@@ -19,8 +20,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type Anthropic from "@anthropic-ai/sdk";
-import { defaultClient, EFFORT, hasCredentials, MODEL, Turn, type MessagesClient } from "../packages/server/src/agent.ts";
+import Anthropic from "@anthropic-ai/sdk";
+import { EFFORT, hasCredentials, keepSignatures, MODEL, Turn, type MessagesClient } from "../packages/server/src/agent.ts";
 import { renderPng } from "../packages/server/src/render.ts";
 import { Store, type Project } from "../packages/server/src/store.ts";
 import { Summaries } from "../packages/server/src/summaries.ts";
@@ -60,20 +61,33 @@ interface Sent {
   body: Anthropic.Beta.MessageCreateParamsStreaming;
   message?: Anthropic.Beta.BetaMessage;
   error?: unknown;
+  /** The raw events that carried a summary block's signature, by type. */
+  signedBy: string[];
 }
 const log: Sent[] = [];
 /** Set for the turn after the summary, so a kept thinking block that fails the check fails the request. */
 let strict = false;
 
-const real = defaultClient();
+// The app's own client, with the raw stream watched for signatures on the way.
+const sdk = new Anthropic();
 const client: MessagesClient = {
   stream(body) {
     const summary = (body as { compaction?: unknown }).compaction !== undefined;
     const sent =
       strict && !summary ? ({ ...body, thinking: { ...body.thinking, block_binding: { prefix_mismatch_behavior: "error" } } } as Anthropic.Beta.MessageCreateParamsStreaming) : body;
-    const entry: Sent = { summary, body: sent };
+    const entry: Sent = { summary, body: sent, signedBy: [] };
     log.push(entry);
-    const stream = real.stream(sent);
+    const raw = sdk.beta.messages.stream(sent);
+    const summaries = new Set<number>();
+    raw.on("streamEvent", (event) => {
+      if (event.type === "content_block_start" && event.content_block.type === "compaction") {
+        summaries.add(event.index);
+        if (typeof (event.content_block as { signature?: unknown }).signature === "string") entry.signedBy.push(event.type);
+      } else if (event.type === "content_block_delta" && summaries.has(event.index) && typeof (event.delta as { signature?: unknown }).signature === "string") {
+        entry.signedBy.push(event.delta.type);
+      }
+    });
+    const stream = keepSignatures(raw);
     return {
       on: (event, cb) => stream.on(event, cb),
       abort: () => stream.abort(),
@@ -100,6 +114,7 @@ const check = (name: string, result: Result, note = "") => {
 };
 const blocks = (m: Anthropic.Beta.BetaMessageParam | undefined) => (Array.isArray(m?.content) ? (m.content as { type: string }[]) : []);
 const holdsThresholdSummary = (p: Project) => p.messages.some((m) => m.role === "assistant" && blocks(m).some((b) => b.type === "compaction"));
+const holdsSummary = (m: Anthropic.Beta.BetaMessageParam) => blocks(m).some((b) => b.type === "compaction");
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const dir = mkdtempSync(path.join(tmpdir(), "woodchuck-summary-check-"));
@@ -133,6 +148,21 @@ try {
   }
   const threshold = holdsThresholdSummary(project);
   console.log(threshold ? "The API summarised the chat inside a request, so the chat holds an older summary.\n" : "The chat never reached 50,000 tokens, so it holds no older summary.\n");
+  // The summary on request refuses one without its signature, so the app sends the whole chat in its place.
+  const older = project.messages.findLast((m) => m.role === "assistant" && holdsSummary(m));
+  const olderBlock = blocks(older).find((b) => b.type === "compaction") as { signature?: unknown } | undefined;
+  const signedBy = log.findLast((s) => !s.summary && s.message?.content.some((b) => b.type === "compaction"))?.signedBy ?? [];
+  check(
+    "the stored threshold summary has a signature",
+    !olderBlock ? "SKIP" : typeof olderBlock.signature === "string" && olderBlock.signature ? "PASS" : "FAIL",
+    !olderBlock
+      ? "the chat never held one"
+      : typeof olderBlock.signature === "string" && olderBlock.signature
+        ? `carried by ${signedBy.join(" and ") || "the stream"}`
+        : signedBy.length
+          ? `the stream carried one in ${signedBy.join(" and ")}, and it wasn't stored`
+          : "the API sent none in the stream",
+  );
 
   // Now a summary between turns, at a threshold any chat passes.
   process.env.WOODCHUCK_COMPACT_IDLE_AT = "1000";
@@ -159,11 +189,12 @@ try {
   );
   const cached = iterations.reduce((n, i) => n + (i.cache_read_input_tokens ?? 0), 0);
   check("the summary request reads from the cache", reply ? (cached > 0 ? "PASS" : "FAIL") : "SKIP", `${cached} tokens read from the cache`);
-  const carriedOlder = blocks(asking?.body.messages[0]).some((b) => b.type === "compaction");
+  // Sent from the older summary when it's signed, and as the whole chat without it when it isn't.
+  const how = !asking ? "" : holdsSummary(asking.body.messages[0]!) ? "sent from it" : !asking.body.messages.some(holdsSummary) ? "sent whole, without it" : "";
   check(
     "a chat holding an older threshold summary is accepted",
-    !threshold || !carriedOlder ? "SKIP" : reply ? "PASS" : "FAIL",
-    threshold ? (carriedOlder ? (reply ? "200" : message(asking?.error)) : "the summary request didn't start from it") : "the chat never held one",
+    !threshold || !how ? "SKIP" : reply ? "PASS" : "FAIL",
+    !threshold ? "the chat never held one" : !how ? "the summary request didn't start from it" : `${how}, ${reply ? "200" : message(asking?.error)}`,
   );
   console.log(`The summary is ${text.length} characters long.`);
   check("the summary keeps the early requirement", text ? (/\bLPs?\b/i.test(text) && /\b12\b/.test(text) ? "PASS" : "FAIL") : "SKIP", "12-inch LPs");
@@ -199,6 +230,9 @@ try {
       thinking === 0 ? "the kept turns hold no thinking to check" : binding ? error.slice(0, 160) : `${thinking} kept thinking block${thinking === 1 ? "" : "s"}, ${dropped.length} input transformation${dropped.length === 1 ? "" : "s"}`,
     );
   }
+
+  // A stored summary the API refused sends the chat in full from then on, which the app logs.
+  check("no stored summary was refused", project.refused ? "FAIL" : "PASS", project.refused ? `refused once the chat held ${project.refused.messages} messages` : "");
 
   summaries.stop();
   const count = (r: Result) => results.filter(([, x]) => x === r).length;

@@ -25,7 +25,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
 import { cacheControl, cacheTtl, systemPrompt } from "./prompt.js";
-import type { ChatItem, Compaction, Job, Pending, Pin, Project, RoundTiming, Store } from "./store.js";
+import type { ChatItem, Compaction, Job, Pending, Pin, Project, Refused, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import type { Summaries } from "./summaries.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
@@ -76,8 +76,13 @@ export function effortOf(message: Anthropic.Beta.BetaMessageParam): Effort | nul
  * API is sent, or the request's own level without one. A summary drops the
  * effort messages before it, so only the summary onwards counts.
  */
-export function effortInForce(messages: Anthropic.Beta.BetaMessageParam[], requestLevel: Effort = EFFORT, compactions: readonly Compaction[] = []): Effort {
-  const sent = sendable(messages, compactions);
+export function effortInForce(
+  messages: Anthropic.Beta.BetaMessageParam[],
+  requestLevel: Effort = EFFORT,
+  compactions: readonly Compaction[] = [],
+  refused: Refused | null = null,
+): Effort {
+  const sent = sendable(messages, compactions, refused);
   for (let i = sent.length - 1; i >= 0; i--) {
     const effort = effortOf(sent[i]!);
     if (effort) return effort;
@@ -130,36 +135,90 @@ A size the woodworker asked for is a requirement, so keep it exactly as given ev
 
 Write the summary as text only. Don't call any tools.`;
 
-/** Where the latest summary the API wrote inside a request sits in the saved chat, or -1. */
-function thresholdSummaryAt(messages: Anthropic.Beta.BetaMessageParam[]): number {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const c = messages[i]!.content;
-    if (messages[i]!.role === "assistant" && Array.isArray(c) && c.some((b) => b.type === "compaction")) return i;
+/** Whether a message holds a summary block. */
+function holdsSummary(message: Anthropic.Beta.BetaMessageParam): boolean {
+  return Array.isArray(message.content) && message.content.some((b) => b.type === "compaction");
+}
+
+/**
+ * Whether a block is a summary without its signature. The API's summary on
+ * request refuses one, so a request that summarises on request, or carries
+ * a summary written that way, never sends it.
+ */
+export function unsigned(block: { type: string; signature?: unknown }): boolean {
+  return block.type === "compaction" && (typeof block.signature !== "string" || block.signature === "");
+}
+
+/** Whether any message holds a summary without its signature. */
+export function holdsUnsigned(messages: readonly Anthropic.Beta.BetaMessageParam[]): boolean {
+  return messages.some((m) => Array.isArray(m.content) && m.content.some(unsigned));
+}
+
+/**
+ * The messages with every summary block taken out, for a request that can't
+ * carry the summaries they hold. It carries the whole chat they stood in
+ * for instead, since the saved chat keeps all of it. A message left with
+ * nothing goes too, and the rest are passed through as they are.
+ */
+export function withoutSummaries(messages: readonly Anthropic.Beta.BetaMessageParam[]): Anthropic.Beta.BetaMessageParam[] {
+  const out: Anthropic.Beta.BetaMessageParam[] = [];
+  for (const m of messages) {
+    if (!holdsSummary(m)) {
+      out.push(m);
+      continue;
+    }
+    const content = (m.content as Anthropic.Beta.BetaContentBlockParam[]).filter((b) => b.type !== "compaction");
+    if (content.length) out.push({ ...m, content });
+  }
+  return out;
+}
+
+/** Where the latest summary the API wrote inside a request sits in the saved chat, from `from` on, or -1. */
+function thresholdSummaryAt(messages: Anthropic.Beta.BetaMessageParam[], from = 0): number {
+  for (let i = messages.length - 1; i >= from; i--) {
+    if (messages[i]!.role === "assistant" && holdsSummary(messages[i]!)) return i;
   }
   return -1;
 }
 
-/** The summary written between turns that the chat is sent from, or null when there's none or the API has summarised since. */
-export function onDemandSummary(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): Compaction | null {
+/**
+ * The summary written between turns that the chat is sent from, or null
+ * when there's none, the API has summarised since, or the API refused it.
+ */
+export function onDemandSummary(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = [], refused: Refused | null = null): Compaction | null {
   const last = compactions.at(-1);
-  return last && last.upto > thresholdSummaryAt(messages) ? last : null;
+  if (!last || compactions.length <= (refused?.compactions ?? 0)) return null;
+  return last.upto > thresholdSummaryAt(messages, refused?.messages) ? last : null;
 }
 
-/** Which summary the chat is sent from, as a key that changes whenever a newer one lands. */
-export function summaryBase(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): string {
-  return `${compactions.length}:${thresholdSummaryAt(messages)}`;
+/** Which summary the chat is sent from, as a key that changes whenever a newer one lands or the API refuses one. */
+export function summaryBase(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = [], refused: Refused | null = null): string {
+  return `${compactions.length}:${thresholdSummaryAt(messages)}:${refused?.messages ?? 0}`;
 }
 
 /**
  * The part of the chat the API still needs: from the latest summary onwards.
  * A summary written between turns goes first, as a message of its own, in
  * place of the saved messages it covers. One the API wrote inside a request
- * is already in its place in the saved chat.
+ * is already in its place in the saved chat. A request carries one summary
+ * at most, and never one the API refused, so the summaries from before a
+ * refusal are taken out and the messages they stood in for go instead.
  */
-export function sendable(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): Anthropic.Beta.BetaMessageParam[] {
-  const summary = onDemandSummary(messages, compactions);
-  if (summary) return [{ role: "assistant", content: [summary.block] }, ...messages.slice(summary.upto)];
-  return messages.slice(Math.max(0, thresholdSummaryAt(messages)));
+export function sendable(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = [], refused: Refused | null = null): Anthropic.Beta.BetaMessageParam[] {
+  const summary = onDemandSummary(messages, compactions, refused);
+  if (summary) return [{ role: "assistant", content: [summary.block] }, ...withoutSummaries(messages.slice(summary.upto))];
+  const from = refused?.messages ?? 0;
+  const at = thresholdSummaryAt(messages, from);
+  if (at >= 0) return messages.slice(at);
+  return [...withoutSummaries(messages.slice(0, from)), ...messages.slice(from)];
+}
+
+/**
+ * Whether the API refused a request over a summary it carried, such as one
+ * sent without its signature. The message names the summary block.
+ */
+export function refusedSummary(e: unknown): boolean {
+  return e instanceof Anthropic.BadRequestError && /compaction/i.test(e.message);
 }
 
 /** The tokens the next request will carry: this one's input, read from the cache or not, and its reply. */
@@ -283,9 +342,56 @@ export interface MessagesClient {
   };
 }
 
-export function defaultClient(): MessagesClient {
-  const client = new Anthropic();
-  return { stream: (body) => client.beta.messages.stream(body) };
+/** The parts of the SDK's stream that keepSignatures reads. */
+export interface RawStream {
+  on(event: "streamEvent", cb: (event: Anthropic.Beta.BetaRawMessageStreamEvent) => void): unknown;
+  on(event: "text" | "thinking", cb: (delta: string) => void): unknown;
+  finalMessage(): Promise<Anthropic.Beta.BetaMessage>;
+  abort(): void;
+}
+
+/**
+ * The SDK's stream, with each summary block's signature kept. The SDK
+ * builds the final message from the stream's events, and it keeps a summary
+ * block's signature only when the event that starts the block carries it.
+ * Here the signature is taken from whichever event carries it: the block's
+ * start, its compaction delta, or a signature delta at its place. The last
+ * one sent is set on the block, the way the API sends it, and nothing else
+ * in the message changes.
+ */
+export function keepSignatures(stream: RawStream): ReturnType<MessagesClient["stream"]> {
+  const summaries = new Set<number>();
+  const signatures = new Map<number, string>();
+  stream.on("streamEvent", (event) => {
+    if (event.type === "message_start") {
+      summaries.clear();
+      signatures.clear();
+    } else if (event.type === "content_block_start" && event.content_block.type === "compaction") {
+      summaries.add(event.index);
+      const signature = (event.content_block as { signature?: unknown }).signature;
+      if (typeof signature === "string") signatures.set(event.index, signature);
+    } else if (event.type === "content_block_delta" && summaries.has(event.index)) {
+      const signature = (event.delta as { signature?: unknown }).signature;
+      if ((event.delta.type === "compaction_delta" || event.delta.type === "signature_delta") && typeof signature === "string") signatures.set(event.index, signature);
+    }
+  });
+  return {
+    on: (event, cb) => stream.on(event, cb),
+    abort: () => stream.abort(),
+    finalMessage: async () => {
+      const message = await stream.finalMessage();
+      for (const [i, signature] of signatures) {
+        const block = message.content[i];
+        if (block?.type === "compaction" && block.signature !== signature) message.content[i] = { ...block, signature };
+      }
+      return message;
+    },
+  };
+}
+
+/** The real client. Tests pass an SDK client of their own, with a fake fetch, so no key and no network. */
+export function defaultClient(client: Anthropic = new Anthropic()): MessagesClient {
+  return { stream: (body) => keepSignatures(client.beta.messages.stream(body)) };
 }
 
 const now = () => new Date().toISOString();
@@ -571,59 +677,85 @@ export class Turn {
     const ttl = cacheTtl();
     const system = systemPrompt(workshop, ttl);
     const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
+    /** The next request, from the chat as it stands. */
+    const request = () => {
+      const sent = sendable(project.messages, project.compactions, project.refused);
+      // The API can't summarise at a threshold on a request that carries a
+      // summary written between turns, so that request sends no trigger.
+      const summarised = onDemandSummary(project.messages, project.compactions, project.refused) !== null;
+      const compactTrigger = summarised ? null : fallbackAt;
+      const body = {
+        // Switching models mid-conversation is fine: other models skip the
+        // earlier thinking blocks, and the history stays append-only.
+        model: project.model ?? MODEL,
+        max_tokens: 64000,
+        // Tools render first, then the system blocks, so the breakpoint on
+        // the workshop block caches all of them. The top-level breakpoint
+        // caches the history. Both last as long as WOODCHUCK_CACHE_TTL
+        // says, an hour unless it's set to five minutes.
+        system,
+        tools,
+        messages: sent,
+        // Each thinking block is tied to the instructions, tools and chat
+        // it came from. A changed prompt, tool list or workshop would
+        // otherwise refuse an open chat, so the API drops the thinking
+        // that no longer fits instead, on every request that carries it.
+        thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
+        // The request's own level stays the same all chat long, so the
+        // cache holds. Effort messages in the chat lower or raise it.
+        output_config: { effort: EFFORT },
+        cache_control: cacheControl(ttl),
+        ...(compactTrigger
+          ? {
+              context_management: {
+                edits: [{ type: "compact_20260112", trigger: { type: "input_tokens", value: compactTrigger }, instructions: SUMMARY_INSTRUCTIONS }],
+              },
+            }
+          : {}),
+        // If a safety check declines the request, the API retries it on
+        // a fallback model instead of stopping.
+        betas: [
+          "server-side-fallback-2026-07-01",
+          "thinking-binding-controls-2026-08-01",
+          ...(compactTrigger ? ["compact-2026-01-12"] : []),
+          ...(summarised ? [ON_DEMAND_BETA] : []),
+          // Sent whenever the chat holds an effort message, which stays
+          // true after routing is turned off.
+          ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
+        ],
+        fallbacks: "default",
+      } as Anthropic.Beta.MessageCreateParamsStreaming;
+      return {
+        sent,
+        summarised,
+        body,
+        // Where this request ends in the saved chat, and which summary it starts from.
+        upto: project.messages.length,
+        base: summaryBase(project.messages, project.compactions, project.refused),
+        // The level this request is written at, kept with its round.
+        effort: effortInForce(project.messages, EFFORT, project.compactions, project.refused),
+      };
+    };
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
-        const sent = sendable(project.messages, project.compactions);
-        // The API can't summarise at a threshold on a request that carries a
-        // summary written between turns, so that request sends no trigger.
-        const summarised = onDemandSummary(project.messages, project.compactions) !== null;
-        const compactTrigger = summarised ? null : fallbackAt;
-        // Where this request ends in the saved chat, and which summary it starts from.
-        const upto = project.messages.length;
-        const base = summaryBase(project.messages, project.compactions);
-        // The level this request is written at, kept with its round.
-        const effort = effortInForce(project.messages, EFFORT, project.compactions);
-        const { message, timing, body } = await this.ask(project, {
-          // Switching models mid-conversation is fine: other models skip the
-          // earlier thinking blocks, and the history stays append-only.
-          model: project.model ?? MODEL,
-          max_tokens: 64000,
-          // Tools render first, then the system blocks, so the breakpoint on
-          // the workshop block caches all of them. The top-level breakpoint
-          // caches the history. Both last as long as WOODCHUCK_CACHE_TTL
-          // says, an hour unless it's set to five minutes.
-          system,
-          tools,
-          messages: sent,
-          // Each thinking block is tied to the instructions, tools and chat
-          // it came from. A changed prompt, tool list or workshop would
-          // otherwise refuse an open chat, so the API drops the thinking
-          // that no longer fits instead, on every request that carries it.
-          thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
-          // The request's own level stays the same all chat long, so the
-          // cache holds. Effort messages in the chat lower or raise it.
-          output_config: { effort: EFFORT },
-          cache_control: cacheControl(ttl),
-          ...(compactTrigger
-            ? {
-                context_management: {
-                  edits: [{ type: "compact_20260112", trigger: { type: "input_tokens", value: compactTrigger }, instructions: SUMMARY_INSTRUCTIONS }],
-                },
-              }
-            : {}),
-          // If a safety check declines the request, the API retries it on
-          // a fallback model instead of stopping.
-          betas: [
-            "server-side-fallback-2026-07-01",
-            "thinking-binding-controls-2026-08-01",
-            ...(compactTrigger ? ["compact-2026-01-12"] : []),
-            ...(summarised ? [ON_DEMAND_BETA] : []),
-            // Sent whenever the chat holds an effort message, which stays
-            // true after routing is turned off.
-            ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
-          ],
-          fallbacks: "default",
-        } as Anthropic.Beta.MessageCreateParamsStreaming);
+        let next = request();
+        let reply: Awaited<ReturnType<Turn["ask"]>>;
+        try {
+          reply = await this.ask(project, next.body);
+        } catch (e) {
+          // A stored summary the API refuses would refuse every request
+          // after it too. The request goes again once, with the chat in full
+          // from the saved messages, and so does every later one.
+          if (this.stopped || !refusedSummary(e) || !next.sent.some(holdsSummary)) throw e;
+          project.refused = { messages: project.messages.length, compactions: project.compactions.length, at: now() };
+          project.save();
+          const why = (e as { error?: { error?: { message?: unknown } } }).error?.error?.message;
+          console.log(`The API refused this chat's stored summary, so the chat goes out in full from now on (${typeof why === "string" ? why : (e as Error).message}).`);
+          next = request();
+          reply = await this.ask(project, next.body);
+        }
+        const { message, timing, body } = reply;
+        const { sent, summarised, upto, base, effort } = next;
         if (!this.droppedThinking && droppedStaleThinking(message)) {
           this.droppedThinking = true;
           console.log("Claude's earlier thinking no longer matched its instructions, tools or workshop, so the API left it out.");
@@ -855,7 +987,7 @@ export class Turn {
    * reply to it is written at the new level. Nothing earlier changes.
    */
   private say(project: Project, content: Anthropic.Beta.BetaContentBlockParam[]) {
-    if (effortInForce(project.messages, EFFORT, project.compactions) !== this.effort) project.messages.push(effortMessage(this.effort));
+    if (effortInForce(project.messages, EFFORT, project.compactions, project.refused) !== this.effort) project.messages.push(effortMessage(this.effort));
     project.messages.push({ role: "user", content });
   }
 

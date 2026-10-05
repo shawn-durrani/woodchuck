@@ -109,6 +109,14 @@ the sizes they asked for.
 The restart gate names a summary being written, and closing the app
 abandons it.
 
+The signature tests run the real SDK client on a fake API, through a fake
+`fetch`. A summary block keeps its signature whichever event carries it:
+the block's start, its compaction delta or a signature delta. It's saved
+with the signature and sent back as stored. A chat whose older summary has
+no signature is summarised from the whole saved chat, unless that's too
+long for one request. A request the API refuses over a stored summary goes
+again once with the chat in full, and so does every later one in that chat.
+
 ### Timing, dropped connections and backups
 
 Each turn's usage line is held to its timing on a fake clock. That covers
@@ -407,14 +415,18 @@ that fails the API's check fails the request. The script prints `PASS`,
 `FAIL` or `SKIP` for each check, and the summary's length but never its
 text.
 
+- The API's own summary is stored with its signature. The line names the
+  stream event that carried it, or says none did.
 - The summary request comes back with `stop_reason` `"compaction"` and
   `usage.iterations`.
 - It reads from the prompt cache.
-- The API accepts it on a chat that holds an older summary.
+- The API accepts it on a chat that holds an older summary. It's sent from
+  that summary when it's signed, and as the whole chat without it when not.
 - The summary keeps the early requirement and the answer.
 - The next request carries the summary as stored, with no 400.
 - The kept turns' thinking passes the check, with no input
   transformations.
+- No request was refused over a stored summary.
 
 ## Trying the chat without a key
 
