@@ -83,7 +83,7 @@ describe("progress", () => {
 
   it("hands another app the background block, in exactly the agreed shape", () => {
     const b = background(progress(base)).background;
-    expect(Object.keys(b)).toEqual(["job", "state", "title", "progress_tool", "stage", "steps", "elapsed_s", "waiting_for", "ask", "reply", "outcome", "error", "parts", "edits"]);
+    expect(Object.keys(b)).toEqual(["job", "state", "title", "progress_tool", "stage", "steps", "elapsed_s", "waiting_for", "ask", "reply", "outcome", "error", "parts", "edits", "answered"]);
     expect(b).toMatchObject({ job: "u1", state: "running", title: "Woodchuck", progress_tool: "woodchuck_progress", steps: 4, elapsed_s: 312, waiting_for: null, outcome: null });
     expect(background(progress({ ...base, busy: false })).background).toMatchObject({ state: "done", outcome: "finished", error: "" });
   });
@@ -142,6 +142,7 @@ describe("progress", () => {
     const p = progress({ ...base, chat: planned, job: { id: "d9", after: "d9", started_at: at(60), ended_at: at(70) }, busy: false });
     const line = 'A message the woodworker sent while Woodchuck\'s Claude worked was taken as the reply to its plan, "A walnut record cabinet", so it isn\'t waiting on that any more.';
     expect(p).toMatchObject({ state: "done", answered: line, waiting_for: null });
+    expect(background(p).background).toMatchObject({ answered: line, waiting_for: null });
     expect(p.reply).toBe(`${line}\n\nOak it is.`);
     expect(progressText(p).split("\n")[0]).toBe(line);
     expect(tell([planned[planned.length - 3]!], false)).toBe("Woodchuck's Claude pinned a plan: A walnut record cabinet. A message sent while it worked was taken as the reply.");

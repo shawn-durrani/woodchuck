@@ -357,6 +357,8 @@ export interface Background {
   error: string;
   parts: number;
   edits: number;
+  /** A line when a message sent while Claude worked was taken as the reply to its plan or question, else "". */
+  answered: string;
 }
 
 export function background(p: Progress): { background: Background } {
@@ -377,6 +379,7 @@ export function background(p: Progress): { background: Background } {
       error: p.error,
       parts: p.parts,
       edits: p.edits,
+      answered: p.answered,
     },
   };
 }
