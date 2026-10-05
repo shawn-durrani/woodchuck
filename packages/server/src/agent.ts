@@ -45,6 +45,21 @@ export function isModel(id: unknown): id is ModelId {
 
 export const MODEL: ModelId = isModel(process.env.WOODCHUCK_MODEL) ? process.env.WOODCHUCK_MODEL : "claude-sonnet-5-5";
 
+/**
+ * The most a request to each model can carry, in tokens: its context window.
+ * See https://platform.claude.com/docs/en/build-with-claude/context-windows
+ */
+const CONTEXT_TOKENS: Record<ModelId, number> = {
+  "claude-sonnet-5-5": 1_000_000,
+  "claude-opus-5-5": 1_000_000,
+  "claude-fable-5-1": 1_000_000,
+};
+
+/** A model's context window in tokens. A model Woodchuck doesn't offer gets 200,000, the smallest any current model has. */
+export function contextTokens(model: string): number {
+  return isModel(model) ? CONTEXT_TOKENS[model] : 200_000;
+}
+
 export type { Effort } from "./route.js";
 /**
  * How hard Claude thinks before it answers. It's the request's own level and
@@ -340,6 +355,8 @@ export interface MessagesClient {
     finalMessage(): Promise<Anthropic.Beta.BetaMessage>;
     abort(): void;
   };
+  /** The API's token count for a request, which is free. A client without it gets a rough count instead. */
+  countTokens?(params: Anthropic.Beta.Messages.MessageCountTokensParams): Promise<{ input_tokens: number }>;
 }
 
 /** The parts of the SDK's stream that keepSignatures reads. */
@@ -391,7 +408,10 @@ export function keepSignatures(stream: RawStream): ReturnType<MessagesClient["st
 
 /** The real client. Tests pass an SDK client of their own, with a fake fetch, so no key and no network. */
 export function defaultClient(client: Anthropic = new Anthropic()): MessagesClient {
-  return { stream: (body) => keepSignatures(client.beta.messages.stream(body)) };
+  return {
+    stream: (body) => keepSignatures(client.beta.messages.stream(body)),
+    countTokens: (params) => client.beta.messages.countTokens(params),
+  };
 }
 
 const now = () => new Date().toISOString();

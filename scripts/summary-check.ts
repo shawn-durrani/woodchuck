@@ -12,7 +12,8 @@
 // threshold, and runs one more turn. It prints a PASS, FAIL or SKIP line for
 // each thing the docs left to a live request, and the summary's length.
 // It never prints the summary or anything else Claude wrote. It watches the
-// raw stream too, to say which event carried a summary's signature.
+// raw stream too, to say which event carried a summary's signature, and says
+// how big the whole chat measured when it's summarised whole.
 //
 // WOODCHUCK_MODEL and WOODCHUCK_EFFORT pick the model and effort, the same
 // as for the app.
@@ -24,7 +25,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { EFFORT, hasCredentials, keepSignatures, MODEL, Turn, type MessagesClient } from "../packages/server/src/agent.ts";
 import { renderPng } from "../packages/server/src/render.ts";
 import { Store, type Project } from "../packages/server/src/store.ts";
-import { Summaries } from "../packages/server/src/summaries.ts";
+import { Summaries, wholeChatLimit } from "../packages/server/src/summaries.ts";
 
 /** Said early, and looked for in the summary. */
 const REQUIREMENT = "Every drawer must hold 12-inch LPs.";
@@ -104,6 +105,7 @@ const client: MessagesClient = {
         ),
     };
   },
+  countTokens: (params) => sdk.beta.messages.countTokens(params),
 };
 
 type Result = "PASS" | "FAIL" | "SKIP";
@@ -191,10 +193,20 @@ try {
   check("the summary request reads from the cache", reply ? (cached > 0 ? "PASS" : "FAIL") : "SKIP", `${cached} tokens read from the cache`);
   // Sent from the older summary when it's signed, and as the whole chat without it when it isn't.
   const how = !asking ? "" : holdsSummary(asking.body.messages[0]!) ? "sent from it" : !asking.body.messages.some(holdsSummary) ? "sent whole, without it" : "";
+  // A chat summarised whole is measured first, by the API's token count or a rough one.
+  const measured = summaries.measured.get(project.slug);
+  const size = measured
+    ? `the whole chat measured ${measured.tokens.toLocaleString("en-AU")} tokens by ${measured.by}, against a limit of ${wholeChatLimit(MODEL).toLocaleString("en-AU")}`
+    : "";
   check(
     "a chat holding an older threshold summary is accepted",
-    !threshold || !how ? "SKIP" : reply ? "PASS" : "FAIL",
-    !threshold ? "the chat never held one" : !how ? "the summary request didn't start from it" : `${how}, ${reply ? "200" : message(asking?.error)}`,
+    !threshold ? "SKIP" : !how ? (measured ? "FAIL" : "SKIP") : reply ? "PASS" : "FAIL",
+    [
+      !threshold ? "the chat never held one" : !how ? (measured ? "no summary request went out" : "the summary request didn't start from it") : `${how}, ${reply ? "200" : message(asking?.error)}`,
+      size,
+    ]
+      .filter(Boolean)
+      .join(", "),
   );
   console.log(`The summary is ${text.length} characters long.`);
   check("the summary keeps the early requirement", text ? (/\bLPs?\b/i.test(text) && /\b12\b/.test(text) ? "PASS" : "FAIL") : "SKIP", "12-inch LPs");

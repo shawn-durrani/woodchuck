@@ -197,10 +197,13 @@ that chat if you turn the setting off.
 Each summary is kept as the API sent it, with its signature. A request for
 a summary between turns refuses an older summary that has no signature.
 When the chat starts from one, Woodchuck sends the whole saved chat in its
-place, with the old summary taken out. A chat too long for one request
-keeps the API's own summaries, and the log says so. If the API refuses a
-request over a stored summary, Woodchuck sends it again with the chat in
-full. Every later request in that chat goes the same way.
+place, with the old summary taken out. It measures the whole chat first
+with the API's
+[token count](https://platform.claude.com/docs/en/build-with-claude/token-counting),
+which is free, and a rough count stands in if that fails. A chat too long
+for the model keeps the API's own summaries, and the log says so. If the
+API refuses a request over a stored summary, Woodchuck sends it again with
+the chat in full. Every later request in that chat goes the same way.
 
 The whole chat stays saved on disk, and Claude searches it with a recall
 tool when you refer back to something. Each summary from between turns is

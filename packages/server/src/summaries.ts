@@ -25,11 +25,13 @@
 // A summary request refuses a summary block without its signature, and the
 // API's own summary inside a request can come without one. A request sent
 // from one of those is summarised from the saved chat in full instead,
-// with the old summary taken out. A chat too long for that keeps the API's
-// own summaries, and the skip is logged.
+// with the old summary taken out. The whole chat is measured first, with
+// the API's free token count, or a rough count when that fails. A chat too
+// long for the model keeps the API's own summaries, and the skip is logged.
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  contextTokens,
   EFFORT_MESSAGE_BETA,
   effortOf,
   holdsUnsigned,
@@ -55,27 +57,81 @@ export const RETRY_GROWTH = 20_000;
 export const RETRY_AFTER_MS = 60 * 60_000;
 
 /**
- * The most a whole chat may come to, by roughCount, for a summary of all of
- * it. Every model Woodchuck offers reads 1,000,000 tokens. This leaves room
- * for the summary and for the count being rough.
+ * Room a whole chat leaves in the model's context, past the summary's own
+ * SUMMARY_MAX_TOKENS. It covers the summarising prompt the API adds, the
+ * web tools the token count can't take, and the count being an estimate.
  */
-export const WHOLE_CHAT_MAX_TOKENS = 900_000;
+export const COUNT_MARGIN = 20_000;
+
+/** The most a whole chat may come to for a summary of all of it on a model. */
+export function wholeChatLimit(model: string): number {
+  return contextTokens(model) - SUMMARY_MAX_TOKENS - COUNT_MARGIN;
+}
 
 /** What roughCount gives a picture, at the most a picture can cost. */
 const PICTURE_TOKENS = 5_000;
+/** What roughCount gives a PDF or other document, about ten pages' worth. */
+const DOCUMENT_TOKENS = 30_000;
+/** Fields that hold encoded data, which reads as nothing like its tokens. */
+const ENCODED = new Set(["signature", "encrypted_content"]);
 
 /**
- * A rough token count that runs high. A picture counts 5,000 tokens, and
- * everything else a token for every three characters, PDFs included.
+ * A rough token count, for when the API's count fails. A picture counts
+ * 5,000 tokens and a document 30,000, wherever they sit, such as inside a
+ * tool's result. Signatures, encrypted thinking and other encoded data
+ * count nothing. Everything else is a token for every three characters.
  */
 export function roughCount(value: unknown): number {
   if (typeof value === "string") return Math.ceil(value.length / 3);
   if (Array.isArray(value)) return value.reduce((n: number, v) => n + roughCount(v), 0);
   if (value && typeof value === "object") {
-    if ((value as { type?: unknown }).type === "image") return PICTURE_TOKENS;
-    return Object.values(value).reduce((n: number, v) => n + roughCount(v), 0);
+    const type = (value as { type?: unknown }).type;
+    if (type === "image") return PICTURE_TOKENS;
+    if (type === "document") return DOCUMENT_TOKENS;
+    if (type === "redacted_thinking" || type === "base64") return 0;
+    return Object.entries(value).reduce((n: number, [k, v]) => (ENCODED.has(k) ? n : n + roughCount(v)), 0);
   }
   return 1;
+}
+
+/** How big a whole chat came out, and how it was counted. */
+export interface Measure {
+  /** The number of saved messages measured, from the first. */
+  upto: number;
+  tokens: number;
+  by: "the token count" | "a rough count";
+}
+
+/**
+ * The request that counts a summary request's tokens. It carries the same
+ * model, instructions, tools, thinking and betas. The count refuses server
+ * tools such as web search, so those are left out, and COUNT_MARGIN covers
+ * them. It takes the summary setting and ignores it.
+ */
+export function countRequest(request: Anthropic.Beta.MessageCreateParamsStreaming): Anthropic.Beta.Messages.MessageCountTokensParams {
+  const tools = request.tools?.filter((t) => !("type" in t) || t.type === "custom");
+  return {
+    model: request.model,
+    messages: request.messages,
+    ...(request.system !== undefined ? { system: request.system } : {}),
+    ...(tools?.length ? { tools } : {}),
+    ...(request.thinking !== undefined ? { thinking: request.thinking } : {}),
+    ...(request.output_config !== undefined ? { output_config: request.output_config } : {}),
+    ...(request.compaction ? { compaction: request.compaction } : {}),
+    ...(request.betas !== undefined ? { betas: request.betas } : {}),
+  } as Anthropic.Beta.Messages.MessageCountTokensParams;
+}
+
+/** A summary request's size: the API's free count, or a rough one when the client can't count or the count fails. */
+async function measure(client: MessagesClient, request: Anthropic.Beta.MessageCreateParamsStreaming): Promise<Omit<Measure, "upto">> {
+  if (client.countTokens) {
+    try {
+      return { tokens: (await client.countTokens(countRequest(request))).input_tokens, by: "the token count" };
+    } catch (e) {
+      console.error(`Couldn't count the chat's tokens: ${(e as Error).message}. A rough count stands in.`);
+    }
+  }
+  return { tokens: roughCount([request.system, request.tools, request.messages]), by: "a rough count" };
 }
 
 /** Betas a summary request leaves out: the API's summary at a threshold, and fallbacks, which it doesn't send. */
@@ -138,7 +194,8 @@ interface Running {
   /** Whether it summarises the whole saved chat, since the request held a summary without its signature. */
   whole: boolean;
   started: number;
-  stream: { abort(): void };
+  /** The request being written, once the whole chat has been measured. */
+  stream: { abort(): void } | null;
 }
 
 const now = () => new Date().toISOString();
@@ -152,6 +209,11 @@ export class Summaries {
   private readonly failed = new Map<string, { size: number; at: number }>();
   /** Designs whose whole chat is too long to summarise in one request. */
   private readonly tooLong = new Set<string>();
+  /**
+   * The last whole chat measured for a summary, by design. A chat is counted
+   * again only once it's grown. The live check reads it too.
+   */
+  readonly measured = new Map<string, Measure>();
 
   constructor(
     private store: Store,
@@ -177,7 +239,8 @@ export class Summaries {
    * be read, or after a newer summary has landed. A design whose last
    * summary failed waits until its chat has grown or an hour has passed.
    * A request that held a summary without its signature is summarised from
-   * the whole saved chat, unless that's too long for one request.
+   * the whole saved chat, measured first, unless that's too long for the
+   * model. The design counts as busy while it's measured.
    */
   start(client: MessagesClient, asked: Asked | null, at: number | null): boolean {
     if (this.closed || this.running || !asked || at === null || asked.size <= at) return false;
@@ -189,42 +252,69 @@ export class Summaries {
     const whole = holdsUnsigned(asked.body.messages);
     if (whole && this.tooLong.has(project.slug)) return false;
     const request = summaryRequest(asked.body, whole ? withoutSummaries(project.messages.slice(0, asked.upto)) : asked.body.messages);
-    if (whole) {
-      const tokens = roughCount([request.system, request.tools, request.messages]);
-      if (tokens > WHOLE_CHAT_MAX_TOKENS) {
-        this.tooLong.add(project.slug);
-        console.log(`The chat's older summary has no signature, and the whole chat is too long to summarise instead (about ${tokens} tokens), so the API carries on summarising it inside a request.`);
-        return false;
-      }
-      console.log("The chat's older summary has no signature, so the summary request sends the whole chat instead.");
+    const run: Running = { project, upto: asked.upto, base: asked.base, size: asked.size, whole, started: this.clock(), stream: null };
+    this.running = run;
+    this.events.changed();
+    const sending = whole
+      ? this.fits(client, run, request).then((fits) => {
+          // The chat can move on while it's measured, and a summary of it then would be dropped.
+          if (!fits || this.closed || summaryBase(project.messages, project.compactions, project.refused) !== run.base) return;
+          return this.ask(client, run, request);
+        })
+      : this.ask(client, run, request);
+    this.landing = sending.finally(() => {
+      if (this.running !== run) return;
+      this.running = null;
+      if (!this.closed) this.events.changed();
+    });
+    return true;
+  }
+
+  /**
+   * Whether the whole chat fits one summary request on its model. One that
+   * doesn't is logged once, and the design isn't summarised whole again.
+   */
+  private async fits(client: MessagesClient, run: Running, request: Anthropic.Beta.MessageCreateParamsStreaming): Promise<boolean> {
+    const slug = run.project.slug;
+    let size = this.measured.get(slug);
+    if (size?.upto !== run.upto) {
+      size = { upto: run.upto, ...(await measure(client, request)) };
+      this.measured.set(slug, size);
     }
+    if (this.closed) return false;
+    const counted = `${size.tokens.toLocaleString("en-AU")} tokens by ${size.by}`;
+    const limit = wholeChatLimit(request.model);
+    if (size.tokens > limit) {
+      this.tooLong.add(slug);
+      console.log(
+        `The chat's older summary has no signature, and the whole chat is too long to summarise instead (${counted}, over ${limit.toLocaleString("en-AU")}), so the API carries on summarising it inside a request.`,
+      );
+      return false;
+    }
+    console.log(`The chat's older summary has no signature, so the summary request sends the whole chat instead (${counted}).`);
+    return true;
+  }
+
+  /** Sends a summary request, and keeps or drops what comes back. */
+  private ask(client: MessagesClient, run: Running, request: Anthropic.Beta.MessageCreateParamsStreaming): Promise<void> {
+    const project = run.project;
     let stream: ReturnType<MessagesClient["stream"]>;
     try {
       stream = client.stream(request);
     } catch (e) {
       console.error(`Couldn't ask for a summary of the chat: ${(e as Error).message}. Claude carries on with the whole chat.`);
-      return false;
+      return Promise.resolve();
     }
-    const run: Running = { project, upto: asked.upto, base: asked.base, size: asked.size, whole, started: this.clock(), stream };
-    this.running = run;
-    this.events.changed();
-    this.landing = stream
-      .finalMessage()
-      .then(
-        (message) => this.land(run, message),
-        (e: unknown) => {
-          if (this.closed) return;
-          if (run.whole && tooLong(e)) return this.skipWhole(project.slug);
-          this.failed.set(project.slug, { size: run.size, at: this.clock() });
-          console.error(`The chat summary failed: ${(e as Error).message}. Claude carries on with the whole chat.`);
-        },
-      )
-      .finally(() => {
-        if (this.running !== run) return;
-        this.running = null;
-        if (!this.closed) this.events.changed();
-      });
-    return true;
+    run.stream = stream;
+    return stream.finalMessage().then(
+      (message) => this.land(run, message),
+      (e: unknown) => {
+        if (this.closed) return;
+        if (run.whole && tooLong(e)) return this.skipWhole(project.slug);
+        this.failed.set(project.slug, { size: run.size, at: this.clock() });
+        console.error(`The chat summary failed: ${(e as Error).message}. Claude carries on with the whole chat.`);
+      },
+    );
   }
 
   /** Stops summarising a design whose whole chat the API found too long. */
@@ -236,7 +326,7 @@ export class Summaries {
   /** Abandons a summary being written, as the app closes. */
   stop() {
     this.closed = true;
-    this.running?.stream.abort();
+    this.running?.stream?.abort();
     this.running = null;
   }
 
