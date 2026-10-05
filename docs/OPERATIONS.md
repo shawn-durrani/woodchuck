@@ -108,7 +108,10 @@ curl -s http://127.0.0.1:8905/api/busy
 
 It answers `{"busy":true,"reasons":["claude_turn"]}` while Claude is
 working, and `{"busy":false,"reasons":[]}` once it's free. The reason
-`backup` shows for the few seconds a snapshot takes to write. The health
+`backup` shows for the few seconds a snapshot takes to write. The reason
+`chat_summary` shows while Claude summarises a long chat after a turn,
+when that's turned on, and it can take a minute. A restart then drops the summary, and the next
+turn asks for it again. The health
 route, `/api/health`, answers `{"ok":true,...}` as soon as the server is
 up. Both still answer from this computer while Funnel is on and Woodchuck
 serves nothing else.

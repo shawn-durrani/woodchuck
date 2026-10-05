@@ -11,6 +11,8 @@
 // the model's thinking blocks are only valid against the exact history they
 // came from. A long chat is summarised by the API itself (compaction), which
 // doesn't count as an edit, and only the summary onwards is sent after that.
+// The summary is written between turns, in the background (summaries.ts),
+// and the API writes one inside a request only for a single very long turn.
 // Claude's instructions, its tools and your workshop count as history too,
 // so a deploy or a workshop change would otherwise refuse an open chat.
 // Every request asks the API to drop the thinking that no longer fits.
@@ -23,8 +25,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
 import { cacheControl, cacheTtl, systemPrompt } from "./prompt.js";
-import type { ChatItem, Job, Pending, Pin, Project, RoundTiming, Store } from "./store.js";
+import type { ChatItem, Compaction, Job, Pending, Pin, Project, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
+import type { Summaries } from "./summaries.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
 import { searchCountry } from "./workshop.js";
 
@@ -73,8 +76,8 @@ export function effortOf(message: Anthropic.Beta.BetaMessageParam): Effort | nul
  * API is sent, or the request's own level without one. A summary drops the
  * effort messages before it, so only the summary onwards counts.
  */
-export function effortInForce(messages: Anthropic.Beta.BetaMessageParam[], requestLevel: Effort = EFFORT): Effort {
-  const sent = sendable(messages);
+export function effortInForce(messages: Anthropic.Beta.BetaMessageParam[], requestLevel: Effort = EFFORT, compactions: readonly Compaction[] = []): Effort {
+  const sent = sendable(messages, compactions);
   for (let i = sent.length - 1; i >= 0; i--) {
     const effort = effortOf(sent[i]!);
     if (effort) return effort;
@@ -83,14 +86,31 @@ export function effortInForce(messages: Anthropic.Beta.BetaMessageParam[], reque
 }
 
 /**
- * The chat size, in tokens, at which the API summarises the older turns.
- * The API's floor is 50,000. "off" sends the whole chat every time.
+ * The chat size, in tokens, at which the API summarises the older turns
+ * inside a request. With summaries between turns on, it's a fallback for a
+ * single long turn, and its default rises to match. The API's floor is
+ * 50,000. "off" sends the whole chat every time, and turns off the summary
+ * between turns too.
  */
-export function compactAt(value = process.env.WOODCHUCK_COMPACT_AT): number | null {
+export function compactAt(value = process.env.WOODCHUCK_COMPACT_AT, idle = compactIdleAt()): number | null {
   if (value === "off") return null;
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.max(50_000, Math.round(n)) : 100_000;
+  return Number.isFinite(n) && n > 0 ? Math.max(50_000, Math.round(n)) : idle === null ? 100_000 : 150_000;
 }
+
+/**
+ * The chat size, in tokens, past which a turn that ends gets the older chat
+ * summarised in the background, ready for the next turn. It's off unless
+ * set to a number, and WOODCHUCK_COMPACT_AT=off turns it off too.
+ */
+export function compactIdleAt(value = process.env.WOODCHUCK_COMPACT_IDLE_AT, at = process.env.WOODCHUCK_COMPACT_AT): number | null {
+  if (at === "off" || value === undefined || value.trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+/** The beta for summaries asked for on request. Every request that carries one sends it too. */
+export const ON_DEMAND_BETA = "compact-2026-09-04";
 
 /** What the summary keeps. It replaces the API's own summarising prompt. */
 export const SUMMARY_INSTRUCTIONS = `Summarise this furniture design conversation so Claude can carry on from it without the earlier turns.
@@ -98,20 +118,66 @@ export const SUMMARY_INSTRUCTIONS = `Summarise this furniture design conversatio
 Keep:
 - what the woodworker is making, what for, and where it will go
 - every requirement, preference and constraint they gave, in their own words where it matters: sizes they asked for, materials, timber, finishes, joints, tools they have or lack, budget
+- the woodworker's answers to Claude's questions, plans, previews and part proposals. These arrive as tool results, but they are the woodworker's own words, so keep them like any other requirement, with sizes and numbers exactly as given
 - decisions made, with the reason, and anything they turned down
 - the plan they agreed, questions still open, and anything Claude said it would do next
 - tool requests and what is waiting on them
 - roughly when each thing came up (early, middle or recent), so the detail can be looked up later
 
-Leave out the design's current numbers, parts, joints and finishes. The design is always available through get_design and is the record of what exists. Leave out tool call details and pictures.`;
+Leave out the design's current numbers, parts, joints and finishes. The design is always available through get_design and is the record of what exists. Leave out tool call details and pictures.
 
-/** The part of the chat the API still needs: from the latest summary onwards. */
-export function sendable(messages: Anthropic.Beta.BetaMessageParam[]): Anthropic.Beta.BetaMessageParam[] {
+A size the woodworker asked for is a requirement, so keep it exactly as given even when it's also in the design. Their answers to questions, plans, previews and part proposals are not tool call details.
+
+Write the summary as text only. Don't call any tools.`;
+
+/** Where the latest summary the API wrote inside a request sits in the saved chat, or -1. */
+function thresholdSummaryAt(messages: Anthropic.Beta.BetaMessageParam[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const c = messages[i]!.content;
-    if (messages[i]!.role === "assistant" && Array.isArray(c) && c.some((b) => b.type === "compaction")) return messages.slice(i);
+    if (messages[i]!.role === "assistant" && Array.isArray(c) && c.some((b) => b.type === "compaction")) return i;
   }
-  return messages;
+  return -1;
+}
+
+/** The summary written between turns that the chat is sent from, or null when there's none or the API has summarised since. */
+export function onDemandSummary(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): Compaction | null {
+  const last = compactions.at(-1);
+  return last && last.upto > thresholdSummaryAt(messages) ? last : null;
+}
+
+/** Which summary the chat is sent from, as a key that changes whenever a newer one lands. */
+export function summaryBase(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): string {
+  return `${compactions.length}:${thresholdSummaryAt(messages)}`;
+}
+
+/**
+ * The part of the chat the API still needs: from the latest summary onwards.
+ * A summary written between turns goes first, as a message of its own, in
+ * place of the saved messages it covers. One the API wrote inside a request
+ * is already in its place in the saved chat.
+ */
+export function sendable(messages: Anthropic.Beta.BetaMessageParam[], compactions: readonly Compaction[] = []): Anthropic.Beta.BetaMessageParam[] {
+  const summary = onDemandSummary(messages, compactions);
+  if (summary) return [{ role: "assistant", content: [summary.block] }, ...messages.slice(summary.upto)];
+  return messages.slice(Math.max(0, thresholdSummaryAt(messages)));
+}
+
+/** The tokens the next request will carry: this one's input, read from the cache or not, and its reply. */
+function sizeOf(usage: Anthropic.Beta.BetaUsage): number {
+  return (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.output_tokens ?? 0);
+}
+
+/** A request Claude replied to, which a summary written in the background can stand in for. */
+export interface Asked {
+  project: Project;
+  /** The request as it was sent. */
+  body: Anthropic.Beta.MessageCreateParamsStreaming;
+  /** How many saved messages it carried, from the first. */
+  upto: number;
+  /** Which summary it was sent from, so a summary of it that lands after a newer one is dropped. */
+  base: string;
+  /** The tokens the request after it carries. */
+  size: number;
 }
 const NO_KEY = "Claude couldn't sign in. Put your Anthropic API key in .env as ANTHROPIC_API_KEY and restart the app.";
 
@@ -379,6 +445,8 @@ export class Turn {
   private readonly rounds: RoundTiming[] = [];
   /** Which rule picked the turn's starting level. */
   private route: Route | null = null;
+  /** The latest request a summary written in the background could stand in for. */
+  private asked: Asked | null = null;
 
   /** The level each request this turn was written at, one per reply, in order. */
   roundEfforts(): readonly Effort[] {
@@ -395,6 +463,8 @@ export class Turn {
     private retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
     /** Milliseconds, for timing the turn. Tests pass a fake. */
     private clock: () => number = () => performance.now(),
+    /** Writes summaries of a long chat in the background. Without it, only the API's own summary inside a request runs. */
+    private summaries?: Summaries,
   ) {}
 
   stop() {
@@ -493,7 +563,8 @@ export class Turn {
     // Timing and counts only, for seeing where a turn's time goes.
     const model = project.model ?? MODEL;
     let toolMs = 0;
-    const compactTrigger = compactAt();
+    // The size at which a single long turn is summarised while it runs.
+    const fallbackAt = compactAt();
     // Read once a turn, so a change to the workshop or the cache's lifetime
     // never splits the cache mid-turn.
     const workshop = this.store.workshop();
@@ -502,10 +573,17 @@ export class Turn {
     const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
-        const sent = sendable(project.messages);
+        const sent = sendable(project.messages, project.compactions);
+        // The API can't summarise at a threshold on a request that carries a
+        // summary written between turns, so that request sends no trigger.
+        const summarised = onDemandSummary(project.messages, project.compactions) !== null;
+        const compactTrigger = summarised ? null : fallbackAt;
+        // Where this request ends in the saved chat, and which summary it starts from.
+        const upto = project.messages.length;
+        const base = summaryBase(project.messages, project.compactions);
         // The level this request is written at, kept with its round.
-        const effort = effortInForce(project.messages);
-        const { message, timing } = await this.ask(project, {
+        const effort = effortInForce(project.messages, EFFORT, project.compactions);
+        const { message, timing, body } = await this.ask(project, {
           // Switching models mid-conversation is fine: other models skip the
           // earlier thinking blocks, and the history stays append-only.
           model: project.model ?? MODEL,
@@ -539,6 +617,7 @@ export class Turn {
             "server-side-fallback-2026-07-01",
             "thinking-binding-controls-2026-08-01",
             ...(compactTrigger ? ["compact-2026-01-12"] : []),
+            ...(summarised ? [ON_DEMAND_BETA] : []),
             // Sent whenever the chat holds an effort message, which stays
             // true after routing is turned off.
             ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
@@ -577,6 +656,15 @@ export class Turn {
         });
         project.messages.push({ role: "assistant", content: message.content as Anthropic.Beta.BetaContentBlockParam[] });
         project.save();
+        // A summary in the background covers exactly what a request carried,
+        // so the turns it keeps start with Claude's reply. The request has to
+        // end on the woodworker's side, and a request the API summarised
+        // inside is already small.
+        if (compacted) this.asked = null;
+        else if (sent.at(-1)?.role === "user") this.asked = { project, body, upto, base, size: sizeOf(message.usage) };
+        // One long turn on a chat the API can't summarise at a threshold gets
+        // its summary in the background, and carries on without waiting.
+        if (summarised) this.summaries?.start(this.client, this.asked, fallbackAt);
         if (compacted) {
           const item: ChatItem = { id: nextId("s"), kind: "summary", at: now() };
           project.addChat(item);
@@ -755,6 +843,9 @@ export class Turn {
       project.endChange();
       project.save();
       this.events.changed();
+      // A long chat is summarised in the background once the turn ends,
+      // ready for the next turn, which never waits for it.
+      this.summaries?.start(this.client, this.asked, compactIdleAt());
     }
   }
 
@@ -764,7 +855,7 @@ export class Turn {
    * reply to it is written at the new level. Nothing earlier changes.
    */
   private say(project: Project, content: Anthropic.Beta.BetaContentBlockParam[]) {
-    if (effortInForce(project.messages) !== this.effort) project.messages.push(effortMessage(this.effort));
+    if (effortInForce(project.messages, EFFORT, project.compactions) !== this.effort) project.messages.push(effortMessage(this.effort));
     project.messages.push({ role: "user", content });
   }
 
@@ -811,7 +902,7 @@ export class Turn {
   private async ask(
     project: Project,
     body: Anthropic.Beta.MessageCreateParamsStreaming,
-  ): Promise<{ message: Anthropic.Beta.BetaMessage; timing: Pick<RoundTiming, "ttft_ms" | "ms" | "retries"> }> {
+  ): Promise<{ message: Anthropic.Beta.BetaMessage; body: Anthropic.Beta.MessageCreateParamsStreaming; timing: Pick<RoundTiming, "ttft_ms" | "ms" | "retries"> }> {
     const first = this.clock();
     for (let attempt = 0; ; attempt++) {
       const live: { text?: ChatItem & { kind: "assistant" }; thinking?: ChatItem & { kind: "thinking" } } = {};
@@ -844,6 +935,7 @@ export class Turn {
         const ttft = firstEvent as number | null;
         return {
           message,
+          body,
           timing: {
             ttft_ms: ttft === null ? null : Math.round(ttft - sent),
             ms: Math.round(this.clock() - first),

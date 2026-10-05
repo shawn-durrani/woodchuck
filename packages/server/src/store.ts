@@ -1,6 +1,10 @@
 // Projects on disk. Each project folder holds the design, its undo history,
 // Claude's conversation and the chat log the app shows. Files are private
 // to your account: the data folder is 0700 and every file 0600.
+//
+// Claude's conversation only grows. A summary written between turns is kept
+// beside it in compactions.json, which only grows too, with the number of
+// messages it stands in for.
 
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -99,8 +103,12 @@ export type ChatItem =
        */
       efforts?: Effort[];
     }
-  /** The API summarised the older chat to keep Claude quick. */
-  | { id: string; kind: "summary"; at: string };
+  /**
+   * The older chat was summarised to keep Claude quick. A summary written
+   * between turns carries its own tokens and time. One the API wrote inside
+   * a turn's request has none here, since they're in that request's round.
+   */
+  | { id: string; kind: "summary"; at: string; input?: number; cached?: number; written?: number; output?: number; ms?: number };
 
 /** One request to Claude within a turn: its timing, tokens and tool calls. */
 export interface RoundTiming {
@@ -125,6 +133,19 @@ export interface RoundTiming {
   retries?: number;
   /** The API summarised the older chat on this request. */
   compacted?: true;
+}
+
+/**
+ * A summary of the chat that Claude wrote between turns, on request. It
+ * stands in for every message before `upto` in the saved conversation,
+ * which itself never changes.
+ */
+export interface Compaction {
+  /** The compaction block exactly as the API returned it, signature and all. */
+  block: Anthropic.Beta.BetaCompactionBlockParam;
+  /** The number of saved messages the summary covers, from the first. */
+  upto: number;
+  at: string;
 }
 
 export interface Pending {
@@ -205,6 +226,8 @@ export class Project {
   history: HistoryEntry[];
   redo: HistoryEntry[];
   messages: Anthropic.Beta.BetaMessageParam[];
+  /** Summaries written between turns, oldest first. Only the latest is sent. */
+  compactions: Compaction[];
   chat: ChatItem[];
   pending: Pending | null;
   /** What you changed since Claude's last turn, told to Claude next time. */
@@ -241,6 +264,7 @@ export class Project {
     this.history = h.undo;
     this.redo = h.redo;
     this.messages = readJson(path.join(dir, "messages.json"), []);
+    this.compactions = readJson<Compaction[]>(path.join(dir, "compactions.json"), []);
     this.chat = readJson(path.join(dir, "chat.json"), []);
     this.pending = readJson<Pending | null>(path.join(dir, "pending.json"), null);
     this.notes = readJson<string[]>(path.join(dir, "notes.json"), []);
@@ -257,6 +281,8 @@ export class Project {
     writePrivate(path.join(this.dir, "design.json"), JSON.stringify(this.design, null, 2));
     writePrivate(path.join(this.dir, "history.json"), JSON.stringify({ undo: this.history.slice(-100), redo: this.redo }));
     writePrivate(path.join(this.dir, "messages.json"), JSON.stringify(this.messages));
+    // Written once there's a summary from between turns, so a chat without one keeps the files it always had.
+    if (this.compactions.length) writePrivate(path.join(this.dir, "compactions.json"), JSON.stringify(this.compactions));
     writePrivate(path.join(this.dir, "chat.json"), JSON.stringify(this.chat));
     writePrivate(path.join(this.dir, "pending.json"), JSON.stringify(this.pending));
     writePrivate(path.join(this.dir, "notes.json"), JSON.stringify(this.notes));

@@ -136,12 +136,37 @@ next turn is told how far the last one got, so it can finish what was left.
 ## A long chat is summarised, and the whole of it stays searchable
 
 Rereading a long chat on every step slows Claude down. Once a chat passes
-a set size, the API summarises the older turns itself, and from then on
-only the summary and the newer turns are sent. The summary keeps what you
-want and what was decided. The design holds every size, so the summary
-leaves those out. The whole chat stays saved on disk, and Claude searches
-it with a recall tool when you refer back to something. The app never
-trims the chat itself, since that would break Claude's earlier reasoning.
+a set size, the API summarises the older turns inside a request, and from
+then on only the summary and the newer turns are sent. That step pauses
+while the summary is written.
+
+The summary keeps what you want and what was decided, with your answers
+to Claude's questions and plans and every size you asked for. The design
+holds the rest of its numbers, so the summary leaves those out.
+
+Summaries between turns are a setting, and they're off until you turn
+them on. Once a turn ends with the chat past a set size, Woodchuck asks
+the API to summarise it in the background. The summary stands in for the
+messages Claude's last request carried. The next turn sends it in their
+place, then Claude's reply and anything said since. No turn waits for it.
+A turn that starts while it's being written runs on the whole chat, and
+the summary goes in at that turn's next step. None starts while Claude
+waits on your answer or a message waits to be read. A summary that fails
+is logged and skipped. The next try waits until the chat has grown or an
+hour has passed.
+
+With them on, the API's own summary is a fallback for a single long turn,
+at a higher size. Once the chat holds a summary from between turns, the
+API can't summarise it inside a request. Woodchuck then asks for one in
+the background the same way, between two steps, and that stays true for
+that chat if you turn the setting off.
+
+The whole chat stays saved on disk, and Claude searches it with a recall
+tool when you refer back to something. Each summary from between turns is
+saved beside the chat with the number of messages it stands in for, so
+the saved chat only grows. The app never trims the chat itself, since that would break
+Claude's earlier reasoning. The API accepts the reasoning in the turns
+after a summary it wrote, so those turns keep theirs.
 
 ## The prompt cache outlasts a pause
 
