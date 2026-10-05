@@ -23,7 +23,7 @@
 // its level with an effort message in the chat, only when the level changes.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { ViewName } from "@woodchuck/core";
+import { AXIS_INDEX, derive, FACE_AXIS, segmentDistance, type Axis, type AxisSpec, type Bound, type DeriveResult, type Design, type Face, type PanelCut, type ProfileCut, type Pt, type ViewName } from "@woodchuck/core";
 import { cacheControl, cacheTtl, systemPrompt } from "./prompt.js";
 import type { ChatItem, Compaction, Job, Pending, Pin, Project, Refused, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
@@ -341,10 +341,97 @@ export interface TurnInput {
 
 const fmtMm = (v: number) => String(Math.round(v * 10) / 10);
 
-/** The pins as Claude reads them. */
-export function describePins(pins: Pin[]): string {
+/** How near a cut's edge, in mm, a pin counts as on it. A pin sits on what was clicked, so this only absorbs rounding. */
+const PIN_ON_MM = 0.5;
+
+const CUT_EDGE_WORDS: Record<ProfileCut["kind"], string> = { slope: "sloped edge", chamfer: "cut-off corner", notch: "edge of the notch", hole: "wall of the hole" };
+
+/**
+ * The cut a pin sits on, in a few words, or "" when it's on wood no cut
+ * touched. A pin on a hole's wall names the hole's cut. A pin on the
+ * outline names each cut whose edge it's on, worked out from the cut's own
+ * numbers: an edge cut's line, a rect's sides or a circle's rim.
+ */
+export function pinnedCut(design: Design, d: DeriveResult, pin: Pin): string {
+  const part = d.byId.get(pin.part);
+  const pr = part?.profile;
+  const face = pin.face as Face;
+  if (!part || !pr || !(face in FACE_AXIS) || FACE_AXIS[face] === part.thickness_axis) return "";
+  const iu = AXIS_INDEX[pr.u];
+  const iv = AXIS_INDEX[pr.v];
+  const q: Pt = [pin.point_mm[iu] - part.nominal.min[iu], pin.point_mm[iv] - part.nominal.min[iv]];
+  const onLoop = (loop: Pt[]) => loop.some((a, i) => segmentDistance(q, q, a, loop[(i + 1) % loop.length]!) <= PIN_ON_MM);
+  const hole = pr.holes.find((h) => onLoop(h.points_mm));
+  if (hole) {
+    const ids = hole.id.split("+");
+    return `on the wall of the hole from cut${ids.length > 1 ? "s" : ""} ${ids.join(" and ")}`;
+  }
+  if (!onLoop(pr.outline_mm)) return "";
+  // A copy shares its original's shape, so each cut is measured from the original's corner.
+  const origin = (d.byId.get(part.source) ?? part).nominal.min;
+  const local = (a: Axis, world: number) => world - origin[AXIS_INDEX[a]];
+  const num = (src: string) => Number(d.evaluate(src).value);
+  const val = (b: Bound) => ("at" in b ? num(b.at) : num(b.face) + (b.offset ? num(b.offset) : 0));
+  const span = (s: AxisSpec | undefined): [number, number] | null => {
+    if (!s) return null;
+    const lo = s.start ? val(s.start) : val(s.end!) - num(s.size!);
+    const hi = s.end ? val(s.end) : lo + num(s.size!);
+    return [lo, hi];
+  };
+  const on = (c: PanelCut): boolean => {
+    if (c.kind === "edge") {
+      const e = FACE_AXIS[c.edge];
+      const r = e === pr.u ? pr.v : pr.u;
+      const [ie, ir] = e === pr.u ? [0, 1] : [1, 0];
+      const p0: Pt = [0, 0];
+      const p1: Pt = [0, 0];
+      p0[ie] = local(e, val(c.start));
+      p1[ie] = local(e, val(c.end));
+      p0[ir] = c.start_along ? local(r, val(c.start_along)) : 0;
+      p1[ir] = c.end_along ? local(r, val(c.end_along)) : part.nominal.max[AXIS_INDEX[r]] - part.nominal.min[AXIS_INDEX[r]];
+      const dx = p1[0] - p0[0];
+      const dy = p1[1] - p0[1];
+      const l = Math.hypot(dx, dy);
+      return l > 0 && Math.abs(dx * (q[1] - p0[1]) - dy * (q[0] - p0[0])) / l <= PIN_ON_MM;
+    }
+    if (c.shape === "circle") {
+      const cu = c.centre?.[pr.u];
+      const cv = c.centre?.[pr.v];
+      if (!cu || !cv || !c.diameter) return false;
+      return Math.abs(Math.hypot(q[0] - local(pr.u, val(cu)), q[1] - local(pr.v, val(cv))) - num(c.diameter) / 2) <= PIN_ON_MM;
+    }
+    const su = span(c[pr.u]);
+    const sv = span(c[pr.v]);
+    if (!su || !sv) return false;
+    const [u0, u1] = su.map((w) => local(pr.u, w));
+    const [v0, v1] = sv.map((w) => local(pr.v, w));
+    const within = (x: number, lo: number, hi: number, pad: number) => x >= Math.min(lo, hi) - pad && x <= Math.max(lo, hi) + pad;
+    const inside = within(q[0], u0!, u1!, PIN_ON_MM) && within(q[1], v0!, v1!, PIN_ON_MM);
+    const deep = within(q[0], u0!, u1!, -PIN_ON_MM) && within(q[1], v0!, v1!, -PIN_ON_MM);
+    return inside && !deep;
+  };
+  const cuts = design.parts.find((p) => p.id === part.source)?.cuts ?? [];
+  const hits = pr.cuts.flatMap((made) => {
+    const c = cuts.find((x) => x.id === made.id);
+    try {
+      if (!c || !on(c)) return [];
+    } catch {
+      return [];
+    }
+    const words = made.kind === "slope" && (made.angle_deg ?? 0) < 0.05 ? "trimmed edge" : CUT_EDGE_WORDS[made.kind];
+    return [`the ${words} from cut ${made.id}`];
+  });
+  return hits.length ? `on ${hits.join(" and ")}` : "";
+}
+
+/** The pins as Claude reads them. A pin on an edge or a hole a cut made names that cut. */
+export function describePins(pins: Pin[], design?: Design): string {
+  const d = design ? derive(design) : null;
   return pins
-    .map((p) => `pin ${p.n} on ${p.part}, ${p.face} face, at x ${fmtMm(p.point_mm[0])}, y ${fmtMm(p.point_mm[1])}, z ${fmtMm(p.point_mm[2])} mm`)
+    .map((p) => {
+      const cut = d && design ? pinnedCut(design, d, p) : "";
+      return `pin ${p.n} on ${p.part}, ${p.face} face, at x ${fmtMm(p.point_mm[0])}, y ${fmtMm(p.point_mm[1])}, z ${fmtMm(p.point_mm[2])} mm${cut ? `, ${cut}` : ""}`;
+    })
     .join("; ");
 }
 
@@ -446,9 +533,9 @@ function pictures(input: TurnInput): Anthropic.Beta.BetaContentBlockParam[] {
 }
 
 /** What the woodworker pointed at with a message: the selection, the pins and their view. */
-function pointedAt(input: TurnInput): string {
+function pointedAt(input: TurnInput, design: Design): string {
   const sel = input.selection.length ? `\n\n(Selected in the app: ${input.selection.join(", ")})` : "";
-  const pins = input.pins?.length ? `\n\n(Pinned in the app: ${describePins(input.pins)}.)` : "";
+  const pins = input.pins?.length ? `\n\n(Pinned in the app: ${describePins(input.pins, design)}.)` : "";
   const view = input.view
     ? "\n\n(The last picture is the woodworker's view of the model right now. Selected parts are blue and pins are numbered red dots.)"
     : "";
@@ -664,7 +751,7 @@ export class Turn {
     const late = queued.length ? `\n\n(The woodworker sent this while you were still working.${answering})` : "";
     // Pictures go before the words that refer to them.
     content.push(...pictures(input));
-    content.push({ type: "text", text: `${input.text}${pointedAt(input)}${late}${notes}${news}` });
+    content.push({ type: "text", text: `${input.text}${pointedAt(input, project.design)}${late}${notes}${news}` });
     this.say(project, content);
     project.save();
 
@@ -1028,7 +1115,7 @@ export class Turn {
       out.push(...pictures(input));
       out.push({
         type: "text",
-        text: `(While you were working, the woodworker said: "${input.text}" Take it in from here. If it changes your plan, say so in a line.)${pointedAt(input)}`,
+        text: `(While you were working, the woodworker said: "${input.text}" Take it in from here. If it changes your plan, say so in a line.)${pointedAt(input, project.design)}`,
       });
     }
     if (project.notes.length) {

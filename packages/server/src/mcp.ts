@@ -17,7 +17,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   applyOp,
+  AXIS_FACES,
   derive,
+  FACE_AXIS,
   finishLabel,
   fmt,
   JOINT_TYPES,
@@ -29,6 +31,7 @@ import {
   refsOf,
   runChecks,
   speciesOf,
+  type DerivedPart,
   type Design,
   type JointType,
   type Op,
@@ -120,13 +123,50 @@ const UNIT_WORDS: Record<ParamUnit, string> = {
   none: "a plain number",
 };
 
+/** The most a part's shape takes on its line in woodchuck_design. */
+const SHAPE_CHARS = 100;
+
+const CUT_NOUNS = { chamfer: ["corner cut off", "corners cut off"], hole: ["hole", "holes"], notch: ["notch", "notches"] } as const;
+
+/**
+ * A shaped part's cuts in a few words: each slope with its two ends and its
+ * angle, then a count of corners cut off, holes and notches. "" for a part
+ * its cuts haven't shaped.
+ */
+export function shapeWords(p: Pick<DerivedPart, "source" | "profile">, design: Design): string {
+  const pr = p.profile;
+  if (!pr) return "";
+  const own = design.parts.find((x) => x.id === p.source)?.cuts ?? [];
+  const mm = (n: number | undefined) => fmt(Math.round((n ?? 0) * 10) / 10);
+  const out: string[] = [];
+  const counts = { chamfer: 0, hole: 0, notch: 0 };
+  for (const c of pr.cuts) {
+    if (c.kind !== "slope") {
+      counts[c.kind]++;
+      continue;
+    }
+    const cut = own.find((x) => x.id === c.id);
+    const edge = cut?.kind === "edge" ? cut.edge : null;
+    const run = edge ? (FACE_AXIS[edge] === pr.u ? pr.v : pr.u) : null;
+    const angle = Math.round((c.angle_deg ?? 0) * 10) / 10;
+    const [from, to] = run ? AXIS_FACES[run] : ["start", "end"];
+    out.push(
+      angle === 0
+        ? `${edge ?? "an edge"} cut down to ${mm(c.start_mm)}`
+        : `${edge ?? "an edge"} sloped from ${mm(c.start_mm)} at the ${from} to ${mm(c.end_mm)} at the ${to}, ${fmt(angle)}°`,
+    );
+  }
+  for (const k of ["chamfer", "hole", "notch"] as const) if (counts[k]) out.push(`${counts[k]} ${CUT_NOUNS[k][counts[k] === 1 ? 0 : 1]}`);
+  return clip(out.join(", "), SHAPE_CHARS);
+}
+
 /** How long each list in woodchuck_design runs before "and N more". */
 const DESIGN_LIMITS = { params: 20, materials: 10, parts: 24, problems: 8 };
 
 /**
  * The open design in compact lines for another model: parameters, materials,
- * parts with their sizes, the overall size and the problems. Copies in an
- * array fold into one line, and every list stops at a cap.
+ * parts with their sizes and shapes, the overall size and the problems.
+ * Copies in an array fold into one line, and every list stops at a cap.
  */
 export function designText(s: AppState): string {
   const design = s.design;
@@ -162,8 +202,9 @@ export function designText(s: AppState): string {
     const groups = new Map<string, { id: string; name: string; count: number; size: string; what: string }>();
     for (const p of d.parts) {
       const size = p.broken ? "can't be worked out" : [p.finished.length, p.finished.width, p.finished.thickness].map((n) => fmt(Math.round(n * 10) / 10)).join(" × ");
-      const what = p.unverified ? "a stand-in not checked yet" : `${p.material}${p.decor ? ", decor" : ""}`;
-      const key = `${p.source}|${size}`;
+      const shape = shapeWords(p, design);
+      const what = p.unverified ? "a stand-in not checked yet" : `${p.material}${p.decor ? ", decor" : ""}${shape ? `, ${shape}` : ""}`;
+      const key = `${p.source}|${size}|${shape}`;
       const g = groups.get(key);
       if (g) g.count++;
       else groups.set(key, { id: p.source, name: p.name, count: 1, size, what });
@@ -697,7 +738,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Read the Woodchuck design",
       description:
-        "Read the open Woodchuck design at once, in short lines: its parameters with their values and formulas, its materials, its parts with their sizes in mm, its overall size, its problems, and whether Woodchuck's Claude is busy or waiting for an answer. Call it before woodchuck_set_param to find the parameter that holds a size, and when the woodworker asks about sizes. It never changes anything.",
+        "Read the open Woodchuck design at once, in short lines: its parameters with their values and formulas, its materials, its parts with their sizes in mm and any slopes, holes or notches, its overall size, its problems, and whether Woodchuck's Claude is busy or waiting for an answer. Call it before woodchuck_set_param to find the parameter that holds a size, and when the woodworker asks about sizes. It never changes anything.",
       inputSchema: {},
     },
     async () => {

@@ -121,6 +121,18 @@ block held to the agreed shape. The size tool is held to one undo step
 mid-build, to refusing a name or formula that doesn't work, and to waiting
 for a yes on a big change. Its reply has to name each new problem.
 
+### Claude's cut tools
+
+Claude's cut tools are tested on an invented drawer whose sides slope from
+a tall back to a low front. Each tool is held to the shape it leaves, to
+the words of each refusal and to undoing with the turn. A list of edits
+builds a sloped side and a holed back, and a refused cut stops it with the
+edits before it kept. A suggested slope waits for Apply, and an edit's
+result names a part whose shape alone changed. A pin on the slope or on a
+hole's wall names its cut, and another chat reads each part's shape. A
+scripted Claude slopes the sides and measures the room under a rail with
+`gap_y`, and the checks find nothing wrong.
+
 ### Summaries of a long chat
 
 The summary tests use a scripted Claude that answers requests for a
@@ -213,7 +225,9 @@ shortcuts stay quiet in fields, and the model frames itself again only
 when it should.
 
 The follow tests hold where each of Claude's tools shows on screen, and
-fail when one of Claude's tools has no place named. They hold that the
+fail when one of Claude's tools has no place named. A cut opens Edit on
+the part it shapes, and the camera frames a part whose shape alone
+changed, with its array's copies. They hold that the
 screen follows Claude tab by tab and gives each tab its time, and that
 any touch stops it for the rest of the turn and keeps the tab you chose.
 They also hold the order Show me how plays a turn in, and each step's

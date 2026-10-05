@@ -40,7 +40,7 @@ after changing the server, since it reads the tools when it starts.
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
 | `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview on the model, a worked joint in the drawer, and a render to the downloads. A highlight opens the Edit tab. |
 | `woodchuck_status` | Sums up the design: its problems, timber and finishes. |
-| `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm, overall size and problems. |
+| `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
 
 ## Changing a size straight away
@@ -76,6 +76,11 @@ materials, each part's size and the overall size. It also lists the
 problems and says whether Woodchuck's Claude is busy. Copies in an array
 share one line, such as `false_front ×5`, and each list stops at a cap
 with how many more there are.
+
+A part with cuts has its shape on its line too. A slope gives its two ends
+and its angle, such as `top sloped from 150 at the back to 80 at the
+front, 10.4°`. Holes, notches and corners cut off are counted, such as
+`2 holes, 1 notch`.
 
 ## Turning the model while you talk
 

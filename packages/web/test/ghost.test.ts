@@ -163,6 +163,17 @@ describe("a change to a part's shape", () => {
     expect(ghost.marks).toEqual([]);
   });
 
+  it("draws a sloped or cut-off edge Claude suggests on the part itself", () => {
+    const corner: Op = { op: "set_edge_cut", id: "seat", cut: "corner", edge: "front", start: { face: "seat.front", offset: "-30" }, end: { face: "seat.front" }, end_along: { at: "30" } };
+    const cut = fits(previewChange(lowShelf, [corner]));
+    expect(cut.changed).toEqual(["seat"]);
+    const ghost = ghostOf(lowShelf.derived.parts, cut.after.parts);
+    expect(ghost.parts.map((p) => p.id)).toEqual(["seat"]);
+    expect(ghost.parts[0]!.profile!.cuts.map((c) => c.kind)).toEqual(["chamfer"]);
+    expect(ghost.parts[0]!.profile!.outline_mm).toHaveLength(5);
+    expect(ghost.marks).toEqual([]);
+  });
+
   it("notices a hole moving, and a shape taken off", () => {
     const holed = stateOf(bench([grip("500")]));
     expect(fits(previewChange(holed, [grip("520")])).changed).toEqual(["seat"]);

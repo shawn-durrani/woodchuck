@@ -43,6 +43,10 @@ const rows: Row[] = [
   ["Build me a bookcase for Sam", {}, "high", "build"],
   ["Remove the middle partition", {}, "high", "build"],
   ["Find a soft-close hinge from AcmeCo", {}, "high", "judgement"],
+  ["Slope the drawer sides down to the front", {}, "high", "judgement"],
+  ["Make the side 40 mm taller and chamfer the top corner", {}, "high", "judgement"],
+  ["Cut a 35 mm hole in the back for cables", {}, "high", "judgement"],
+  ["Notch the sides for a toe kick", {}, "high", "judgement"],
   ["Read https://example.com/console", {}, "high", "build"],
   ["Split the top into two boards", {}, "high", "build"],
   // Colour and finish tries.
@@ -90,7 +94,7 @@ describe("the level a turn gets", () => {
 });
 
 describe("the tools that need judgement", () => {
-  it.each(["list_joints", "show_joint", "add_joint", "set_hardware", "propose_library_part", "request_tool", "ask_user", "submit_plan", "preview_change", "web_search", "web_fetch"])(
+  it.each(["list_joints", "show_joint", "add_joint", "set_hardware", "set_edge_cut", "set_cutout", "delete_cut", "propose_library_part", "request_tool", "ask_user", "submit_plan", "preview_change", "web_search", "web_fetch"])(
     "%s raises the level",
     (name) => {
       expect(needsJudgement(["set_finish", name])).toBe(true);

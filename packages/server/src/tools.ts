@@ -15,7 +15,9 @@ import {
   PART_KINDS,
   explain,
   explainPart,
+  FACES,
   measure,
+  shapeSig,
   OpError,
   applyOps,
   diffDesigns,
@@ -29,6 +31,7 @@ import {
   VIEW_NAMES,
   type CheckReport,
   type DeriveResult,
+  type DerivedPart,
   type Design,
   type Op,
   type JointType,
@@ -85,6 +88,42 @@ const panelProps: Record<string, Schema> = {
   decor: { type: "boolean", description: "A prop for presentation, left off the cut list" },
   note: { type: "string" },
 };
+
+/** A bound with words of its own, for a cut's points. */
+const at = (description: string): Schema => ({ ...bound, description: `${description}: {"at": expression} or {"face": "part.face", "offset": expression}. The part's own faces work too` });
+
+/** A cutout's span on one of the panel's face axes. */
+const cutSpan = (axis: string): Schema => ({
+  type: "object",
+  description: `A rect's span on ${axis}, like a part's own: exactly two of start, end and size. Give only the panel's two face axes, never its thickness axis`,
+  properties: { start: bound, end: bound, size: expr("Size along this axis in mm") },
+  additionalProperties: false,
+});
+
+/** Which panel and which of its cuts, for the three cut tools. */
+const cutIds: Record<string, Schema> = {
+  id: { type: "string", description: "The panel to cut. Name the original part: an array's copies repeat its cuts" },
+  cut: { type: "string", description: "Lowercase id for the cut, such as slope or cable_hole. Unique on its panel; the same id again replaces that cut" },
+};
+
+const EDGE_CUT_HELP =
+  `Slope, taper or chamfer an edge of a panel: cut it straight from one point to another, and the wood on the edge's side of that line comes off. ` +
+  `edge is the side it takes wood from, such as top. start and end are where the new edge sits on that edge's axis at the two ends of the run, and the run is the panel's other face axis, from its left, bottom or back end to its right, top or front end. ` +
+  `The two points sit at the panel's own ends unless start_along or end_along moves them along the run, and the line runs on past them, so two points near a corner cut that corner off. ` +
+  `Example, a drawer side whose top slopes from the back's top at the back to the front's top at the front: {"id": "side_l", "cut": "slope", "edge": "top", "start": {"face": "back.top"}, "end": {"face": "front.top"}}. ` +
+  `There the side's thickness runs along x, so the run is z and start is at the back, and the slope follows the back and the front when they change. ` +
+  `Example, a 30 mm chamfer off the same side's top front corner: {"id": "side_l", "cut": "corner", "edge": "top", "start": {"face": "side_l.top"}, "start_along": {"face": "side_l.front", "offset": "-30"}, "end": {"face": "side_l.top", "offset": "-30"}}. ` +
+  `The box stays the blank you cut from: sizes, and faces such as side_l.top, still mean the blank, so side_l.top is the slope's highest point. ` +
+  `Joints sit on uncut wood, so keep the edges a joint uses square. To check clearance under a rail, use gap_y(rail, side_l) in a rule, which measures to the slope itself. ` +
+  `A cut on an array's original repeats on every copy. The cut list, the drawings and every picture show the shape.`;
+
+const CUTOUT_HELP =
+  `Cut a hole, a slot or a notch right through a panel. A circle takes centre and diameter. ` +
+  `A rect takes a span on each of the panel's two face axes, like a part's own axis, and an optional corner radius; a slot is a rect whose radius is half its shorter side. ` +
+  `A rect that reaches the panel's outline makes a notch, such as a toe kick out of a side's bottom front corner. Positions can use the part's own faces. ` +
+  `Example, a 35 mm cable hole in a back whose thickness runs along z: {"id": "back", "cut": "cable", "shape": "circle", "centre": {"x": {"at": "300"}, "y": {"face": "back.top", "offset": "-80"}}, "diameter": "35"}. ` +
+  `Example, a toe kick in a side whose thickness runs along x: {"id": "side_l", "cut": "kick", "shape": "rect", "y": {"start": {"face": "side_l.bottom"}, "size": "kick_height"}, "z": {"end": {"face": "side_l.front"}, "size": "kick_depth"}}. ` +
+  `The box stays the blank you cut from, and joints need uncut wood where their parts meet. A cut on an array's original repeats on every copy.`;
 
 function obj(properties: Record<string, Schema>, required: string[]): Anthropic.Beta.BetaTool.InputSchema {
   return { type: "object", properties, required, additionalProperties: false } as Anthropic.Beta.BetaTool.InputSchema;
@@ -188,18 +227,64 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "add_panel",
-    description: "Add a rectangular part: a panel, board, shelf, side, drawer part and so on. Position it against other parts' faces where you can, so it follows them when they change.",
+    description:
+      "Add a part as the box of its blank: a panel, board, shelf, side, drawer part and so on. Position it against other parts' faces where you can, so it follows them when they change. " +
+      "To shape it, such as a sloped edge, a hole or a notch, add cuts with set_edge_cut and set_cutout once it's there.",
     input_schema: obj(panelProps, ["id", "name", "material", "thickness_axis", "grain_axis", "x", "y", "z"]),
   },
   {
     name: "update_panel",
-    description: "Change an existing part. Give only the fields to change; an axis you give replaces that axis's whole spec.",
+    description: "Change an existing part's blank. Give only the fields to change; an axis you give replaces that axis's whole spec. Its cuts stay, and follow the faces they name.",
     input_schema: obj(panelProps, ["id"]),
   },
   {
     name: "delete_part",
     description: "Delete a part. Its joints go with it. Fails while other parts or expressions still refer to it.",
     input_schema: obj({ id: { type: "string" } }, ["id"]),
+  },
+  {
+    name: "set_edge_cut",
+    description: EDGE_CUT_HELP,
+    input_schema: obj(
+      {
+        ...cutIds,
+        edge: { type: "string", enum: [...FACES], description: "The edge the cut takes wood from. One of the panel's four edges, never a broad face on its thickness axis" },
+        start: at("Where the new edge sits on the edge's axis at the start of the run, the panel's left, bottom or back end"),
+        end: at("Where the new edge sits on the edge's axis at the end of the run, the panel's right, top or front end"),
+        start_along: at("Optional: where along the run the line's start point sits, when it isn't the panel's own start"),
+        end_along: at("Optional: where along the run the line's end point sits, when it isn't the panel's own end"),
+        note: { type: "string", description: "Why this cut, in a few words" },
+      },
+      ["id", "cut", "edge", "start", "end"],
+    ),
+  },
+  {
+    name: "set_cutout",
+    description: CUTOUT_HELP,
+    input_schema: obj(
+      {
+        ...cutIds,
+        shape: { type: "string", enum: ["rect", "circle"] },
+        x: cutSpan("x (left to right)"),
+        y: cutSpan("y (floor upwards)"),
+        z: cutSpan("z (back to front)"),
+        radius: expr("A rect's corner radius in mm. Half its shorter side makes a slot with round ends"),
+        centre: {
+          type: "object",
+          description: "A circle's centre, on the panel's two face axes",
+          properties: { x: at("The centre on x"), y: at("The centre on y"), z: at("The centre on z") },
+          additionalProperties: false,
+        },
+        diameter: expr("A circle's diameter in mm"),
+        note: { type: "string", description: "What it's for, in a few words" },
+      },
+      ["id", "cut", "shape"],
+    ),
+  },
+  {
+    name: "delete_cut",
+    description: "Take a cut off a panel, so its blank is whole there again. get_design lists each panel's cuts by id.",
+    input_schema: obj(cutIds, ["id", "cut"]),
   },
   {
     name: "add_joint",
@@ -530,6 +615,9 @@ export const EDIT_TOOLS = new Set([
   "add_panel",
   "update_panel",
   "delete_part",
+  "set_edge_cut",
+  "set_cutout",
+  "delete_cut",
   "add_joint",
   "delete_joint",
   "set_array",
@@ -599,16 +687,24 @@ function compactIssues(report: CheckReport, limit = 12) {
 
 /** What an edit changed, in the measurements Claude needs to check it. */
 export function changeSummary(before: DeriveResult, beforeReport: CheckReport, after: DeriveResult, afterReport: CheckReport) {
-  const sig = (p: { box: { min: number[]; max: number[] } }) => [...p.box.min, ...p.box.max].map((v) => Math.round(v * 100)).join(",");
+  // A part changes when its box moves or its cuts leave another shape, even with the box where it was.
+  const sig = (p: DerivedPart) => [...p.box.min, ...p.box.max].map((v) => Math.round(v * 100)).join(",") + (p.profile ? `|${shapeSig(p)}` : "");
   const beforeSig = new Map(before.parts.map((p) => [p.id, sig(p)]));
+  const beforeShape = new Map(before.parts.map((p) => [p.id, shapeSig(p)]));
   const afterIds = new Set(after.parts.map((p) => p.id));
   const added: string[] = [];
-  const moved: ReturnType<typeof summarisePart>[] = [];
+  const moved: DerivedPart[] = [];
   for (const p of after.parts) {
     const old = beforeSig.get(p.id);
     if (old === undefined) added.push(p.id);
-    if (old !== sig(p)) moved.push(summarisePart(p));
+    if (old !== sig(p)) moved.push(p);
   }
+  // A shaped part's cuts in workshop words, with each cut's id: its end heights and angle, or a hole's size and place.
+  const shape = (p: DerivedPart) => {
+    if (p.profile) return { shape: p.profile.cuts.map((c) => `${c.id}: ${c.text}`) };
+    const was = beforeShape.get(p.id);
+    return was ? { shape: ["no cuts: the whole blank"] } : {};
+  };
   const removed = before.parts.filter((p) => !afterIds.has(p.id)).map((p) => p.id);
   const oldKeys = new Set(beforeReport.issues.map((i) => i.key));
   const newKeys = new Set(afterReport.issues.map((i) => i.key));
@@ -616,7 +712,10 @@ export function changeSummary(before: DeriveResult, beforeReport: CheckReport, a
     ok: true,
     added,
     removed,
-    sizes: moved.slice(0, 20).map((p) => ({ id: p.id, cut_mm: p.cut_mm, from_mm: p.position_mm.min, to_mm: p.position_mm.max })),
+    sizes: moved.slice(0, 20).map((p) => {
+      const s = summarisePart(p);
+      return { id: s.id, cut_mm: s.cut_mm, from_mm: s.position_mm.min, to_mm: s.position_mm.max, ...shape(p) };
+    }),
     ...(moved.length > 20 ? { more_changed: moved.length - 20 } : {}),
     problems: {
       errors: afterReport.errors,
@@ -708,11 +807,12 @@ export function parseEdits(raw: unknown, library: LibraryAccess, field: string, 
   });
 }
 
-/** An edit in a few words, such as "add_panel left_side". */
+/** An edit in a few words, such as "add_panel left_side", or "set_edge_cut side_l slope" for a cut. */
 function editName(op: Op): string {
   const o = op as Record<string, unknown>;
   const id = o.id ?? o.name ?? (Array.isArray(o.targets) ? o.targets.join(", ") : "");
-  return `${op.op}${id ? ` ${String(id)}` : ""}`;
+  const cut = typeof o.cut === "string" && o.cut ? ` ${o.cut}` : "";
+  return `${op.op}${id ? ` ${String(id)}` : ""}${cut}`;
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

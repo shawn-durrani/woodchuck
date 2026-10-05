@@ -37,7 +37,7 @@ describe("closing the loop on missing tools", () => {
     await new Turn(store, client, { chat() {}, delta() {}, changed() {} }, () => Buffer.from("png")).run({ text: "Carry on", selection: [] });
     const text = (client.sent[0]!.messages.at(-1)!.content as unknown as { text: string }[]).at(-1)!.text;
     expect(text).toBe(
-      "Carry on\n\n(News since your last turn: the scarf_joint tool you asked for (tr_1) has been built and merged (PR #21). Once Woodchuck is updated it's among your tools, so use it then to finish what you couldn't before.)",
+      "Carry on\n\n(News since your last turn: the scarf_joint tool you asked for (tr_1) has been built and merged (PR #21). Once Woodchuck is updated it's among your tools, though it may go by another name, so find it there and use it to finish what you couldn't before.)",
     );
   });
 

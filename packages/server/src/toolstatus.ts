@@ -69,7 +69,7 @@ function tellDesigns(store: Store, r: StoredToolRequest, pr?: { number: number; 
     const item: ChatItem = { id: `b${Date.now().toString(36)}${r.id}`, kind: "tool_built", request: r.id, at: now(), ...(pr ? { pr_url: pr.url } : {}) };
     project.addChat(item);
     project.news.push(
-      `the ${r.name} tool you asked for (${r.id}) has been built and merged${pr ? ` (PR #${pr.number})` : ""}. Once Woodchuck is updated it's among your tools, so use it then to finish what you couldn't before`,
+      `the ${r.name} tool you asked for (${r.id}) has been built and merged${pr ? ` (PR #${pr.number})` : ""}. Once Woodchuck is updated it's among your tools, though it may go by another name, so find it there and use it to finish what you couldn't before`,
     );
     project.save();
   }
