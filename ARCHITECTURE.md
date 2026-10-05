@@ -124,7 +124,20 @@ hole's centre or corner in the sheet's own along and up. A part turned over
 for its machining turns its shape over too. The cutting layout still places
 the blanks, and draws each part's outline inside its own.
 
-Claude's tools don't make cuts yet.
+## Claude cuts a part with its own tools
+
+Claude slopes, tapers or chamfers an edge with `set_edge_cut`. It cuts a
+hole, a slot or a notch with `set_cutout`, and takes a cut off with
+`delete_cut`. Each one checks its input through the same operations as
+any other edit, so a list of edits or a suggested change can carry cuts
+too. Claude's instructions say that a face still means the blank, that
+joints sit on uncut wood, and that a slope is a cut. Stepped boxes and
+stand-ins never make one.
+
+An edit's result gives each shaped part's cuts in workshop words, such as
+a slope's two ends and its angle. A pin the woodworker puts on a cut edge
+or a hole's wall names that cut. An arched edge or a pocket that stops
+short still needs a tool Claude asks for.
 
 ## The checks see the wood a cut leaves
 

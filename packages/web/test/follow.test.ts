@@ -169,6 +169,38 @@ describe("where each tool shows", () => {
     expect(moved).toContain("seat");
     expect(moved).not.toContain("shelf_slat");
   });
+
+  // Issue #3: Claude cuts a part's shape, and the screen follows the part it cut.
+  const corner: Op = { op: "set_edge_cut", id: "seat", cut: "corner", edge: "front", start: { face: "seat.front", offset: "-30" }, end: { face: "seat.front" }, end_along: { at: "30" } };
+  const notch: Op = { op: "set_cutout", id: "shelf_slat", cut: "finger", shape: "circle", centre: { x: { face: "shelf_slat.left", offset: "30" }, z: { face: "shelf_slat.front" } }, diameter: "25" };
+
+  it("opens Edit on the part a cut shapes, and frames its copies too", () => {
+    for (const t of ["set_edge_cut", "set_cutout", "delete_cut"]) expect(PLACES[t]).toBe("part");
+    expect(placeOf(line("set_edge_cut", "set edge cut seat"))).toEqual({ tool: "set_edge_cut", area: "part", id: "seat" });
+    expect(describePlace(place("set_edge_cut", "set edge cut seat"), look)).toEqual({
+      caption: "Claude cut an edge of Seat in Edit",
+      words: "Cut an edge of Seat",
+      marks: ["tab:edit", "part"],
+      pick: ["seat"],
+      frame: ["seat"],
+    });
+    const cutout = describePlace(place("set_cutout", "set cutout shelf_slat"), look);
+    expect(cutout).toMatchObject({ caption: "Claude made a cutout in Shelf slat in Edit", pick: ["shelf_slat"] });
+    expect(cutout.frame).toEqual(["shelf_slat", "shelf_slat#2", "shelf_slat#3", "shelf_slat#4"]);
+    expect(describePlace(place("delete_cut", "delete cut seat"), look).caption).toBe("Claude removed a cut from Seat in Edit");
+    expect(placeOf(line("set_cutout", "set cutout seat: seat cut grip goes right through seat", true))).toBeNull();
+  });
+
+  it("tells a part whose shape alone changed, so the camera frames it", () => {
+    const cornered = derive(applyOps(design, [corner]));
+    expect(cornered.byId.get("seat")!.nominal).toEqual(state.derived.parts.find((p) => p.id === "seat")!.nominal);
+    expect(movedParts(state.derived.parts, cornered.parts)).toEqual(["seat"]);
+    // A cut on an array's original shapes every copy.
+    expect(movedParts(state.derived.parts, derive(applyOps(design, [notch])).parts)).toEqual(["shelf_slat", "shelf_slat#2", "shelf_slat#3", "shelf_slat#4"]);
+    // Taking the cut off is a change too, and the same shape again isn't.
+    expect(movedParts(cornered.parts, state.derived.parts)).toEqual(["seat"]);
+    expect(movedParts(cornered.parts, derive(applyOps(design, [corner])).parts)).toEqual([]);
+  });
 });
 
 describe("following tab by tab", () => {

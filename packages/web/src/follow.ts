@@ -6,7 +6,7 @@
 // result shows by itself, such as the ghost of a suggested change, has no
 // place to go. Kept free of React so the tests can hold it.
 
-import { finishLabel, paramShortLabel, type DerivedPart, type Design } from "@woodchuck/core";
+import { finishLabel, paramShortLabel, shapeSig, type DerivedPart, type Design } from "@woodchuck/core";
 import { partNamer } from "./names";
 import type { MakeView, Tab } from "./tabs";
 
@@ -49,6 +49,9 @@ export const PLACES: Record<string, Where> = {
   add_panel: "part",
   update_panel: "part",
   delete_part: "part",
+  set_edge_cut: "part",
+  set_cutout: "part",
+  delete_cut: "part",
   add_joint: "part",
   delete_joint: "part",
   set_array: "part",
@@ -325,6 +328,15 @@ export function describe(place: Place, look: Lookup): Described {
       verb = "removed";
       thing = part(id);
       break;
+    case "set_edge_cut":
+    case "set_cutout":
+    case "delete_cut": {
+      // A cut on an original shapes its copies too, so the camera frames them all.
+      verb = place.tool === "set_edge_cut" ? "cut an edge of" : place.tool === "set_cutout" ? "made a cutout in" : "removed a cut from";
+      thing = partHere();
+      frame = look.parts.filter((p) => p.source === id).map((p) => p.id);
+      break;
+    }
     case "add_joint":
     case "delete_joint": {
       const j = find("joints", (x) => x.id === id);
@@ -429,9 +441,9 @@ export function markSelector(mark: string): string {
 
 const quote = (s: string) => s.replace(/["\\]/g, "\\$&");
 
-/** Parts that moved, grew or came new between two looks at the design, as the glow tells them. */
-export function movedParts(before: Pick<DerivedPart, "id" | "nominal">[], after: Pick<DerivedPart, "id" | "nominal">[]): string[] {
-  const sig = (p: Pick<DerivedPart, "nominal">) => [...p.nominal.min, ...p.nominal.max].map((v) => Math.round(v * 10)).join(",");
+/** Parts that moved, grew, came new or took another shape between two looks at the design, as the glow tells them. */
+export function movedParts(before: Pick<DerivedPart, "id" | "nominal" | "profile">[], after: Pick<DerivedPart, "id" | "nominal" | "profile">[]): string[] {
+  const sig = (p: Pick<DerivedPart, "nominal" | "profile">) => [...p.nominal.min, ...p.nominal.max].map((v) => Math.round(v * 10)).join(",") + (p.profile ? `|${shapeSig(p)}` : "");
   const was = new Map(before.map((p) => [p.id, sig(p)]));
   return after.filter((p) => was.get(p.id) !== sig(p)).map((p) => p.id);
 }
