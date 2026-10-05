@@ -103,6 +103,14 @@ shape. A housing joint goes into its host only along the stretches of the
 end that no cut has touched. A cut that misses the wood is a warning, and
 one that splits a part in two is an error.
 
+You make and change cuts by hand in the Shape section of a panel's Edit
+tab. Each Add button starts a cut the part can take, such as a slope down
+to two thirds of its height, so there's something to see at once. A cut's
+fields read like a part's own sizes, as a number, a sum or a face. While
+you type, the window works the change out and draws it on the model as a
+ghost, with the cut's new words or the reason it's refused. Leaving the
+field makes it through the same operations as Claude's, as one undo step.
+
 A circle becomes a polygon with its corners on the true curve, never more
 than 0.005 mm inside it. That leaves a shade more wood than the real part
 has, so a check errs towards finding an overlap. Straight edges are exact.

@@ -2415,6 +2415,153 @@ a.primary-link:hover {
   }
 }
 
+/* The Shape section: a panel's cuts in the Edit tab, each in workshop
+   words with its problems, and an editor with the part's face drawn small.
+   The face drawing scales with its box, so its words are sized in its own
+   units. */
+.shape-section {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.shape-section > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.shape-title {
+  font-weight: 600;
+}
+.shape-why {
+  margin: 2px 0 8px;
+}
+.panel-body ul.cut-rows,
+.cut-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cut-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0;
+  background: var(--wc-card);
+}
+.cut-row.editing {
+  border-color: var(--on-line);
+}
+.cut-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.cut-name {
+  flex: 1;
+  min-width: 0;
+}
+.cut-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.cut-note {
+  margin-top: 2px;
+}
+.cut-editor {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.cut-editor-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+.face-drawing {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  max-height: 170px;
+  height: auto;
+}
+.fd-blank {
+  fill: none;
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+.fd-wood {
+  fill: var(--wc-part);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.fd-hole {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+}
+.fd-edge {
+  stroke: none;
+}
+.fd-edge.on {
+  stroke: var(--blue);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.fd-label,
+.fd-end-text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.fd-label.on {
+  fill: var(--blue);
+  font-weight: 600;
+}
+.fd-end {
+  fill: var(--blue);
+}
+.fd-end-text {
+  fill: var(--ink);
+}
+.cut-group {
+  margin-top: 6px;
+}
+.axis-fields.fields-1 {
+  grid-template-columns: 1fr;
+}
+.axis-fields.fields-2 {
+  grid-template-columns: 1fr 1fr;
+}
+.cut-more > summary {
+  cursor: pointer;
+  margin-top: 6px;
+  color: var(--link);
+}
+.cut-readout {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+.shape-add,
+.hole-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.shape-add {
+  margin: 8px 0 4px;
+}
+.hole-shapes {
+  display: inline-flex;
+  gap: 6px;
+}
+/* A shaped part's notes on the cut list, under its name. */
+.shape-note {
+  font-weight: 400;
+}
+
 /* Phone layout: the same screen, rearranged below 640 px. The model fills
    the screen under a slim header, and the toolbar folds into four buttons
    that ride on the bottom sheet's top edge. The sheet is the chat column:
@@ -3121,6 +3268,55 @@ a.primary-link:hover {
   }
   .app.phone table.cut td:nth-child(7) {
     white-space: normal;
+  }
+
+  /* The Shape section: the face drawn small over the fields, and each row's buttons and the four edges side by side across the sheet. */
+  .app.phone .shape-section > summary {
+    font-size: 15px;
+  }
+  .app.phone .edge-pick {
+    width: 100%;
+  }
+  .app.phone .cut-actions,
+  .app.phone .edge-pick .seg {
+    display: flex;
+    width: 100%;
+  }
+  .app.phone .cut-actions button,
+  .app.phone .edge-pick .seg button,
+  .app.phone .shape-add > button {
+    flex: 1;
+  }
+  /* The hole's shapes: the question and Cancel on one line, the three shapes across the next. */
+  .app.phone .hole-pick {
+    width: 100%;
+  }
+  .app.phone .hole-pick > .muted {
+    order: -2;
+    flex: 1;
+  }
+  .app.phone .hole-pick > .link {
+    order: -1;
+  }
+  .app.phone .hole-shapes {
+    display: flex;
+    width: 100%;
+  }
+  .app.phone .hole-shapes button {
+    flex: 1;
+  }
+  .app.phone .face-drawing {
+    max-width: 100%;
+    max-height: 140px;
+    margin: 0 auto;
+  }
+  /* A pair of boxes, such as a slope's two ends, takes a line each, so a face and its offset read whole. */
+  .app.phone .cut-group .axis-fields.fields-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app.phone .fd-label,
+  .app.phone .fd-end-text {
+    font-size: 12px;
   }
 
   /* Check, History, Finish and the All designs and parts page, at a finger's size. */

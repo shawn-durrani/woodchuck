@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Issue, JointType, Rule, Severity } from "@woodchuck/core";
 import { applyOps, post, type ServerState } from "../api";
 import { fixesFor, problemWords } from "../checkFixes";
+import type { PreviewResult } from "../ghost";
 import { historyRows, type HistoryRow } from "../historyList";
 import { partNamer } from "../names";
 import { savedNote } from "../signals";
@@ -46,11 +47,14 @@ export function EditTab({
   selection,
   onSelect,
   onShowJoint,
+  onDraft,
 }: {
   state: ServerState;
   selection: string[];
   onSelect: (ids: string[]) => void;
   onShowJoint: (type: JointType) => void;
+  /** Hears a change to a cut while you type it, so the model can draw it as a ghost. */
+  onDraft?: (r: PreviewResult | null) => void;
 }) {
   const picked = selection.length > 0;
   return (
@@ -63,6 +67,8 @@ export function EditTab({
           selection={selection}
           onShowJoint={onShowJoint}
           onSelect={onSelect}
+          now={state}
+          onDraft={onDraft}
         />
       )}
       <div className={`section-head${picked ? " under-part" : ""}`}>

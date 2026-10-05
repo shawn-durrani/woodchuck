@@ -1,17 +1,17 @@
 // The selected part: its sizes, how each one is worked out, and fields to
-// change where it starts, ends or how big it is.
+// change where it starts, ends or how big it is. A panel's Shape section
+// below them holds its cuts.
 //
 // A bound is typed as an expression ("450"), or as a face starting with @
 // ("@left_side.right + 2").
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   fmt,
   JOINT_LIBRARY,
   machiningText,
   type Axis,
   type AxisSpec,
-  type Bound,
   type DerivedJoint,
   type DerivedPart,
   type Design,
@@ -19,64 +19,14 @@ import {
   type Panel,
 } from "@woodchuck/core";
 import { applyOps } from "../api";
+import { boundText, parseBound } from "../bounds";
+import type { PreviewResult } from "../ghost";
 import { editAllLabel, partNamer, plural } from "../names";
+import { Field } from "./Field";
+import { ShapeSection, type Now } from "./ShapeSection";
 
 const AXES: Axis[] = ["x", "y", "z"];
 const AXIS_LABEL: Record<Axis, string> = { x: "x (left → right)", y: "y (floor ↑)", z: "z (back → front)" };
-
-export function boundText(b: Bound | undefined): string {
-  if (!b) return "";
-  if ("at" in b) return b.at;
-  if (!b.offset) return `@${b.face}`;
-  const o = b.offset.trim();
-  return o.startsWith("-") ? `@${b.face} - ${o.slice(1).trim()}` : `@${b.face} + ${o}`;
-}
-
-export function parseBound(text: string): Bound | undefined {
-  const t = text.trim();
-  if (!t) return undefined;
-  if (!t.startsWith("@")) return { at: t };
-  const m = /^@([a-z][a-z0-9_]*(?:#\d+)?\.[a-z]+)\s*(?:([+-])\s*(.+))?$/i.exec(t);
-  if (!m) return { face: t.slice(1) };
-  const [, face, sign, rest] = m;
-  if (!sign || !rest) return { face: face! };
-  return { face: face!, offset: sign === "-" ? (/^[\d.]+$/.test(rest) ? `-${rest}` : `-(${rest})`) : rest };
-}
-
-/** A field that saves when you leave it. A value the design refuses goes back to the one in force. */
-function Field({
-  value,
-  onSave,
-  placeholder,
-  disabled,
-  invalid,
-}: {
-  value: string;
-  onSave: (v: string) => Promise<boolean>;
-  placeholder?: string;
-  disabled?: boolean;
-  invalid?: boolean;
-}) {
-  const [v, setV] = useState(value);
-  useEffect(() => setV(value), [value]);
-  return (
-    <input
-      className="expr"
-      value={v}
-      disabled={disabled}
-      placeholder={placeholder}
-      aria-invalid={invalid || undefined}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={async () => {
-        if (v !== value && !(await onSave(v))) setV(value);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        if (e.key === "Escape") setV(value);
-      }}
-    />
-  );
-}
 
 export function Inspector({
   design,
@@ -85,6 +35,8 @@ export function Inspector({
   selection,
   onShowJoint,
   onSelect,
+  now,
+  onDraft,
 }: {
   design: Design;
   parts: DerivedPart[];
@@ -94,6 +46,10 @@ export function Inspector({
   onShowJoint: (type: JointType) => void;
   /** Picks other parts, such as an array's original to edit every copy. */
   onSelect: (ids: string[]) => void;
+  /** The design with its parts and checks, which a change to a cut is worked out against. */
+  now?: Now;
+  /** Hears a change to a cut while you type it, so the model can draw it. */
+  onDraft?: (r: PreviewResult | null) => void;
 }) {
   /** The last refused change, on the part and field that made it, such as "x.end" or "delete". */
   const [error, setError] = useState<{ part: string; field: string; text: string } | null>(null);
@@ -253,6 +209,7 @@ export function Inspector({
         )}
       </div>
       {errorAt("delete")}
+      {panel && now && <ShapeSection key={panel.id} now={now} part={d} panel={panel} canEdit={canEdit} why={why} onDraft={onDraft} />}
       {d.extensions.length > 0 && (
         <>
           <div className="card-sub">Joinery adds</div>

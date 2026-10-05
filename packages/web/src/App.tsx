@@ -26,7 +26,7 @@ import { isFace } from "./select";
 import { PreviewDrawer, type Drawer } from "./components/PreviewDrawer";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { NO_SLOTS, openSlot, type Slots } from "./waiting";
-import { ghostShown, hideGhost, livePreview, modelView, previewChange, seeIt, showGhost, type GhostPref, type Side } from "./ghost";
+import { draftView, ghostShown, hideGhost, livePreview, modelView, previewChange, seeIt, showGhost, type GhostPref, type PreviewResult, type Side } from "./ghost";
 import { ALL_SECTIONS, PILL_TAB, readMake, readTab, routeView, tabAfterPick, waitingIn, type MakeView, type Section, type Tab } from "./tabs";
 import { boxOf } from "./checkFixes";
 import { partNamer } from "./names";
@@ -223,6 +223,8 @@ export function App() {
   const [allPage, setAllPage] = useState<{ section: Section | null } | null>(null);
   /** How you've left the ghost of the change Claude is waiting on. */
   const [ghostPref, setGhostPref] = useState<GhostPref | null>(null);
+  /** A change you're typing in the Edit tab, such as a cut's new end, drawn as a ghost until you make it or put it back. */
+  const [draft, setDraft] = useState<PreviewResult | null>(null);
   /** A few parts Show me framed, once per key. */
   const [frame, setFrame] = useState<{ box: Box; key: number } | null>(null);
   /** Words for the chat box, such as Check's request to fix a problem, once per n. */
@@ -481,10 +483,11 @@ export function App() {
   const shown = ghostShown(liveId, ghostPref);
   const fits = preview && !("error" in preview) ? preview : null;
   const names = useMemo(() => partNamer(state?.derived.parts ?? []), [state?.derived.parts]);
+  // A change you're typing takes the model's ghost while you type it.
   const drawn = useMemo(
-    () => (state ? modelView(state, fits, shown?.side ?? null, names) : null),
+    () => (state ? (draft ? draftView(state, draft, names) : modelView(state, fits, shown?.side ?? null, names)) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state?.design, state?.derived, fits, shown?.side, names],
+    [state?.design, state?.derived, fits, shown?.side, names, draft],
   );
 
   useEffect(() => {
@@ -1043,7 +1046,7 @@ export function App() {
               );
             })()}
           </div>
-          {live && mode === "3d" && (
+          {live && mode === "3d" && !draft && (
             <GhostSwitch
               title={live.title}
               side={shown?.side ?? "now"}
@@ -1106,7 +1109,9 @@ export function App() {
           report={state.report}
         />
         <FollowCaption view={follow.view} />
-        {tab === "edit" && <EditTab state={state} selection={selection} onSelect={select} onShowJoint={(type) => openDrawer({ kind: "example", joint: type })} />}
+        {tab === "edit" && (
+          <EditTab state={state} selection={selection} onSelect={select} onShowJoint={(type) => openDrawer({ kind: "example", joint: type })} onDraft={setDraft} />
+        )}
         {tab === "finish" && (
           <FinishPanel
             state={state}

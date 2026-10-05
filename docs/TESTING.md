@@ -227,6 +227,19 @@ select by touch is held to its two fingers and its taps. The stylesheet
 is checked for controls under 44 px and fields under 16 px, and the page
 for anything that blocks pinch zoom.
 
+### Cuts made by hand
+
+The Shape section's tests run on an invented hall cabinet. Each Add button
+is held to the cut it starts with, such as a slope down to two thirds of a
+side's height, a 35 mm hole in the middle of a back, or a toe kick notch at
+a side's bottom front. The operation a cut's fields make is held to its
+numbers, sums and faces, and the fields a cut shows have to make the same
+cut again. While you type, the section has to show the design's own words
+for the cut, the reason it refuses a change, or the cut's problems. The
+change's ghost has to fall on the part it shapes. The editor's drawing of
+the face is held to the edge it lights and the wood left at each end of a
+slope, and the cut list to each shaped row's notes.
+
 ## The acceptance test: the record console
 
 The record console is a long, low cabinet for vinyl records, and every

@@ -254,6 +254,15 @@ export interface ModelView {
   outline: string[];
 }
 
+/**
+ * What the main model draws while you type a change in the Edit tab, such
+ * as a cut's new end: the design as it is, with the change as a ghost over
+ * it. It goes once the change is made or put back.
+ */
+export function draftView(now: Pick<ServerState, "design" | "derived">, draft: PreviewResult, names?: (id: string) => string): ModelView {
+  return { ...modelView(now, null, null), ghost: ghostOf(now.derived.parts, draft.after.parts, names) };
+}
+
 export function modelView(now: Pick<ServerState, "design" | "derived">, result: PreviewResult | null, side: Side | null, names?: (id: string) => string): ModelView {
   const plain: ModelView = { design: now.design, parts: now.derived.parts, joints: now.derived.joints, hardware: now.derived.hardware, ghost: null, outline: [] };
   if (!result || !side) return plain;
