@@ -247,6 +247,49 @@ describe("a reply with many tool calls", () => {
     expect(SYSTEM_PROMPT).toContain("Put independent edits together in one reply.");
   });
 
+  // A new prompt, tool list or workshop changes what earlier thinking was
+  // tied to. The API drops that thinking only for a request that asks.
+  it("asks the API to drop stale thinking on every request, so an open chat carries on", async () => {
+    const base = scripted([[ply], [{ type: "text", text: "Done." }]]);
+    let n = 0;
+    const client: MessagesClient = {
+      stream(body) {
+        const s = base.stream(body);
+        const first = n++ === 0;
+        return {
+          on: (event, cb) => s.on(event, cb),
+          abort: () => s.abort(),
+          finalMessage: async () => {
+            const m = await s.finalMessage();
+            const dropped = [
+              { type: "thinking_dropped", path: "messages.1.content.0", reason: "prefix_binding_mismatch" },
+              { type: "thinking_dropped", path: "messages.3.content.0", reason: "model_binding_mismatch" },
+              { type: "a_later_kind", reason: "prefix_binding_mismatch" },
+            ];
+            return { ...m, input_transformations: first ? dropped : dropped.slice(1) } as Anthropic.Beta.BetaMessage;
+          },
+        };
+      },
+    };
+    const logged: unknown[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => void logged.push(args);
+    try {
+      await turn(client).run({ text: "Build a small carcass", selection: [] });
+    } finally {
+      console.log = log;
+    }
+    expect(base.sent).toHaveLength(2);
+    for (const sent of base.sent) {
+      const body = sent as unknown as { thinking: Record<string, unknown>; betas: string[] };
+      expect(body.thinking).toEqual({ type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } });
+      expect(body.betas).toContain("thinking-binding-controls-2026-08-01");
+    }
+    // One line for the turn, and none for thinking from another model.
+    expect(logged).toHaveLength(1);
+    expect(JSON.stringify(logged)).toMatch(/left it out/);
+  });
+
   it("runs every call in order, carries on past a failed one, and undoes as one change", async () => {
     const client = scripted([
       [

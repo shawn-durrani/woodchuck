@@ -11,6 +11,9 @@
 // the model's thinking blocks are only valid against the exact history they
 // came from. A long chat is summarised by the API itself (compaction), which
 // doesn't count as an edit, and only the summary onwards is sent after that.
+// Claude's instructions, its tools and your workshop count as history too,
+// so a deploy or a workshop change would otherwise refuse an open chat.
+// Every request asks the API to drop the thinking that no longer fits.
 // The whole chat stays on disk, and recall_chat searches it.
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -275,6 +278,16 @@ function inCallOrder(messages: Anthropic.Beta.BetaMessageParam[], results: Anthr
   return [...results].sort((a, b) => at(a) - at(b));
 }
 
+/**
+ * Whether the API left out thinking from earlier in the chat because the
+ * instructions, tools or workshop changed since. Other kinds of entry, such
+ * as thinking from another model, are ignored.
+ */
+export function droppedStaleThinking(message: Anthropic.Beta.BetaMessage): boolean {
+  const changes = (message as { input_transformations?: { type?: unknown; reason?: unknown }[] }).input_transformations;
+  return Array.isArray(changes) && changes.some((c) => c?.type === "thinking_dropped" && c.reason === "prefix_binding_mismatch");
+}
+
 function toolSummary(name: string, input: Record<string, unknown>): string {
   const id = input.id ?? input.name ?? input.target ?? "";
   switch (name) {
@@ -298,6 +311,8 @@ export class Turn {
   private wake: (() => void) | null = null;
   /** Tool calls this turn, for saying how far it got. */
   private steps = 0;
+  /** Whether this turn has logged thinking the API left out. */
+  private droppedThinking = false;
 
   constructor(
     private store: Store,
@@ -404,7 +419,11 @@ export class Turn {
           system,
           tools,
           messages: sendable(project.messages),
-          thinking: { type: "adaptive", display: "summarized" },
+          // Each thinking block is tied to the instructions, tools and chat
+          // it came from. A changed prompt, tool list or workshop would
+          // otherwise refuse an open chat, so the API drops the thinking
+          // that no longer fits instead, on every request that carries it.
+          thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
           output_config: { effort: EFFORT },
           cache_control: { type: "ephemeral" },
           ...(compactTrigger
@@ -416,9 +435,13 @@ export class Turn {
             : {}),
           // If a safety check declines the request, the API retries it on
           // a fallback model instead of stopping.
-          betas: ["server-side-fallback-2026-07-01", ...(compactTrigger ? ["compact-2026-01-12"] : [])],
+          betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01", ...(compactTrigger ? ["compact-2026-01-12"] : [])],
           fallbacks: "default",
         } as Anthropic.Beta.MessageCreateParamsStreaming);
+        if (!this.droppedThinking && droppedStaleThinking(message)) {
+          this.droppedThinking = true;
+          console.log("Claude's earlier thinking no longer matched its instructions, tools or workshop, so the API left it out.");
+        }
         // The summary's own cost is reported apart from the reply's.
         const parts = [message.usage, ...(message.usage.iterations ?? []).filter((i) => i.type === "compaction")];
         for (const u of parts) {

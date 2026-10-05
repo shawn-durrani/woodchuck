@@ -47,7 +47,9 @@ back fixed replies, so the turn loop, previews, questions and tool requests
 run for real without a key. One scripted reply can carry many tool calls.
 The tests hold those calls to running in order, each with its result, and
 to one undo step for all of them. A failed call leaves the rest running, and
-only one question, plan, part or preview can wait at a time. Stand-ins also
+only one question, plan, part or preview can wait at a time. Every request
+asks the API to drop earlier thinking that a changed prompt, tool list or
+workshop doesn't match. Stand-ins also
 take the place of OpenAI, GitHub, Tailscale and the picture camera, which
 is why a test can't send anything anywhere. A software passkey signs the
 passkey tests, so the whole sign-in runs without a browser. Any test that

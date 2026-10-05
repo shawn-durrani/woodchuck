@@ -92,7 +92,10 @@ set of its own. Claude's work before it and after it are two more, so Undo
 takes them back one at a time. Each change set is also a commit in a git
 history of the designs on this computer, so the History tab can show what changed
 and restore any version. The chat's history only grows, which keeps
-Claude's earlier reasoning valid.
+Claude's earlier reasoning valid. A new version of Claude's instructions
+or tools, or a change to your workshop, still leaves an open chat working.
+The API drops the earlier reasoning that doesn't match, and Claude
+carries on without it.
 
 ## You can talk and edit while Claude works
 
