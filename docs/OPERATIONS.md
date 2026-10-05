@@ -107,7 +107,8 @@ curl -s http://127.0.0.1:8905/api/busy
 ```
 
 It answers `{"busy":true,"reasons":["claude_turn"]}` while Claude is
-working, and `{"busy":false,"reasons":[]}` once it's free. The health
+working, and `{"busy":false,"reasons":[]}` once it's free. The reason
+`backup` shows for the few seconds a snapshot takes to write. The health
 route, `/api/health`, answers `{"ok":true,...}` as soon as the server is
 up. Both still answer from this computer while Funnel is on and Woodchuck
 serves nothing else.
@@ -148,9 +149,86 @@ recovery secret, so keep it to yourself.
 
 Each design is a folder under `data/projects`, with its design, chat,
 pictures and settings. Every change set is also a commit in a git
-repository at `data/projects/.git`, which the History tab reads. Back up
-`data/` to keep everything, and pick Download in the design menu, on the
-design's name, to share one.
+repository at `data/projects/.git`, which the History tab reads. Woodchuck
+backs all of it up by itself, as [Backups](#backups) explains. To share one
+design, pick Download in the design menu, on the design's name.
+
+## Backups
+
+Woodchuck takes a snapshot of the data folder each time it starts, before
+it touches anything. After that it takes one every six hours by the clock.
+Time the computer spends asleep counts. The timer checks every five
+minutes, so a snapshot that fell due during sleep lands soon after it
+wakes. [CONFIG.md](CONFIG.md#backups) has the settings for how often, how
+many to keep and a mirror folder.
+
+Each snapshot is one compressed file in `data/backups`, such as
+`woodchuck-20261005-031500-3f9a1c2b7d4e.tar.gz`. The time in its name is
+UTC, and the letters after it are a fingerprint of what's inside. A
+snapshot the same as the newest one isn't kept, so a run of quick
+restarts never pushes the older ones out. The newest 14 stay, and the
+oldest go first. The health route, `/api/health`, reports when the newest
+was taken as `last_backup_at`.
+
+A snapshot holds everything Woodchuck needs to start again. That's every
+design with its chat, pictures and version history, your workshop, tool
+requests, approved parts waiting to merge and the owner lock's password
+and passkeys. It leaves out the backups themselves, the service log and
+any half-written temporary file. The log can hold the recovery secret.
+Sign-ins are left out too, so after a restore every browser on your
+tailnet signs in again. A sign-in you ended after the snapshot never comes
+back that way.
+
+Snapshots and their folder are private to your account, the same as the
+data folder. A failed snapshot is logged, and Woodchuck carries on.
+
+### A mirror folder
+
+A snapshot in `data/backups` is lost along with the computer. Set
+`WOODCHUCK_BACKUP_MIRROR_DIR` to a folder that a sync service copies
+elsewhere, such as one in iCloud Drive, and each finished snapshot is
+copied there too. Give it a folder of its own. Woodchuck makes it private
+to your account and keeps the newest 7 there.
+
+Only finished snapshots reach the mirror. A sync service that watches
+files while they're being written can trip over them, so the live data
+folder never goes there. If the mirror can't be reached, the snapshot in
+`data/backups` stands and the log says why. The next snapshot tries the
+mirror again.
+
+### Restoring a backup
+
+Pick the snapshot to go back to from `data/backups`, or from the mirror,
+then follow these steps from the app's folder.
+
+1. Stop Woodchuck. Press Ctrl-C if you started it by hand. With the macOS
+   agent, run `launchctl bootout gui/$(id -u)/dev.woodchuck.server`.
+2. Move the data folder aside, so nothing is lost if you change your mind.
+
+   ```bash
+   mv data data-before-restore
+   ```
+
+3. Make an empty data folder, private to you, and unpack the snapshot
+   into it.
+
+   ```bash
+   mkdir -m 700 data
+   tar -xzf data-before-restore/backups/woodchuck-20261005-031500-3f9a1c2b7d4e.tar.gz -C data
+   ```
+
+4. Move the backups back, so the older snapshots stay with the app.
+
+   ```bash
+   mv data-before-restore/backups data/
+   ```
+
+5. Start Woodchuck again with `./start.sh`, or with
+   `service/install-service.sh` for the macOS agent.
+
+Unpacking over the data folder you have works too. It keeps anything made
+since the snapshot, such as a newer design, beside what it brings back.
+Once you're happy with the restore, delete `data-before-restore`.
 
 ## Approved parts
 

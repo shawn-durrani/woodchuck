@@ -33,6 +33,7 @@ import {
   type ViewName,
 } from "@woodchuck/core";
 import { defaultClient, followUp, hasCredentials, isModel, MODEL, MODELS, Turn, userLine, type AttachmentType, type ImageType, type MessagesClient, type TurnInput } from "./agent.js";
+import { BACKUP_DEFAULTS, Backups, readBackupSettings, type BackupSettings } from "./backup.js";
 import { ghCli, GITHUB_OFF, parseRepo, repoFromEnv, type GitHub } from "./github.js";
 import { PartsLibrary, searchParts } from "./library.js";
 import { ghIssueLookup, syncToolRequests, type IssueLookup } from "./toolstatus.js";
@@ -123,7 +124,13 @@ export function createApp(opts: {
   funnel?: { status: ServeStatus; everyS: number };
   /** The built web app. Tests pass their own. */
   webDist?: string;
+  /** How often to back up the data folder, how many to keep, and the mirror folder. The defaults without it. */
+  backup?: BackupSettings;
 }) {
+  // The startup snapshot reads the data folder before anything else touches it.
+  const backups = new Backups(opts.dataDir, opts.backup ?? BACKUP_DEFAULTS);
+  void backups.snapshot();
+  backups.start();
   const store = new Store(opts.dataDir);
   const webDist = opts.webDist ?? WEB_DIST;
   const fence = opts.fence ?? makeFence([]);
@@ -319,10 +326,19 @@ export function createApp(opts: {
         case "GET /api/state":
           return json(200, snapshot());
         case "GET /api/health":
-          return json(200, { ok: true, busy: turn !== null, app: "woodchuck", browser_origin: ownOrigin });
-        // The restart gate: a script that restarts the app waits while Claude is mid-turn.
-        case "GET /api/busy":
-          return json(200, { busy: turn !== null, reasons: turn ? ["claude_turn"] : [] });
+          return json(200, {
+            ok: true,
+            busy: turn !== null,
+            app: "woodchuck",
+            browser_origin: ownOrigin,
+            last_backup_at: backups.lastAt(),
+            backups_kept: backups.list().length,
+          });
+        // The restart gate: a script that restarts the app waits while Claude is mid-turn or a backup is being written.
+        case "GET /api/busy": {
+          const reasons = [...(backups.busy ? ["backup"] : []), ...(turn ? ["claude_turn"] : [])];
+          return json(200, { busy: reasons.length > 0, reasons });
+        }
         // How Claude's current or last request is going, at once, for other apps to watch.
         case "GET /api/progress": {
           const p = store.project;
@@ -908,11 +924,13 @@ export function createApp(opts: {
       turn?.stop();
       for (const ws of sockets) ws.terminate();
       wss.close();
-      server.close(() => resolve());
+      // A snapshot being written finishes first, so nothing is left half done.
+      const stopped = backups.stop();
+      server.close(() => void stopped.then(() => resolve()));
       server.closeAllConnections();
     });
 
-  return { server, store, snapshot, close, lock, checkFunnel };
+  return { server, store, snapshot, close, lock, checkFunnel, backups };
 }
 
 class TooLarge extends Error {}
@@ -1039,6 +1057,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const bin = everyS > 0 ? findTailscale(PATH, process.env.WOODCHUCK_TAILSCALE_BIN) : null;
   const { server, lock } = createApp({
     dataDir: DATA,
+    backup: readBackupSettings(
+      {
+        intervalHours: process.env.WOODCHUCK_BACKUP_INTERVAL_HOURS,
+        keep: process.env.WOODCHUCK_BACKUP_KEEP,
+        mirrorDir: process.env.WOODCHUCK_BACKUP_MIRROR_DIR,
+        mirrorKeep: process.env.WOODCHUCK_BACKUP_MIRROR_KEEP,
+      },
+      ROOT,
+    ),
     fence,
     browserOrigin: origin,
     ...(process.env.WOODCHUCK_RECOVERY_SECRET ? { recoverySecret: process.env.WOODCHUCK_RECOVERY_SECRET } : {}),
