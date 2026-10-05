@@ -18,6 +18,7 @@ import { useScene, type SceneColours } from "../theme";
 import { FinishedLights, type Lighting } from "./Lights";
 import type { Ghost, MoveMark, Vec } from "../ghost";
 import { faceOfHit, faceSheetGeometry, shapeGeometry, type Shaped } from "../shapeMesh";
+import { drawAsFloor, FLOOR_GRID, GRID_RENDER_ORDER } from "../floorGrid";
 
 /** Plain colours for editing, or the timber and its finish. */
 export type Look = "plain" | "finished";
@@ -553,6 +554,15 @@ function JointDetail({
   );
 }
 
+/** The plain look's floor grid, drawn first so every part draws over it from any angle, as floorGrid.ts sets it up. */
+function FloorGrid({ scene }: { scene: SceneColours }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useLayoutEffect(() => {
+    if (ref.current) drawAsFloor(ref.current.material as THREE.Material);
+  }, []);
+  return <Grid ref={ref} {...FLOOR_GRID} cellColor={scene.cell} sectionColor={scene.section} renderOrder={GRID_RENDER_ORDER} />;
+}
+
 /** Sets the colour response: true-to-colour for the finished look, the usual film look otherwise. */
 function ToneMap({ look }: { look: Look }) {
   const gl = useThree((s) => s.gl);
@@ -958,16 +968,7 @@ export function Viewport({
           <ambientLight intensity={0.85} />
           <directionalLight position={[3000, 5000, 4000]} intensity={1.6} />
           <directionalLight position={[-3000, 2000, -2000]} intensity={0.5} />
-          <Grid
-            args={[20000, 20000]}
-            cellSize={100}
-            sectionSize={1000}
-            cellColor={scene.cell}
-            sectionColor={scene.section}
-            fadeDistance={12000}
-            infiniteGrid
-            position={[0, -0.5, 0]}
-          />
+          <FloorGrid scene={scene} />
         </>
       )}
       {live.map((p) => (
