@@ -2,9 +2,9 @@
 // outside the window, such as from a Crossband chat. It changes only the
 // view, never the design: the 3D or plan views, the look, lighting and
 // camera, see-through, the room photo, filling the window, which parts
-// are picked and what's open in the drawer. It can also ask the window to
-// save a picture of what it shows, or to keep turning the model slowly
-// until it's told to stop.
+// are picked, what's open in the drawer and which side panel tab is open.
+// It can also ask the window to save a picture of what it shows, or to keep
+// turning the model slowly until it's told to stop.
 
 import { JOINT_LIBRARY } from "./joints.js";
 import { JOINT_TYPES, type JointType } from "./types.js";
@@ -12,6 +12,16 @@ import { JOINT_TYPES, type JointType } from "./types.js";
 export const LOOKS = ["plain", "finished"] as const;
 export const LIGHTINGS_ALLOWED = ["daylight", "evening", "workshop"] as const;
 export const CAMERA_VIEWS = ["iso", "front", "top", "left", "right", "back"] as const;
+
+/**
+ * The side panel's five tabs, by the names on screen. Edit holds the picked
+ * part and the design's sizes, Finish the timber and colours, Make the
+ * drawings, cut list and cut layout, Check the problems, and History every
+ * change and version.
+ */
+export const SIDE_TABS = ["edit", "finish", "make", "check", "history"] as const;
+export type SideTab = (typeof SIDE_TABS)[number];
+const TAB_LABELS: Record<SideTab, string> = { edit: "Edit", finish: "Finish", make: "Make", check: "Check", history: "History" };
 
 /**
  * How fast an orbit turns the model, in degrees a second. The default is a
@@ -48,6 +58,8 @@ export interface ViewCommand {
   select?: string[];
   /** Open the waiting preview or a joint example in the drawer, or close it. */
   drawer?: "preview" | "close" | { joint: JointType };
+  /** Open this tab of the side panel, bringing the panel back if it's folded. */
+  tab?: SideTab;
   /** Who asked, for the note in the window, such as "Crossband". */
   from?: string;
   /** What to say in the window instead of describing the view change. */
@@ -115,10 +127,16 @@ export function readViewCommand(input: unknown): ViewCommand {
       c.drawer = { joint: (o.drawer as { joint: JointType }).joint };
     } else throw new Error(`drawer must be "preview", "close" or {"joint": one of ${JOINT_TYPES.join(", ")}}`);
   }
+  const tab = oneOf(o.tab, SIDE_TABS, "tab");
+  if (tab) {
+    // A tab shows in the side panel, which filling the window hides.
+    if (o.fill === true) throw new Error("tab opens the side panel, so it can't go with fill");
+    c.tab = tab;
+  }
   if (typeof o.from === "string" && o.from.trim()) c.from = o.from.trim().slice(0, 40);
   if (typeof o.note === "string" && o.note.trim()) c.note = o.note.trim().slice(0, 160);
   if (Object.keys(c).filter((k) => k !== "from").length === 0) {
-    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, photo, fill, select, drawer or render");
+    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, photo, fill, select, drawer, tab or render");
   }
   return c;
 }
@@ -145,6 +163,7 @@ export function describeView(c: ViewCommand): string {
   if (c.drawer === "preview") parts.push("the waiting preview open");
   else if (c.drawer === "close") parts.push("the drawer closed");
   else if (c.drawer) parts.push(`a worked ${JOINT_LIBRARY[c.drawer.joint].name.toLowerCase()} open`);
+  if (c.tab) parts.push(`the ${TAB_LABELS[c.tab]} tab open`);
   const said = parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
   if (c.render) return said ? `${said}, then a picture saved` : "a picture saved";
   return said;

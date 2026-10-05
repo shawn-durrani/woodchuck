@@ -30,6 +30,7 @@ import {
   PALETTES,
   refsOf,
   runChecks,
+  SIDE_TABS,
   speciesOf,
   type DerivedPart,
   type Design,
@@ -596,8 +597,9 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     "woodchuck_view",
     {
       title: "Change the Woodchuck window's view",
+      // Crossband cuts a description at 900 characters, so the detail is in the inputs.
       description:
-        "Change what the open Woodchuck window shows, so the woodworker can look at the design there. It can switch between the 3D view and the 2D plan views; set the Finished look with real timber and colours, or the Plain look; set the lighting; pick a camera view, turn the camera by degrees or zoom in and out; keep the camera turning slowly around the model until told to stop; bring the whole model into view; switch see-through on to show the joints; place the design in its room photo; fill the window; highlight parts; show the waiting preview on the model, or open a worked joint example beside it. With render it then saves a picture of what the window shows to the woodworker's downloads. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, for example \"turn it a bit to the left\", \"show me the plans\" or \"render that\". For a one-off turn, such as \"turn it a bit\", use turn_degrees. For a turn that keeps going, such as \"spin it slowly\", \"keep rotating\" or \"show it off while we talk\", use orbit \"start\", and orbit \"stop\" to hold it still again. An orbit keeps going while you change the look, lighting, zoom or fit, and stops by itself when the woodworker takes the camera, picks a camera view or opens the plan views.",
+        "Change what the open Woodchuck window shows. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, rather than asking Woodchuck's Claude. For the cut list or the cutting layout, such as \"show me the cut list\", open tab \"make\"; for problems, \"check\"; for colours, \"finish\"; for sizes or a picked part, \"edit\"; for past versions, \"history\". For a one-off turn, such as \"turn it a bit\", use turn_degrees. For a turn that keeps going, such as \"spin it slowly\", \"keep rotating\" or \"show it off while we talk\", use orbit \"start\", and orbit \"stop\" to hold it still. It can also show the 2D plan views, set the look, lighting and camera view, zoom, fit the model, turn see-through on, place the room photo, fill the window, highlight parts, show the waiting preview or a worked joint, and render a picture to the downloads.",
       inputSchema: {
         plan_views: z.boolean().optional().describe("true shows the 2D plan views (front, top, side and iso drawings); false goes back to the 3D view"),
         look: z.enum(["finished", "plain"]).optional(),
@@ -605,7 +607,12 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         view: z.enum(["iso", "front", "top", "left", "right", "back"]).optional(),
         fit: z.boolean().optional().describe("Bring the whole model back into view"),
         turn_degrees: z.number().min(-360).max(360).optional().describe("Turn the camera around the model; positive turns it to the right. A bit is about 20"),
-        orbit: z.enum(["start", "stop"]).optional().describe("start keeps the camera turning slowly around the model until stop; stop holds it still"),
+        orbit: z
+          .enum(["start", "stop"])
+          .optional()
+          .describe(
+            "start keeps the camera turning slowly around the model until stop; stop holds it still. An orbit keeps going while the look, lighting, zoom or fit change, and stops by itself when the woodworker takes the camera, picks a camera view or opens the plan views",
+          ),
         orbit_degrees_per_second: z
           .number()
           .min(-ORBIT_SPEED.max)
@@ -621,6 +628,12 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         show_preview: z.boolean().optional().describe("Open the preview Woodchuck's Claude is waiting on"),
         show_joint: z.enum(JOINT_TYPES as unknown as [JointType, ...JointType[]]).optional().describe("Open a worked example of this joint"),
         close_drawer: z.boolean().optional(),
+        tab: z
+          .enum(SIDE_TABS)
+          .optional()
+          .describe(
+            "Open this tab of the side panel, by its name on screen. make holds the workshop drawings, the cut list and the cutting layout; check the problems, each with a fix; finish the timber and colours; edit the picked part and the design's sizes; history every change and version",
+          ),
       },
     },
     async (a) => {
@@ -645,6 +658,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         if (a.show_preview) view.drawer = "preview";
         else if (a.show_joint) view.drawer = { joint: a.show_joint };
         else if (a.close_drawer) view.drawer = "close";
+        if (a.tab) view.tab = a.tab;
         const r = await fetch(`${BASE}/api/view`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(view) });
         const j = (await r.json()) as { windows?: number; shown?: string; error?: string };
         if (!r.ok) return text(`Woodchuck refused that: ${j.error ?? r.status}`);

@@ -409,6 +409,33 @@ details.change-line ul {
 .msg.assistant li {
   margin: 2px 0;
 }
+/* A table in a reply, such as a cut list. It scrolls sideways inside the message when it's wider than the chat. */
+.chat-log .md-table {
+  overflow-x: auto;
+  margin: 0 0 8px;
+}
+.chat-log .md-table:last-child {
+  margin-bottom: 0;
+}
+.chat-log .md-table table {
+  max-width: none;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.chat-log .md-table th,
+.chat-log .md-table td {
+  max-width: none;
+  padding: 3px 12px 3px 0;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  border-bottom: 1px solid var(--line);
+}
+.chat-log .md-table th {
+  font-weight: 600;
+}
 .working {
   color: var(--muted);
   font-style: italic;

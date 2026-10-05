@@ -27,8 +27,9 @@ sizes, its machining and its warnings, and every worked example has to
 build with no errors. The record console example in the app is the
 acceptance test, with its drawer width pinned to the millimetre. Other
 tests cover expressions, the checks, cutting layouts, finishes and their
-colour arithmetic, what changed between versions, view commands, the
-workshop drawings and the sheet the 2D views are drawn on.
+colour arithmetic, what changed between versions, view commands and the
+tabs they open, the workshop drawings and the sheet the 2D views are drawn
+on.
 [The acceptance test](#the-acceptance-test-the-record-console) has the
 console's numbers.
 
@@ -119,7 +120,10 @@ flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
 block held to the agreed shape. The size tool is held to one undo step
 mid-build, to refusing a name or formula that doesn't work, and to waiting
-for a yes on a big change. Its reply has to name each new problem.
+for a yes on a big change. Its reply has to name each new problem. The
+view tool is held to opening a tab and telling the calling model to open
+Make for the cut list. Every tool's description has to fit in the 900
+characters Crossband reads.
 
 ### Claude's cut tools
 
@@ -216,6 +220,11 @@ surface and stay out of the stylesheet. Others hold the buttons each of
 Claude's waiting moments offers, how a turn's steps fold into one line,
 and the timing line at each turn's foot.
 
+A table in a reply is held to its header, its rows and each column's
+alignment, with bold and code inside its cells. A short row is padded and
+a long one widens the table. Pipes that don't make a table stay as text,
+and nothing in a cell becomes markup.
+
 A cut part's mesh is held to a closed solid with every triangle facing
 out, to the volume its shape holds, and to the face each triangle counts
 as. A click on its slope has to pick the top, and a click through a hole
@@ -232,7 +241,7 @@ the All designs and parts page, that picking a part opens Edit, and that
 the status pill opens Check. A suggested change is held to the parts it
 moves, the size of each move, and its Now and With the change sides. A
 view command's drawer and highlight land on the model, the drawer and
-Edit. Check's fixes name the problem, and Show me picks the parts a rule
+Edit, and a tab opens with the side panel. Check's fixes name the problem, and Show me picks the parts a rule
 reads. Each item in the design menu calls its own endpoint. The keyboard
 shortcuts stay quiet in fields, and the model frames itself again only
 when it should.
@@ -245,7 +254,8 @@ screen follows Claude tab by tab and gives each tab its time, and that
 any touch stops it for the rest of the turn and keeps the tab you chose.
 They also hold the order Show me how plays a turn in, and each step's
 link to its control. The clock is passed in, so the tests run on a fake
-one.
+one. Claude's instructions are held to naming the five tabs and what each
+holds, and each tool they say opens a tab has to open it.
 
 The phone layout's tests hold the bottom sheet's heights and where a drag
 of its handle comes to rest. They check the 640 px breakpoint, and that

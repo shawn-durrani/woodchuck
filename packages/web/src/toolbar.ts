@@ -251,8 +251,8 @@ export function allControls(s: ToolbarState): Map<string, Control> {
 /**
  * Where each part of a view command from outside the window lands: the
  * control that shows it, or a menu's choices by their shared prefix. Turn,
- * zoom, an orbit and the parts to pick act on the model itself, and the
- * drawer is its own. Typed so a new kind of command can't arrive without a home.
+ * zoom, an orbit and the parts to pick act on the model itself, the
+ * drawer is its own, and a tab opens in the side panel's tab bar. Typed so a new kind of command can't arrive without a home.
  */
 export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string> = {
   mode: "views",
@@ -270,6 +270,7 @@ export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string>
   fill: "share.full",
   select: "canvas",
   drawer: "drawer",
+  tab: "tabs",
 };
 
 /** The view settings a command from outside can change. */
@@ -295,20 +296,24 @@ export interface ViewEffects {
   render: boolean;
   select: string[] | null;
   drawer: ViewCommand["drawer"] | null;
+  /** The side panel tab to open, with the panel. */
+  tab: ViewCommand["tab"] | null;
 }
 
 /**
  * A view command applied to the window's settings. A command shows the 3D
  * view unless it asks for the plan views, as it always has, but one that
- * only stops an orbit leaves the window as it is. Asking for the Finished
+ * only stops an orbit or opens a tab leaves the view as it is. A tab brings
+ * the panels back when the 3D view fills the window. Asking for the Finished
  * look's lighting brings the Finished look, since lighting only shows
  * there. A camera view with the plan views picks that drawing too. An
  * orbit stops for a camera view, the plan views or the room photo, as it
  * does when you choose them yourself.
  */
 export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { state: ViewState; effects: ViewEffects } {
-  const onlyStops = v.orbit === "stop" && Object.keys(v).every((k) => k === "orbit" || k === "from" || k === "note");
-  const next: ViewState = { ...s, mode: v.mode === "plan" ? "2d" : onlyStops ? s.mode : "3d" };
+  const keepsMode =
+    (v.orbit === "stop" || !!v.tab) && Object.keys(v).every((k) => k === "from" || k === "note" || k === "tab" || (k === "orbit" && v.orbit === "stop"));
+  const next: ViewState = { ...s, mode: v.mode === "plan" ? "2d" : keepsMode ? s.mode : "3d" };
   if (v.seeThrough !== undefined) next.xray = v.seeThrough;
   if (v.photo !== undefined) next.photo = v.photo && hasPhoto;
   if (v.look) next.look = v.look;
@@ -319,6 +324,7 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
     if (next.mode === "2d" && isPlanView(v.view)) next.planView = v.view;
   }
   if (v.fill !== undefined) next.full = v.fill;
+  if (v.tab) next.full = false;
   return {
     state: next,
     effects: {
@@ -328,6 +334,7 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
       render: !!v.render,
       select: v.select ?? null,
       drawer: v.drawer ?? null,
+      tab: v.tab ?? null,
     },
   };
 }

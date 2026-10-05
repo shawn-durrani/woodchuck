@@ -7,12 +7,13 @@
 // same names.
 // Kept free of React so the tests can hold it.
 
-import type { JointType } from "@woodchuck/core";
+import type { JointType, SideTab } from "@woodchuck/core";
 import type { ServerState } from "./api";
 import { ghostShown, hideGhost, showGhost, type GhostPref } from "./ghost";
 import type { ViewEffects } from "./toolbar";
 
-export type Tab = "edit" | "finish" | "make" | "check" | "history";
+/** The same five names a view command from another chat opens. */
+export type Tab = SideTab;
 
 export const TABS: { id: Tab; label: string; tip: string }[] = [
   { id: "edit", label: "Edit", tip: "The part you picked, and the design's sizes" },
@@ -109,9 +110,11 @@ export interface Routed {
   ghost?: GhostPref;
   /** Close the drawer, or open a worked example in it. */
   drawer?: "close" | { joint: JointType };
-  /** Parts to pick, and the tab that opens for them. */
+  /** Parts to pick, and the tab that opens for them or the tab asked for. */
   select?: string[];
   tab?: Tab;
+  /** Open the side panel too, as for a tab asked for by name. */
+  panel?: boolean;
   /** The 3D view, where the ghost shows. */
   show3d?: boolean;
   /** Said in the window when the command can't do what it asks. */
@@ -122,9 +125,10 @@ export interface Routed {
  * A view command's drawer and highlight. "preview" shows the waiting change
  * on the model, "close" closes the drawer and puts the ghost away, and a
  * joint opens its worked example in the drawer. Parts to pick open Edit, as
- * a click on them does.
+ * a click on them does. A tab asked for by name opens, and brings the side
+ * panel back if it's folded.
  */
-export function routeView(e: Pick<ViewEffects, "drawer" | "select">, ctx: { liveId: string | null; pref: GhostPref | null; tab: Tab }): Routed {
+export function routeView(e: Pick<ViewEffects, "drawer" | "select" | "tab">, ctx: { liveId: string | null; pref: GhostPref | null; tab: Tab }): Routed {
   const out: Routed = {};
   if (e.drawer === "preview") {
     if (ctx.liveId) {
@@ -138,6 +142,10 @@ export function routeView(e: Pick<ViewEffects, "drawer" | "select">, ctx: { live
   if (e.select) {
     out.select = e.select;
     if (e.select.length) out.tab = tabAfterPick(ctx.tab);
+  }
+  if (e.tab) {
+    out.tab = e.tab;
+    out.panel = true;
   }
   return out;
 }
