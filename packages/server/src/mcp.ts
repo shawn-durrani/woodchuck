@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { finishLabel, JOINT_TYPES, normaliseFinish, PALETTES, speciesOf, type Design, type JointType } from "@woodchuck/core";
+import { finishLabel, JOINT_TYPES, normaliseFinish, ORBIT_SPEED, PALETTES, speciesOf, type Design, type JointType } from "@woodchuck/core";
 import { background, describe, hasReply, itemsAfter, progressText, type Item, type Progress } from "./progress.js";
 
 const BASE = (process.env.WOODCHUCK_URL ?? "http://127.0.0.1:8905").replace(/\/$/, "");
@@ -222,7 +222,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Change the Woodchuck window's view",
       description:
-        "Change what the open Woodchuck window shows, so the woodworker can look at the design there. It can switch between the 3D view and the 2D plan views; set the Finished look with real timber and colours, or the Plain look; set the lighting; pick a camera view, turn the camera by degrees or zoom in and out; bring the whole model into view; switch see-through on to show the joints; place the design in its room photo; fill the window; highlight parts; show the waiting preview on the model, or open a worked joint example beside it. With render it then saves a picture of what the window shows to the woodworker's downloads. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, for example \"turn it a bit to the left\", \"show me the plans\" or \"render that\".",
+        "Change what the open Woodchuck window shows, so the woodworker can look at the design there. It can switch between the 3D view and the 2D plan views; set the Finished look with real timber and colours, or the Plain look; set the lighting; pick a camera view, turn the camera by degrees or zoom in and out; keep the camera turning slowly around the model until told to stop; bring the whole model into view; switch see-through on to show the joints; place the design in its room photo; fill the window; highlight parts; show the waiting preview on the model, or open a worked joint example beside it. With render it then saves a picture of what the window shows to the woodworker's downloads. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, for example \"turn it a bit to the left\", \"show me the plans\" or \"render that\". For a one-off turn, such as \"turn it a bit\", use turn_degrees. For a turn that keeps going, such as \"spin it slowly\", \"keep rotating\" or \"show it off while we talk\", use orbit \"start\", and orbit \"stop\" to hold it still again. An orbit keeps going while you change the look, lighting, zoom or fit, and stops by itself when the woodworker takes the camera, picks a camera view or opens the plan views.",
       inputSchema: {
         plan_views: z.boolean().optional().describe("true shows the 2D plan views (front, top, side and iso drawings); false goes back to the 3D view"),
         look: z.enum(["finished", "plain"]).optional(),
@@ -230,6 +230,13 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         view: z.enum(["iso", "front", "top", "left", "right", "back"]).optional(),
         fit: z.boolean().optional().describe("Bring the whole model back into view"),
         turn_degrees: z.number().min(-360).max(360).optional().describe("Turn the camera around the model; positive turns it to the right. A bit is about 20"),
+        orbit: z.enum(["start", "stop"]).optional().describe("start keeps the camera turning slowly around the model until stop; stop holds it still"),
+        orbit_degrees_per_second: z
+          .number()
+          .min(-ORBIT_SPEED.max)
+          .max(ORBIT_SPEED.max)
+          .optional()
+          .describe(`How fast an orbit turns, in degrees a second, at least ${ORBIT_SPEED.min} either way; positive turns it to the right. The default ${ORBIT_SPEED.default} is a slow showcase spin, once round in half a minute`),
         zoom: z.number().min(0.2).max(5).optional().describe("Above 1 moves closer, below 1 further away; 1.5 is a step in"),
         see_through: z.boolean().optional().describe("Show the parts see-through so the joints show"),
         photo: z.boolean().optional().describe("Place the design in its room photo, or put the photo away"),
@@ -246,6 +253,10 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         const view: Record<string, unknown> = { from: CALLER };
         if (a.plan_views !== undefined) view.mode = a.plan_views ? "plan" : "3d";
         if (a.turn_degrees) view.turn = a.turn_degrees;
+        // A speed on its own means start turning at that speed.
+        if (a.orbit) view.orbit = a.orbit;
+        else if (a.orbit_degrees_per_second !== undefined) view.orbit = "start";
+        if (a.orbit_degrees_per_second !== undefined) view.orbitSpeed = a.orbit_degrees_per_second;
         if (a.zoom) view.zoom = a.zoom;
         if (a.see_through !== undefined) view.seeThrough = a.see_through;
         if (a.photo !== undefined) view.photo = a.photo;
@@ -263,7 +274,8 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         const j = (await r.json()) as { windows?: number; shown?: string; error?: string };
         if (!r.ok) return text(`Woodchuck refused that: ${j.error ?? r.status}`);
         if (!j.windows) return text(`No Woodchuck window is open, so nothing changed. Open ${BASE} in a browser on this computer, then try again.`);
-        return text(`The Woodchuck window now shows ${j.shown}.`);
+        const orbiting = view.orbit === "start" ? ' It keeps turning until you send orbit "stop", or the woodworker takes the camera.' : "";
+        return text(`The Woodchuck window now shows ${j.shown}.${orbiting}`);
       } catch (e) {
         return unreachable(e);
       }

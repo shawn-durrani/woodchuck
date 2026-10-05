@@ -6,7 +6,7 @@
 // same menus under the same names. Kept free of React so the tests can
 // hold the structure.
 
-import type { ViewCommand } from "@woodchuck/core";
+import { ORBIT_SPEED, type ViewCommand } from "@woodchuck/core";
 import type { CameraView, Look, PointMode } from "./components/Viewport";
 import { LIGHTINGS, type Lighting } from "./lighting";
 
@@ -251,8 +251,8 @@ export function allControls(s: ToolbarState): Map<string, Control> {
 /**
  * Where each part of a view command from outside the window lands: the
  * control that shows it, or a menu's choices by their shared prefix. Turn,
- * zoom and the parts to pick act on the model itself, and the drawer is
- * its own. Typed so a new kind of command can't arrive without a home.
+ * zoom, an orbit and the parts to pick act on the model itself, and the
+ * drawer is its own. Typed so a new kind of command can't arrive without a home.
  */
 export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string> = {
   mode: "views",
@@ -262,6 +262,8 @@ export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string>
   fit: "fit",
   turn: "canvas",
   zoom: "canvas",
+  orbit: "canvas",
+  orbitSpeed: "canvas",
   seeThrough: "see-through",
   photo: "share.photo",
   render: "share.render",
@@ -288,6 +290,8 @@ export interface ViewEffects {
   /** Frame the whole model again. */
   refit: boolean;
   nudge: { turn: number; zoom: number } | null;
+  /** Start turning the model at this many degrees a second, stop it, or leave it as it is (null). */
+  orbit: number | "stop" | null;
   render: boolean;
   select: string[] | null;
   drawer: ViewCommand["drawer"] | null;
@@ -295,12 +299,16 @@ export interface ViewEffects {
 
 /**
  * A view command applied to the window's settings. A command shows the 3D
- * view unless it asks for the plan views, as it always has. Asking for the
- * Finished look's lighting brings the Finished look, since lighting only
- * shows there. A camera view with the plan views picks that drawing too.
+ * view unless it asks for the plan views, as it always has, but one that
+ * only stops an orbit leaves the window as it is. Asking for the Finished
+ * look's lighting brings the Finished look, since lighting only shows
+ * there. A camera view with the plan views picks that drawing too. An
+ * orbit stops for a camera view, the plan views or the room photo, as it
+ * does when you choose them yourself.
  */
 export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { state: ViewState; effects: ViewEffects } {
-  const next: ViewState = { ...s, mode: v.mode === "plan" ? "2d" : "3d" };
+  const onlyStops = v.orbit === "stop" && Object.keys(v).every((k) => k === "orbit" || k === "from" || k === "note");
+  const next: ViewState = { ...s, mode: v.mode === "plan" ? "2d" : onlyStops ? s.mode : "3d" };
   if (v.seeThrough !== undefined) next.xray = v.seeThrough;
   if (v.photo !== undefined) next.photo = v.photo && hasPhoto;
   if (v.look) next.look = v.look;
@@ -316,6 +324,7 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
     effects: {
       refit: !!(v.view || v.fit),
       nudge: v.turn || v.zoom ? { turn: v.turn ?? 0, zoom: v.zoom ?? 1 } : null,
+      orbit: v.orbit === "start" ? (v.orbitSpeed ?? ORBIT_SPEED.default) : v.orbit === "stop" || v.view || next.mode === "2d" || (v.photo && hasPhoto) ? "stop" : null,
       render: !!v.render,
       select: v.select ?? null,
       drawer: v.drawer ?? null,

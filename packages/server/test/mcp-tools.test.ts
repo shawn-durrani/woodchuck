@@ -87,6 +87,10 @@ describe("the MCP tools while Claude builds", () => {
     expect(tools.find((t) => t.name === "woodchuck_ask")!.description).toMatch(/never waits long/);
     expect(tools.find((t) => t.name === "woodchuck_progress")!.description).toMatch(/Never call it in a loop/);
     expect(tools.find((t) => t.name === "woodchuck_finish")!.description).toMatch(/mid-build too/);
+    // A calling model tells a slow spin from a one-off turn.
+    const view = tools.find((t) => t.name === "woodchuck_view")!.description!;
+    expect(view).toMatch(/"spin it slowly"[^.]*use orbit "start"/);
+    expect(view).toMatch(/"turn it a bit"[^.]*use turn_degrees/);
   });
 
   it("answers a quick question straight away", async () => {
@@ -179,5 +183,40 @@ describe("the MCP tools while Claude builds", () => {
     await started;
     await idle();
     expect(await tool("woodchuck_progress")).toMatchObject({ bg: { state: "done" } });
+  });
+});
+
+describe("woodchuck_view", () => {
+  /** An open window, keeping each view change the app sends it. */
+  async function windowOpen() {
+    const ws = new WebSocket(`${process.env.WOODCHUCK_URL!.replace("http", "ws")}/ws`);
+    await new Promise((r) => ws.addEventListener("open", r, { once: true }));
+    const views: Record<string, unknown>[] = [];
+    ws.addEventListener("message", (m) => {
+      const msg = JSON.parse(String(m.data)) as { type: string; view?: Record<string, unknown> };
+      if (msg.type === "view") views.push(msg.view!);
+    });
+    return { ws, views, got: (n: number) => until(async () => views.length >= n) };
+  }
+
+  it("starts an orbit at the default speed or the one asked for, and stops it", async () => {
+    const win = await windowOpen();
+    const start = await tool("woodchuck_view", { orbit: "start" });
+    expect(start.text).toBe('The Woodchuck window now shows the model turning 12° a second to the right. It keeps turning until you send orbit "stop", or the woodworker takes the camera.');
+    // A speed on its own starts one too.
+    const left = await tool("woodchuck_view", { orbit_degrees_per_second: -20, look: "finished" });
+    expect(left.text).toMatch(/^The Woodchuck window now shows the Finished look and the model turning 20° a second to the left\./);
+    const stop = await tool("woodchuck_view", { orbit: "stop" });
+    expect(stop.text).toBe("The Woodchuck window now shows the model held still.");
+    await win.got(3);
+    expect(win.views.map(({ from: _, ...v }) => v)).toEqual([
+      { orbit: "start", orbitSpeed: 12 },
+      { orbit: "start", orbitSpeed: -20, look: "finished" },
+      { orbit: "stop" },
+    ]);
+    // Too slow to see, and turning in the plan views, are refused.
+    expect((await tool("woodchuck_view", { orbit: "start", orbit_degrees_per_second: 0.5 })).text).toMatch(/^Woodchuck refused that: orbitSpeed must be/);
+    expect((await tool("woodchuck_view", { orbit: "start", plan_views: true })).text).toMatch(/can't go with the plan views/);
+    win.ws.close();
   });
 });
