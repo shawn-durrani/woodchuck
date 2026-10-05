@@ -4,7 +4,8 @@
 //
 // Claude's conversation only grows. A summary written between turns is kept
 // beside it in compactions.json, which only grows too, with the number of
-// messages it stands in for.
+// messages it stands in for. A chat whose stored summary the API refused
+// says so in refused.json, and its requests leave that summary out.
 
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -148,6 +149,19 @@ export interface Compaction {
   at: string;
 }
 
+/**
+ * Where the API refused a request over a summary it carried. Every summary
+ * stored before then is left out of later requests, which carry the chat in
+ * full from the saved messages instead.
+ */
+export interface Refused {
+  /** The API's own summaries in the first this many saved messages are left out. */
+  messages: number;
+  /** The first this many summaries from between turns are left out. */
+  compactions: number;
+  at: string;
+}
+
 export interface Pending {
   /** Results for the calls that aren't waiting, sent with the woodworker's next message. */
   held: Anthropic.Beta.BetaToolResultBlockParam[];
@@ -228,6 +242,8 @@ export class Project {
   messages: Anthropic.Beta.BetaMessageParam[];
   /** Summaries written between turns, oldest first. Only the latest is sent. */
   compactions: Compaction[];
+  /** Where the API refused a stored summary, or null when it never has. */
+  refused: Refused | null;
   chat: ChatItem[];
   pending: Pending | null;
   /** What you changed since Claude's last turn, told to Claude next time. */
@@ -265,6 +281,7 @@ export class Project {
     this.redo = h.redo;
     this.messages = readJson(path.join(dir, "messages.json"), []);
     this.compactions = readJson<Compaction[]>(path.join(dir, "compactions.json"), []);
+    this.refused = readJson<Refused | null>(path.join(dir, "refused.json"), null);
     this.chat = readJson(path.join(dir, "chat.json"), []);
     this.pending = readJson<Pending | null>(path.join(dir, "pending.json"), null);
     this.notes = readJson<string[]>(path.join(dir, "notes.json"), []);
@@ -283,6 +300,7 @@ export class Project {
     writePrivate(path.join(this.dir, "messages.json"), JSON.stringify(this.messages));
     // Written once there's a summary from between turns, so a chat without one keeps the files it always had.
     if (this.compactions.length) writePrivate(path.join(this.dir, "compactions.json"), JSON.stringify(this.compactions));
+    if (this.refused) writePrivate(path.join(this.dir, "refused.json"), JSON.stringify(this.refused));
     writePrivate(path.join(this.dir, "chat.json"), JSON.stringify(this.chat));
     writePrivate(path.join(this.dir, "pending.json"), JSON.stringify(this.pending));
     writePrivate(path.join(this.dir, "notes.json"), JSON.stringify(this.notes));

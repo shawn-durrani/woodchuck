@@ -161,6 +161,14 @@ API can't summarise it inside a request. Woodchuck then asks for one in
 the background the same way, between two steps, and that stays true for
 that chat if you turn the setting off.
 
+Each summary is kept as the API sent it, with its signature. A request for
+a summary between turns refuses an older summary that has no signature.
+When the chat starts from one, Woodchuck sends the whole saved chat in its
+place, with the old summary taken out. A chat too long for one request
+keeps the API's own summaries, and the log says so. If the API refuses a
+request over a stored summary, Woodchuck sends it again with the chat in
+full. Every later request in that chat goes the same way.
+
 The whole chat stays saved on disk, and Claude searches it with a recall
 tool when you refer back to something. Each summary from between turns is
 saved beside the chat with the number of messages it stands in for, so
