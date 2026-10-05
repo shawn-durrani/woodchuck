@@ -80,6 +80,13 @@ flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
 block held to the agreed shape.
 
+Each turn's usage line is held to its timing on a fake clock. That covers
+every request to Claude, the level it ran at, the wait for its first
+streamed words, its tokens and tool calls, any retries, and the time the
+tools took. An apply_edits call counts as one call, with its edits counted
+beside it. The turn stats script runs on a data folder the test invents,
+and has to print numbers and nothing from a chat or a design.
+
 A stand-in that drops the connection mid-reply checks that Claude's
 request is sent again, and that the cut-off words leave the chat. A turn
 that an error or Stop ends has to say so to other apps and to the next
@@ -95,7 +102,8 @@ its not-to-scale label, how Claude's replies are drawn and which face the
 lock screen shows. They also hold the theme choice, the script that sets it
 before the first paint, and the themes' colours, which must read on every
 surface and stay out of the stylesheet. Others hold the buttons each of
-Claude's waiting moments offers, and how a turn's steps fold into one line.
+Claude's waiting moments offers, how a turn's steps fold into one line,
+and the timing line at each turn's foot.
 
 The toolbar tests hold its groups and menus to fixed slots, and check
 that every view command from another chat lands on its control. An orbit
@@ -166,6 +174,50 @@ it move. Neither is built yet.
 - `tests/test_tailscale_serve.py` runs the tailnet serve script against a
   fake `tailscale` command. It checks that the script never runs Funnel,
   refuses while Funnel is on and skips cleanly without Tailscale.
+
+## Timing Claude's turns
+
+Each turn's usage line keeps how long it took. It holds the model, the
+rule that picked the turn's level, the whole turn's time, the time the
+tools took, and a record for each request to Claude. A record has the
+level the request ran at, its time, the wait for its first thinking or
+words, its tokens and its tool calls. An apply_edits call counts once,
+and the record keeps the number of edits it listed apart. The chat shows
+the time and the number of requests at each turn's foot.
+
+The stats script sums them up across every design in a data folder, and
+changes nothing. It names the folder you give it, or reads
+`WOODCHUCK_DATA_DIR`.
+
+```bash
+npx tsx scripts/turn-stats.ts [data-folder]
+```
+
+It prints a line per turn, then the median and 90th percentile of rounds,
+seconds and tokens. It also gives the share of requests that carried more
+than one tool call, and how often a turn started on a cold cache. It
+tallies the level of every request and the rule behind each turn, and
+the edits made through apply_edits. Designs
+are numbered, and it prints no names, chat text or design content. Turns
+from older chats have no timing of their own. The script rebuilds their
+rounds and tool calls from the saved conversation, and their seconds from
+the chat's timestamps.
+
+The live benchmark sends a few invented tasks to Claude for real, through
+the same turn loop the app uses. It needs an Anthropic key and the
+`--live` flag, costs money and never runs in the tests or CI. Each task
+gets a throwaway data folder, and the script prints its cost estimate
+before it starts.
+
+```bash
+npx tsx scripts/bench.ts --live [build|lp-fix|colour|height ...]
+```
+
+It reports each task's turns, requests, seconds, tool calls, edits, the
+levels its requests ran at, tokens and rough cost. It also counts the
+design's check errors before and after. Set `WOODCHUCK_MODEL` and
+`WOODCHUCK_EFFORT` to compare models and effort, and
+`WOODCHUCK_EFFORT_ROUTING=off` to hold every turn at that effort.
 
 ## Trying the chat without a key
 

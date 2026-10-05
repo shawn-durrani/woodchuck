@@ -44,7 +44,34 @@ export type ChatItem =
     }
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
-  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; efforts?: string[]; route?: string; at: string }
+  | {
+      id: string;
+      kind: "usage";
+      input: number;
+      cached: number;
+      written?: number;
+      output: number;
+      at: string;
+      model?: string;
+      route?: string;
+      ms?: number;
+      tool_ms?: number;
+      rounds?: {
+        effort?: string;
+        ttft_ms: number | null;
+        ms: number;
+        input: number;
+        cached: number;
+        written: number;
+        output: number;
+        calls: number;
+        edits?: number;
+        retries?: number;
+        compacted?: true;
+      }[];
+      /** From turns saved before each round kept its own level. */
+      efforts?: string[];
+    }
   | { id: string; kind: "summary"; at: string };
 
 export interface ToolRequest {

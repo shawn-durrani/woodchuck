@@ -93,7 +93,7 @@ describe("the level of each turn", () => {
     // The second round is still low, so no second message goes in.
     expect(efforts(client.sent[1]!.messages)).toEqual(["low"]);
     expect(t.roundEfforts()).toEqual(["low", "low"]);
-    expect(lastUsage()).toMatchObject({ efforts: ["low", "low"], route: "finish" });
+    expect(lastUsage()).toMatchObject({ rounds: [{ effort: "low" }, { effort: "low" }], route: "finish" });
     expectSteadyRequest(client.sent);
     expectAppendOnly(client.sent);
   });
@@ -103,7 +103,7 @@ describe("the level of each turn", () => {
     await turn(client).run(ask("Carry on"));
     expect(efforts(client.sent[0]!.messages)).toEqual([]);
     expect((client.sent[0] as Body).betas).not.toContain(EFFORT_MESSAGE_BETA);
-    expect(lastUsage()).toMatchObject({ efforts: ["high"], route: "unrecognised" });
+    expect(lastUsage()).toMatchObject({ rounds: [{ effort: "high" }], route: "unrecognised" });
   });
 
   it("adds a message only when the level changes from one turn to the next", async () => {

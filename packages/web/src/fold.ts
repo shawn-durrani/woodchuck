@@ -3,7 +3,8 @@
 // show them. Errors and the pictures Claude looked at stay where they are.
 // A turn with no change line folds its steps under a "show steps" line.
 // A message you send while Claude works waits at the foot of the chat until
-// Claude takes it in, then sits where Claude read it.
+// Claude takes it in, then sits where Claude read it. A turn's timing sits
+// at its foot, in one quiet line.
 
 import type { ChatItem } from "./api";
 import { changeLine, isUndone } from "./signals";
@@ -48,11 +49,17 @@ export function duringNote(c: Said): string | null {
 /** Whether a message starts a turn, rather than arriving in the middle of one. */
 const startsTurn = (c: Said) => !c.during || c.taken === "turn";
 
-/** The chat as it reads: usage lines and messages Claude hasn't read yet dropped, and runs of your own edits joined into one line that says when Undo took them back. */
+type Usage = Extract<ChatItem, { kind: "usage" }>;
+
+/**
+ * The chat as it reads: messages Claude hasn't read yet dropped, and runs
+ * of your own edits joined into one line that says when Undo took them
+ * back. A usage line stays only when it carries the turn's timing.
+ */
 export function joinYourEdits(chat: ChatItem[], history: { id: number }[]): Row[] {
   const rows: Row[] = [];
   for (const c of chat) {
-    if (c.kind === "usage") continue;
+    if (c.kind === "usage" && !c.rounds) continue;
     if (c.kind === "user" && c.during && !c.taken) continue;
     const last = rows.at(-1);
     if (c.kind === "change" && c.author === "you") {
@@ -90,7 +97,9 @@ export function foldTurns(rows: Row[], opts: { busy: boolean; showThinking: bool
     turns.at(-1)!.push(r);
   }
   const out: Folded[] = [];
-  turns.forEach((turn, t) => {
+  turns.forEach((all, t) => {
+    // The timing line goes last, below the change line written after it.
+    const turn = [...all.filter((r) => r.kind !== "usage"), ...all.filter((r) => r.kind === "usage")];
     const steps = turn.filter((r) => isStep(r, opts.showThinking));
     if (!steps.length) {
       for (const row of turn) out.push({ kind: "row", row });
@@ -125,4 +134,41 @@ export function latestStep(rows: Row[]): string | null {
   if (r?.kind === "tool") return r.summary;
   if (r?.kind === "thinking") return "thinking";
   return null;
+}
+
+const secs = (ms: number) => {
+  const s = ms / 1000;
+  if (s < 10) return `${Math.round(s * 10) / 10} s`;
+  if (s < 90) return `${Math.round(s)} s`;
+  const whole = Math.round(s);
+  return `${Math.floor(whole / 60)} min ${whole % 60} s`;
+};
+
+/** The levels a turn's requests were written at, each change in order: "high", or "low, then high". */
+function effortPath(efforts: (string | undefined)[]): string {
+  const known = efforts.filter((e): e is string => !!e);
+  return known.filter((e, i) => e !== known[i - 1]).join(", then ");
+}
+
+/**
+ * A turn's timing line, such as "38 s · 4 rounds", and its longer hover
+ * text. A round is one request to Claude. Turns from before timing was
+ * kept have none.
+ */
+export function turnTime(u: Usage): { line: string; title: string } | null {
+  if (!u.rounds || u.ms === undefined) return null;
+  const n = u.rounds.length;
+  const calls = u.rounds.reduce((sum, r) => sum + r.calls, 0);
+  const retries = u.rounds.reduce((sum, r) => sum + (r.retries ?? 0), 0);
+  const batched = u.rounds.some((r) => r.edits !== undefined);
+  const edits = u.rounds.reduce((sum, r) => sum + (r.edits ?? 0), 0);
+  const line = `${secs(u.ms)} · ${n} round${n === 1 ? "" : "s"}`;
+  const effort = effortPath(u.rounds.map((r) => r.effort));
+  const parts = [
+    `Claude took ${secs(u.ms)} over ${n} request${n === 1 ? "" : "s"}, with ${calls} tool call${calls === 1 ? "" : "s"}${batched ? `, making ${edits} edit${edits === 1 ? "" : "s"} in batches` : ""}.`,
+    u.tool_ms ? `The tools took ${secs(u.tool_ms)} of it.` : "",
+    retries ? `${retries} request${retries === 1 ? " was" : "s were"} tried again.` : "",
+    `${u.output.toLocaleString("en-AU")} tokens written out${u.model ? ` by ${u.model}` : ""}${effort ? ` at ${effort} effort` : ""}.`,
+  ];
+  return { line, title: parts.filter(Boolean).join(" ") };
 }
