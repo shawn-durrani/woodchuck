@@ -389,7 +389,7 @@ export function App() {
         else if (lessMotion()) still = "this computer is set to reduce motion, so the model stays still.";
         else setOrbit(effects.orbit);
       }
-      // The waiting change shows on the model, a joint in the drawer, and picked parts open Edit.
+      // The waiting change shows on the model, a joint in the drawer, picked parts open Edit, and a tab opens with its panel.
       const routed = routeView(effects, { liveId: liveRef.current, pref: ghostRef.current, tab: tabRef.current });
       if (routed.select) {
         setFaceMode(false);
@@ -400,6 +400,7 @@ export function App() {
         setTab(routed.tab);
         setAllPage(null);
       }
+      if (routed.panel) setRightOpen(true);
       if (routed.ghost) setGhostPref(routed.ghost);
       if (routed.drawer === "close") setSlots(NO_SLOTS);
       else if (routed.drawer) {

@@ -404,6 +404,8 @@ frames the parts it changed. Each of Claude's tools names its place on
 screen in `packages/web/src/follow.ts`, and a test fails if a tool has
 none. Touching anything stops the following for the rest of the turn. A
 turn's "show me how" replays its steps slowly without changing the design.
+Claude's instructions name the five tabs and what each holds, so it can
+tell you where to look.
 
 One layout means one thing to learn, and watching Claude teaches it.
 Hands-on editing will add grips to the same model, and Claude will drive

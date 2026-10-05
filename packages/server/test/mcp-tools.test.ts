@@ -220,6 +220,34 @@ describe("woodchuck_view", () => {
     expect((await tool("woodchuck_view", { orbit: "start", plan_views: true })).text).toMatch(/can't go with the plan views/);
     win.ws.close();
   });
+
+  // Seen in a demo: a voice chat asked Woodchuck's Claude for the cut list, a turn it didn't need.
+  it("opens a side panel tab, and tells a voice model to open Make for the cut list", async () => {
+    const { tools } = await client.listTools();
+    const view = tools.find((t) => t.name === "woodchuck_view")!;
+    expect(view.description).toMatch(/"show me the cut list", open tab "make"/);
+    expect(view.description).toMatch(/rather than asking Woodchuck's Claude/);
+    const tab = (view.inputSchema.properties as Record<string, { enum?: string[]; description?: string }>).tab!;
+    expect(tab.enum).toEqual(["edit", "finish", "make", "check", "history"]);
+    expect(tab.description).toMatch(/make holds the workshop drawings, the cut list and the cutting layout/);
+
+    const win = await windowOpen();
+    expect((await tool("woodchuck_view", { tab: "make" })).text).toBe("The Woodchuck window now shows the Make tab open.");
+    expect((await tool("woodchuck_view", { tab: "check", look: "finished" })).text).toBe("The Woodchuck window now shows the Finished look and the Check tab open.");
+    await win.got(2);
+    expect(win.views.map(({ from: _, ...v }) => v)).toEqual([{ tab: "make" }, { look: "finished", tab: "check" }]);
+    // Filling the window hides the tabs, and a name off screen isn't a tab.
+    expect((await tool("woodchuck_view", { tab: "make", fill_window: true })).text).toMatch(/^Woodchuck refused that: tab opens the side panel, so it can't go with fill/);
+    expect((await client.callTool({ name: "woodchuck_view", arguments: { tab: "cutlist" } })).isError).toBe(true);
+    expect(win.views).toHaveLength(2);
+    win.ws.close();
+  });
+
+  // Crossband keeps the first 900 characters of a tool's description, so anything after that never reaches its models.
+  it("keeps every tool's description within the 900 characters a chat app reads", async () => {
+    const { tools } = await client.listTools();
+    for (const t of tools) expect(t.description!.length, t.name).toBeLessThanOrEqual(900);
+  });
 });
 
 describe("woodchuck_set_param and woodchuck_design", () => {

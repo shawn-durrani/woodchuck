@@ -27,6 +27,10 @@ The server finds the app at `WOODCHUCK_URL`, and its view notes name
 `WOODCHUCK_CALLER`. [CONFIG.md](CONFIG.md) has both. Restart the chat app
 after changing the server, since it reads the tools when it starts.
 
+Crossband reads the first 900 characters of a tool's description and
+drops the rest. Each description keeps within that, and a test holds it
+there. The finer points of a tool go in the descriptions of its inputs.
+
 ## The tools
 
 | Tool | What it does |
@@ -38,7 +42,7 @@ after changing the server, since it reads the tools when it starts.
 | `woodchuck_finish` | Changes colours straight away, through the same operation as the Finish tab, mid-build too. Woodchuck's Claude is told after its current step. |
 | `woodchuck_set_param` | Sets parameters the design already has straight away, mid-build too, as one undo step. A change over 20%, or to zero or less, waits for the woodworker's yes. Woodchuck's Claude is told after its current step. |
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
-| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview on the model, a worked joint in the drawer, and a render to the downloads. A highlight opens the Edit tab. |
+| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview, a worked joint, a side panel tab and a render to the downloads. |
 | `woodchuck_status` | Sums up the design: its problems, timber and finishes. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
@@ -93,6 +97,20 @@ It also stops when the woodworker takes the camera, picks a camera view or
 opens the plan views. A room photo keeps the model still, and so does a
 computer set to reduce motion. For a single turn, `turn_degrees` turns the
 camera once and leaves it there.
+
+## Opening a tab
+
+`woodchuck_view` with `tab` opens that tab of the side panel, by its name
+on screen. Make holds the workshop drawings, the cut list and the cutting
+layout. Check holds the problems, Finish the timber and colours, Edit the
+picked part and the sizes, and History every change and version. The
+tool's description tells the calling model to open Make for "show me the
+cut list", so it needn't ask Woodchuck's Claude.
+
+A tab brings the side panel back, whether it was folded or hidden by
+filling the window. It can't go with `fill_window` set to true. The 3D view
+or the plan views stay as they were. A highlight opens Edit by itself, and
+a tab named with it wins.
 
 ## Timing
 

@@ -9,11 +9,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { applyOps, derive, type Op } from "@woodchuck/core";
+import { SYSTEM_PROMPT } from "../../server/src/prompt.js";
 import { TOOLS } from "../../server/src/tools.js";
 import type { ChatItem } from "../src/api.js";
 import { ChatPanel } from "../src/components/ChatPanel.js";
 import { FollowCaption, FollowChip } from "../src/components/Follow.js";
-import { AREAS, describe as describePlace, finishChanges, lookupOf, markSelector, movedParts, PLACES, placeOf, type Place } from "../src/follow.js";
+import { AREAS, describe as describePlace, tabOf, finishChanges, lookupOf, markSelector, movedParts, PLACES, placeOf, type Place } from "../src/follow.js";
 import {
   chipFor,
   DWELL_MS,
@@ -412,5 +413,30 @@ describe("steps link to their controls", () => {
     expect(renderToStaticMarkup(createElement(FollowChip, { mode: "live", onStop: () => {} }))).toMatch(/Following Claude · <button[^>]*>stop<\/button>/);
     expect(renderToStaticMarkup(createElement(FollowChip, { mode: null, onStop: () => {} }))).toBe("");
     expect(renderToStaticMarkup(createElement(FollowCaption, { view: { caption: "Claude set Seat height in Sizes", more: 0 } }))).toContain("Claude set Seat height in Sizes");
+  });
+});
+
+// Seen in a demo: Claude said it couldn't see the app, so it couldn't say where the cut list was.
+describe("Claude's instructions about the screen", () => {
+  it("name the five tabs and what each holds", () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "Edit holds the picked part and the design's sizes, Finish the timber and colours, Make the workshop drawings, the cut list and the cutting layout, Check the problems with a fix for each, and History every change and version.",
+    );
+    for (const t of TABS) expect(SYSTEM_PROMPT).toContain(`${t.label} `);
+    expect(SYSTEM_PROMPT).toContain("No headings and no bold, though a short table is fine for a cut list.");
+  });
+
+  it("say which tools open a tab, and following opens that tab", () => {
+    const claims = [...SYSTEM_PROMPT.matchAll(/(\w+) opens (Edit|Finish|Make|Check|History)\b/g)].map((m) => [m[1]!, m[2]!]);
+    expect(claims).toEqual([
+      ["get_cut_list", "Make"],
+      ["check_design", "Check"],
+    ]);
+    for (const [tool, label] of claims) {
+      const p = placeOf(line(tool, tool.replace(/_/g, " ")))!;
+      const opened = movesFor(push(startLive(IDLE), p, 0), null);
+      expect(TABS.find((t) => t.id === opened?.tab)?.label, tool).toBe(label);
+      expect(tabOf(p).tab).toBe(opened?.tab);
+    }
   });
 });

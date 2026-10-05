@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeView, ORBIT_SPEED, readViewCommand } from "../src/index.js";
+import { describeView, ORBIT_SPEED, readViewCommand, SIDE_TABS } from "../src/index.js";
 
 describe("view commands from outside the window", () => {
   it("keeps what it knows and says it in words", () => {
@@ -45,10 +45,25 @@ describe("view commands from outside the window", () => {
     expect(readViewCommand({ orbit: "stop", mode: "plan" })).toEqual({ mode: "plan", orbit: "stop" });
   });
 
+  // Seen in a demo: another chat had to ask Woodchuck's Claude for the cut list, since it couldn't open Make.
+  it("opens a side panel tab by its name on screen", () => {
+    expect(SIDE_TABS).toEqual(["edit", "finish", "make", "check", "history"]);
+    const make = readViewCommand({ tab: "make", from: "Crossband" });
+    expect(make).toEqual({ tab: "make", from: "Crossband" });
+    expect(describeView(make)).toBe("the Make tab open");
+    expect(describeView(readViewCommand({ look: "finished", tab: "finish" }))).toBe("the Finished look and the Finish tab open");
+    expect(describeView(readViewCommand({ select: ["shelf_2"], tab: "history" }))).toBe("shelf_2 picked and the History tab open");
+    expect(() => readViewCommand({ tab: "cut list" })).toThrow('tab "cut list" isn\'t one of edit, finish, make, check, history');
+    expect(() => readViewCommand({ tab: "Make" })).toThrow(/tab "Make" isn't one of/);
+    // Filling the window hides the side panel, so the two can't go together.
+    expect(() => readViewCommand({ tab: "check", fill: true })).toThrow(/can't go with fill/);
+    expect(readViewCommand({ tab: "check", fill: false })).toEqual({ fill: false, tab: "check" });
+  });
+
   it("refuses values it doesn't know, and an empty request", () => {
     expect(() => readViewCommand({ look: "shiny" })).toThrow(/look "shiny"/);
     expect(() => readViewCommand({ drawer: { joint: "bridle" } })).toThrow(/drawer must be/);
     expect(() => readViewCommand({ select: "shelf_2" })).toThrow(/list of part ids/);
-    expect(() => readViewCommand({ from: "Crossband" })).toThrow(/Say what to change/);
+    expect(() => readViewCommand({ from: "Crossband" })).toThrow(/Say what to change: .*drawer, tab or render/);
   });
 });

@@ -186,13 +186,15 @@ describe("view commands reach the toolbar", () => {
       from: "Crossband",
       note: "Have a look",
     });
-    // An orbit can't go with the plan views or the photo, so it comes on its own.
+    // An orbit can't go with the plan views or the photo, and a tab can't go with filling the window, so each comes on its own.
     const orbit = readViewCommand({ orbit: "start", orbitSpeed: 10 });
-    const routed = [...Object.keys(every), ...Object.keys(orbit)].filter((k) => k !== "from" && k !== "note");
+    const tab = readViewCommand({ tab: "make" });
+    const routed = [...Object.keys(every), ...Object.keys(orbit), ...Object.keys(tab)].filter((k) => k !== "from" && k !== "note");
     expect(routed.sort()).toEqual(Object.keys(ROUTES).sort());
     const ids = [...allControls(base).keys()];
     for (const [key, home] of Object.entries(ROUTES)) {
-      if (home === "canvas" || home === "drawer") continue;
+      // The model, the drawer and the side panel's tab bar are homes outside the toolbar.
+      if (home === "canvas" || home === "drawer" || home === "tabs") continue;
       expect(
         ids.some((id) => id === home || id.startsWith(`${home}.`)),
         `${key} goes to ${home}`,
@@ -272,6 +274,22 @@ describe("view commands reach the toolbar", () => {
     expect(after({ photo: true }).effects.orbit).toBe("stop");
     // With no photo kept, the photo can't come up, so nothing stops.
     expect(after({ photo: true }, view, false).effects.orbit).toBeNull();
+  });
+
+  it("opens a tab and leaves the view as it is, bringing the panels back from a full window", () => {
+    const plan = after({ mode: "plan" }).state;
+    const make = after({ tab: "make" }, plan);
+    expect(make.state).toEqual(plan);
+    expect(make.effects).toMatchObject({ tab: "make", refit: false, nudge: null, render: false, select: null, drawer: null });
+    // An orbit keeps going while a tab opens.
+    expect(after({ tab: "check" }).effects.orbit).toBeNull();
+    expect(after({ tab: "check" }).state).toEqual(view);
+    const full = after({ fill: true }).state;
+    const back = after({ tab: "history" }, full);
+    expect(back.state.full).toBe(false);
+    expect(back.controls.get("share.full")!.on).toBe(false);
+    // With anything else, the 3D view comes up, as for every other command.
+    expect(after({ tab: "make", look: "finished" }, plan).state.mode).toBe("3d");
   });
 
   it("leaves the plan views up for a command that only stops an orbit", () => {

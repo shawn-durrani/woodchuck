@@ -3,7 +3,7 @@
 // land now that the waiting change is drawn on the model.
 
 import { describe, expect, it } from "vitest";
-import { readViewCommand } from "@woodchuck/core";
+import { readViewCommand, SIDE_TABS } from "@woodchuck/core";
 import { needsYou } from "../src/designMenu.js";
 import { hideGhost, type GhostPref } from "../src/ghost.js";
 import { applyView, type ViewState } from "../src/toolbar.js";
@@ -171,6 +171,20 @@ describe("view commands land on the new tabs and the ghost", () => {
     const cleared = route({ select: [] }, { liveId: null, tab: "history" });
     expect(cleared.select).toEqual([]);
     expect(cleared.tab).toBeUndefined();
+  });
+
+  it("tab: opens that tab and the side panel, as a click on the tab does", () => {
+    expect(route({ tab: "make" }, { liveId: null, tab: "edit" })).toEqual({ tab: "make", panel: true });
+    for (const t of TABS) expect(route({ tab: t.id }, { liveId: null }).tab).toBe(t.id);
+    // A tab asked for by name wins over the Edit tab that picking parts opens.
+    const both = route({ select: ["leg_fl"], tab: "check" }, { liveId: null, tab: "make" });
+    expect(both).toEqual({ select: ["leg_fl"], tab: "check", panel: true });
+    // Picking parts alone opens Edit and leaves a folded panel folded.
+    expect(route({ select: ["leg_fl"] }, { liveId: null }).panel).toBeUndefined();
+  });
+
+  it("tab: names the same five tabs as the window", () => {
+    expect([...SIDE_TABS]).toEqual(TABS.map((t) => t.id));
   });
 
   it("leaves the ghost and the tabs alone for a command about the camera", () => {
