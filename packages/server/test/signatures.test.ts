@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { defaultClient, ON_DEMAND_BETA, Turn, type MessagesClient } from "../src/agent.js";
 import { scriptedClient, type ScriptBlock } from "../src/scripted.js";
 import { Store } from "../src/store.js";
@@ -96,7 +96,7 @@ let dir: string;
 let store: Store;
 let summaries: Summaries;
 let clock = 0;
-let log: ReturnType<typeof vi.spyOn>;
+let log: MockInstance<typeof console.log>;
 
 beforeEach(() => {
   saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
