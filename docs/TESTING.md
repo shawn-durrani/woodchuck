@@ -150,6 +150,26 @@ true or false, is refused the same way. The core tests hold each key size
 to the number it works out to, or the reason it can't. The web tests hold
 a plan's card to the model's number for each size.
 
+### Edits Claude nearly got right
+
+The core tests hold an invented plant stand to how an edit reads what it's
+sent. Wherever an expression goes, a number can come as a JSON number or
+in one pair of matching quotes. Mismatched quotes, a quoted name or sum,
+and a value that's neither text nor a number are all refused. The same add
+sent again hands back the design untouched, for every kind of add. A
+different part, joint or stand-in under a taken id is refused, and the
+refusal shows the one that's there. A thickness axis given a start and an
+end is held to words that name the material's thickness and the span to
+send, in the edit's own values. Each field that takes a list or an object
+has a case of the wrong shape, and its refusal has to end on an example of
+the right one.
+
+The server tests send a list of edits that's refused partway, then send it
+whole again. The second list runs to the end, names the edits that were
+already there, and leaves one undo step. A different joint under a taken
+id stops the list, and a single edit that's already there says it changed
+nothing.
+
 ### Summaries of a long chat
 
 The summary tests use a scripted Claude that answers requests for a

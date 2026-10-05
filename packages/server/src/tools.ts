@@ -16,6 +16,8 @@ import {
   explain,
   explainPart,
   FACES,
+  exprInput,
+  fieldExample,
   measure,
   shapeSig,
   OpError,
@@ -46,7 +48,8 @@ import {
 type Tool = Anthropic.Beta.BetaTool;
 type Schema = Record<string, unknown>;
 
-const expr = (description: string): Schema => ({ type: "string", description });
+/** An expression. A plain number may come as a JSON number too. */
+const expr = (description: string): Schema => ({ type: ["string", "number"], description });
 
 const bound: Schema = {
   description: 'Where this end sits: {"at": expression} or {"face": "part.face", "offset": expression}',
@@ -132,10 +135,13 @@ function obj(properties: Record<string, Schema>, required: string[]): Anthropic.
   return { type: "object", properties, required, additionalProperties: false } as Anthropic.Beta.BetaTool.InputSchema;
 }
 
+/** One edit in a list, as a refusal of the wrong shape quotes it. */
+const EDIT_EXAMPLE = '{"op": "set_param", "name": "shelf_depth", "expr": "320", "unit": "mm"}';
+
 /** A list of edits, as preview_change and apply_edits take it. */
 const editList = (description: string): Schema => ({
   type: "array",
-  description: `${description} Each is an edit tool's name as "op" plus that tool's input, for example {"op": "set_param", "name": "shelf_depth", "expr": "320", "unit": "mm"}`,
+  description: `${description} Each is an edit tool's name as "op" plus that tool's input, with the same fields and types as a call of that tool, for example ${EDIT_EXAMPLE}`,
   items: { type: "object", properties: { op: { type: "string" } }, required: ["op"] },
 });
 
@@ -182,7 +188,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "define_material",
-    description: "Create or change a material. thickness_mm is the measured thickness every part in it will have. Give stock sizes so the checks can tell when a part won't fit: sheet_sizes_mm as [length along the grain, width] for sheet goods, or the longest and widest board for solid timber.",
+    description: "Create or change a material. thickness_mm is the measured thickness every part in it will have. Give stock sizes so the checks can tell when a part won't fit: sheet_sizes_mm as a list of [length along the grain, width] pairs for sheet goods, such as [[2440, 1220]], or the longest and widest board for solid timber.",
     input_schema: obj(
       {
         id: { type: "string" },
@@ -191,7 +197,7 @@ export const TOOLS: Tool[] = [
         thickness_mm: { type: "number" },
         nominal_thickness_mm: { type: "number", description: "What the supplier calls it, when that differs" },
         grained: { type: "boolean", description: "True when grain direction matters for cutting" },
-        sheet_sizes_mm: { type: "array", items: { type: "array", items: { type: "number" } } },
+        sheet_sizes_mm: { type: "array", items: { type: "array", items: { type: "number" } }, description: "A list of pairs, such as [[2440, 1220]]" },
         board_max_length_mm: { type: "number" },
         board_max_width_mm: { type: "number" },
         species: { type: "string", enum: [...SPECIES_IDS], description: "The timber, so the finished view shows its grain and colour. Kept when you leave it out" },
@@ -793,10 +799,10 @@ const EDIT_SCHEMAS = new Map(TOOLS.filter((t) => EDIT_TOOLS.has(t.name)).map((t)
  * needs. A library part fills in set_hardware the same as a call of its own.
  */
 export function parseEdits(raw: unknown, library: LibraryAccess, field: string, max = Infinity): Op[] {
-  if (!Array.isArray(raw) || raw.length === 0) throw new QueryError(`${field} must list at least one edit`);
+  if (!Array.isArray(raw) || raw.length === 0) throw new QueryError(`${field} must list at least one edit. Example: "${field}": [${EDIT_EXAMPLE}]`);
   if (raw.length > max) throw new QueryError(`${field} lists ${raw.length} edits, and the most is ${max}. Split it into stages, such as the panels, then the joints, then the finishes`);
   return raw.map((item: unknown, i) => {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) throw new QueryError(`Edit ${i + 1} must be an object with "op" and that tool's input`);
+    if (typeof item !== "object" || item === null || Array.isArray(item)) throw new QueryError(`Edit ${i + 1} must be an object with "op" and that tool's input. Example: ${EDIT_EXAMPLE}`);
     const { op: name, ...rest } = item as Record<string, unknown>;
     const op = String(name ?? "");
     const schema = EDIT_SCHEMAS.get(op);
@@ -805,7 +811,10 @@ export function parseEdits(raw: unknown, library: LibraryAccess, field: string, 
     const unknown = Object.keys(rest).filter((k) => !fields.includes(k));
     if (unknown.length) throw new QueryError(`Edit ${i + 1} (${op}): ${unknown.join(", ")} ${unknown.length === 1 ? "isn't a field" : "aren't fields"} of ${op}. Its fields: ${fields.join(", ") || "none"}`);
     const missing = (schema.required ?? []).filter((k) => rest[k] === undefined);
-    if (missing.length) throw new QueryError(`Edit ${i + 1} (${op}) needs ${missing.join(", ")}`);
+    if (missing.length) {
+      const example = missing.map(fieldExample).find((x) => x !== undefined);
+      throw new QueryError(`Edit ${i + 1} (${op}) needs ${missing.join(", ")}${example ? `. Example: ${example}` : ""}`);
+    }
     return { op, ...withLibraryPart(op, rest, library) } as Op;
   });
 }
@@ -836,9 +845,12 @@ function applyEdits(input: Record<string, unknown>, ctx: ToolContext, before: De
   const beforeReport = runChecks(ctx.design(), before);
   let made = 0;
   let failed: { edit: number; op: string; error: string } | null = null;
+  // Edits the design already had as given. Each counts as made, so a list sent again runs on past them.
+  const already: string[] = [];
   for (const op of edits) {
     try {
-      ctx.apply(op);
+      const was = ctx.design();
+      if (ctx.apply(op) === was) already.push(editName(op));
       made++;
     } catch (e) {
       failed = { edit: made + 1, op: editName(op), error: e instanceof Error ? e.message : String(e) };
@@ -848,8 +860,9 @@ function applyEdits(input: Record<string, unknown>, ctx: ToolContext, before: De
   const design = ctx.design();
   const after = derive(design);
   const { ok: _ok, ...changed } = changeSummary(before, beforeReport, after, runChecks(design, after));
+  const there = already.length ? { already_there: already } : {};
   // Plain JSON with no indents, since a stage's summary can be long.
-  if (!failed) return { content: JSON.stringify({ ok: true, applied: made, ...changed }) };
+  if (!failed) return { content: JSON.stringify({ ok: true, applied: made, ...there, ...changed }) };
   const total = edits.length;
   const notRun = total - failed.edit;
   const why = failed.error.replace(/\.$/, "");
@@ -860,7 +873,7 @@ function applyEdits(input: Record<string, unknown>, ctx: ToolContext, before: De
     `Send edit ${failed.edit} fixed${notRun ? ", with the ones after it," : ""} in a new call.`,
   ].join(" ");
   return {
-    content: `${lead}\n${JSON.stringify({ ok: false, applied: made, failed, not_run: notRun, ...(made ? changed : {}) })}`,
+    content: `${lead}\n${JSON.stringify({ ok: false, applied: made, failed, not_run: notRun, ...there, ...(made ? changed : {}) })}`,
     isError: true,
     chatLine: `edit ${failed.edit} of ${total} (${failed.op}) failed: ${why}. ${made} made, ${notRun} not run`,
   };
@@ -870,9 +883,12 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
   try {
     input = withLibraryPart(name, input, ctx.library);
     if (EDIT_TOOLS.has(name)) {
-      const before = derive(ctx.design());
-      const beforeReport = runChecks(ctx.design(), before);
-      const next = ctx.apply({ op: name, ...input } as Op);
+      const was = ctx.design();
+      const before = derive(was);
+      const beforeReport = runChecks(was, before);
+      const op = { op: name, ...input } as Op;
+      const next = ctx.apply(op);
+      if (next === was) return { content: json({ ok: true, unchanged: `${editName(op)} is already there as given, so nothing changed` }) };
       const after = derive(next);
       return { content: json(changeSummary(before, beforeReport, after, runChecks(next, after))) };
     }
@@ -959,7 +975,10 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
       case "submit_plan": {
         // Every key size is worked out on the model first, so the woodworker never approves a number the model doesn't give.
         if (input.key_dims !== undefined && !Array.isArray(input.key_dims)) throw new QueryError("key_dims must be a list of { label, expr, expected_mm }");
-        const dims = (input.key_dims as Plan["key_dims"] | undefined) ?? [];
+        // An expression reads the way an edit's does, so a number in quotes is the number.
+        const dims = ((input.key_dims as Plan["key_dims"] | undefined) ?? []).map((dim) =>
+          typeof dim === "object" && dim !== null ? { ...dim, expr: exprInput(dim.expr) ?? dim.expr } : dim,
+        );
         const sizes = checkKeySizes(dims, d);
         if (sizes.some((k) => !k.ok)) return keySizeRefusal(sizes);
         const plan: Plan = {

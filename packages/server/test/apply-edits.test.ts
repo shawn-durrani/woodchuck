@@ -14,7 +14,7 @@ import { Turn, type MessagesClient } from "../src/agent.js";
 import { progress, type Item } from "../src/progress.js";
 import { scriptedClient } from "../src/scripted.js";
 import { Store } from "../src/store.js";
-import { MAX_EDITS, runTool, type ToolContext } from "../src/tools.js";
+import { MAX_EDITS, runTool, TOOLS, type ToolContext } from "../src/tools.js";
 
 type Block = Record<string, unknown>;
 
@@ -175,9 +175,17 @@ describe("apply_edits checks every edit before any runs", () => {
     expect(refused([ply, { op: "render_views" }])).toMatch(/^Edit 2: "render_views" isn't an edit tool/);
     expect(refused([ply, { ...left, colour: "red" }])).toMatch(/^Edit 2 \(add_panel\): colour isn't a field of add_panel\. Its fields: id, name, material,/);
     expect(refused([ply, { op: "set_param", name: "width" }])).toBe("Edit 2 (set_param) needs expr");
-    expect(refused([ply, "add a shelf"])).toBe('Edit 2 must be an object with "op" and that tool\'s input');
-    expect(refused([])).toBe("edits must list at least one edit");
-    expect(refused(undefined)).toBe("edits must list at least one edit");
+    const example = '{"op": "set_param", "name": "shelf_depth", "expr": "320", "unit": "mm"}';
+    expect(refused([ply, "add a shelf"])).toBe(`Edit 2 must be an object with "op" and that tool's input. Example: ${example}`);
+    expect(refused([])).toBe(`edits must list at least one edit. Example: "edits": [${example}]`);
+    expect(refused(undefined)).toBe(`edits must list at least one edit. Example: "edits": [${example}]`);
+  });
+
+  it("quotes the right shape of a missing field that takes an object or a list (#40)", () => {
+    const { x: _x, ...noX } = left;
+    expect(refused([ply, noX])).toBe('Edit 2 (add_panel) needs x. Example: "x": {"start": {"at": "0"}, "size": "600"}');
+    expect(refused([ply, { op: "set_finish", finish: "natur" }])).toBe('Edit 2 (set_finish) needs targets. Example: "targets": ["material:ply18", "shelf", "shelf.front"]');
+    expect(refused([ply, { op: "add_unverified_box", id: "lamp", name: "Lamp", reason: "No tool yet" }])).toBe('Edit 2 (add_unverified_box) needs min_mm, max_mm. Example: "min_mm": [0, 0, 0]');
   });
 
   it(`takes at most ${MAX_EDITS} edits`, () => {
@@ -191,5 +199,97 @@ describe("apply_edits checks every edit before any runs", () => {
   it("holds a preview's edits to the same fields", () => {
     const out = runTool("preview_change", { title: "Wider", explanation: "A wider shelf.", ops: [{ op: "set_param", name: "width", expr: "600", size: 2 }] }, ctx());
     expect(out).toMatchObject({ isError: true, content: expect.stringMatching(/^Edit 1 \(set_param\): size isn't a field of set_param/) });
+  });
+});
+
+// Issue #40: a list that's sent again after a refusal runs on past the edits
+// the first one made, a number may come as a JSON number or in quotes, and a
+// refusal of the wrong shape quotes the right one.
+describe("a list of edits sent again", () => {
+  const ctx = (): ToolContext => ({
+    library: { list: () => [], get: () => undefined, propose: () => ({ id: "", part: {} as never }) },
+    design: () => store.project.design,
+    apply: (op) => store.project.apply([op]),
+    requestTool: () => ({ id: "", count: 0 }),
+    renderPng: () => Buffer.from(""),
+  });
+
+  it("counts an edit that's already there as made, so the rest of the list runs", async () => {
+    const stage = (host: string) => [ply, left, right, shelf("shelf", "ply18"), dado("shelf_l", "left"), dado("shelf_r", host), oil];
+    const client = scriptedClient([
+      [call("a1", "apply_edits", { edits: stage("nope") })],
+      [call("a2", "apply_edits", { edits: stage("right") })],
+      [{ type: "text", text: "Carcass done." }],
+    ]);
+    await turn(client).run({ text: "Build a small carcass", selection: [] });
+
+    expect(String(results(client, 1)[0]!.content)).toMatch(/^Edit 6 of 7 \(add_joint shelf_r\) was refused: host "nope" isn't a part\. Edits 1 to 5 are made/);
+    const again = results(client, 2)[0]!;
+    expect(again.is_error).toBeUndefined();
+    const result = JSON.parse(String(again.content));
+    expect(result).toMatchObject({
+      ok: true,
+      applied: 7,
+      already_there: ["define_material ply18", "add_panel left", "add_panel right", "add_panel shelf", "add_joint shelf_l"],
+      added: [],
+    });
+    expect(store.project.design.joints.map((j) => j.id)).toEqual(["shelf_l", "shelf_r"]);
+    expect(store.project.design.finishes).toEqual({ "material:ply18": "satin_wood_oil/natur" });
+    expect(store.project.history).toHaveLength(1);
+  });
+
+  it("refuses a different edit under an id that's taken, and shows the one there", () => {
+    runTool("apply_edits", { edits: [ply, left, right, shelf("shelf", "ply18"), dado("shelf_l", "left")] }, ctx());
+    const out = runTool("apply_edits", { edits: [{ ...dado("shelf_l", "left"), depth: "8" }, dado("shelf_r", "right")] }, ctx());
+    expect(out.isError).toBe(true);
+    expect(String(out.content).split("\n")[0]).toBe(
+      'Edit 1 of 2 (add_joint shelf_l) was refused: Joint "shelf_l" already exists, and this one differs in depth. ' +
+        'It\'s {"type": "dado", "host": "left", "guest": "shelf", "depth": "6"}. To change it, delete_joint it and add it again, or pick a new id. ' +
+        "Nothing was changed. Edit 2 didn't run. Send edit 1 fixed, with the ones after it, in a new call.",
+    );
+  });
+
+  it("says a single edit that's already there changed nothing", () => {
+    runTool("apply_edits", { edits: [ply, left] }, ctx());
+    const before = store.project.design;
+    const { op: _op, ...fields } = left;
+    const out = runTool("add_panel", fields, ctx());
+    expect(out.isError).toBeUndefined();
+    expect(JSON.parse(String(out.content))).toEqual({ ok: true, unchanged: "add_panel left is already there as given, so nothing changed" });
+    expect(store.project.design).toBe(before);
+  });
+
+  it("takes a number as a JSON number or in quotes wherever an expression goes", () => {
+    const tool = (name: string) => TOOLS.find((t) => t.name === name)!;
+    const props = (name: string) => tool(name).input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props("set_cutout").radius!.type).toEqual(["string", "number"]);
+    expect(props("set_param").expr!.type).toEqual(["string", "number"]);
+    expect(props("add_joint").depth!.type).toEqual(["string", "number"]);
+    const out = runTool(
+      "apply_edits",
+      { edits: [ply, { ...left, y: { start: { at: 0 }, size: '"600"' } }, { op: "set_cutout", id: "left", cut: "hole", shape: "circle", centre: { y: { at: 300 }, z: { at: "'150'" } }, diameter: '"20"' }] },
+      ctx(),
+    );
+    expect(out.isError).toBeUndefined();
+    const side = store.project.design.parts[0]!;
+    expect(side.y).toEqual({ start: { at: "0" }, size: "600" });
+    expect(side.cuts).toEqual([{ id: "hole", kind: "cutout", shape: "circle", centre: { y: { at: "300" }, z: { at: "150" } }, diameter: "20" }]);
+  });
+
+  it("reads a plan's key size the same way, then checks it on the model", () => {
+    runTool("apply_edits", { edits: [ply, left] }, ctx());
+    const plan = (expr: unknown) => ({ summary: "One side.", parts: [], key_dims: [{ label: "Side height", expr, expected_mm: 600 }], joints: [], assumptions: [] });
+    expect(runTool("submit_plan", plan("'600'"), ctx()).isError).toBeUndefined();
+    expect(store.project.design.plan!.key_dims).toEqual([{ label: "Side height", expr: "600", expected_mm: 600, model_mm: 600 }]);
+    // A quoted face isn't a number, so it stays as sent and the model can't work it out.
+    const out = runTool("submit_plan", plan('"left.top"'), ctx());
+    expect(out.isError).toBe(true);
+    expect(String(out.content)).toMatch(/^The plan wasn't pinned\. 1 of 1 key size doesn't match the model:\n- Side height: can't work out "left\.top"/);
+  });
+
+  it("tells the shape of a material's sheet sizes, in its description and when they're wrong", () => {
+    expect(TOOLS.find((t) => t.name === "define_material")!.description).toContain("such as [[2440, 1220]]");
+    const out = runTool("apply_edits", { edits: [{ ...ply, sheet_sizes_mm: [2440, 1220] }] }, ctx());
+    expect(String(out.content)).toMatch(/^Edit 1 of 1 \(define_material ply18\) was refused: sheet_sizes_mm must be a list of \[length along the grain, width\] pairs in mm\. Example: "sheet_sizes_mm": \[\[2440, 1220\]\]\./);
   });
 });
