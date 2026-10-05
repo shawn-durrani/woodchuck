@@ -13,7 +13,7 @@
 // pigment below are its output: after changing a swatch or a cover, run
 // `npx tsx scripts/fit-oil-colours.ts` to write them again.
 
-import { SPECIES, type Species } from "./species.js";
+import { SPECIES, speciesOf, type Species } from "./species.js";
 import { FACES, type Design, type Face } from "./types.js";
 import type { DerivedPart } from "./derive.js";
 import { faceAreas } from "./profile.js";
@@ -400,6 +400,24 @@ export function finishedColour(speciesId: string | undefined, finishId: string |
   if (!finishId || finishId === RAW) return toHex(rawColour(s));
   const f = lookupFinish(finishId);
   if (!f) return toHex(oiledColour(s));
+  return toHex(applyFinish(f.colour.base === "raw" ? rawColour(s) : oiledColour(s), f.colour));
+}
+
+/**
+ * One face of a part as a single flat colour, as the Finished look draws
+ * it without its grain: the timber's average, bare or oiled, with that
+ * face's finish on it. A finish the cards don't know shows as bare timber,
+ * as it does in the 3D view.
+ */
+export function finishedFaceColour(
+  design: Pick<Design, "materials" | "finishes">,
+  p: Pick<DerivedPart, "id" | "source" | "copy" | "material">,
+  face: Face,
+): string {
+  const s = speciesOf(design.materials.find((m) => m.id === p.material));
+  const id = finishOn(design, p, face);
+  const f = id ? lookupFinish(id) : null;
+  if (!f) return toHex(rawColour(s));
   return toHex(applyFinish(f.colour.base === "raw" ? rawColour(s) : oiledColour(s), f.colour));
 }
 

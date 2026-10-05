@@ -5,6 +5,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { recallChat } from "./recall.js";
+import type { RenderOptions } from "./render.js";
 import type { ChatItem } from "./store.js";
 import {
   cutList,
@@ -510,10 +511,13 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "render_views",
-    description: "Draw the design from fixed cameras and look at it. Part ids are written on the parts. Use it once a build or a big change is done, to catch gross mistakes; a size tweak doesn't need it. Trust the numbers for exact sizes.",
+    description:
+      "Draw the design from fixed cameras and look at it. Part ids are written on the parts. Use it once a build or a big change is done, to catch gross mistakes; a size tweak doesn't need it. Trust the numbers for exact sizes. " +
+      "The plain look, the default, is for geometry, ids and sizes. The finished look draws each face in its timber with its finish, as flat colours: use it to check colours or finishes before you tell the woodworker they're on. Its colours are estimates, like the app's.",
     input_schema: obj(
       {
         views: { type: "array", items: { type: "string", enum: [...VIEW_NAMES] }, description: "Default: front, top, left, iso" },
+        look: { type: "string", enum: ["plain", "finished"], description: "Default: plain" },
         highlight: { type: "array", items: { type: "string" }, description: "Parts to outline" },
         isolate: { type: "array", items: { type: "string" }, description: "Draw only these parts (an original part includes its array copies)" },
         see_through: { type: "boolean", description: "Draw parts faint and show joints: tongues and tenons, cut-outs in red, screws and dowels as rods. Isolate a few parts to keep it readable" },
@@ -664,7 +668,7 @@ export interface ToolContext {
   /** Applies one operation as Claude. Throws OpError when it's refused. */
   apply(op: Op): Design;
   requestTool(req: ToolRequest): { id: string; count: number };
-  renderPng(views: ViewName[], opts: { highlight?: string[]; isolate?: string[]; xray?: boolean }): Buffer;
+  renderPng(views: ViewName[], opts: RenderOptions): Buffer;
   /** The design's whole chat, as saved, for recall_chat. */
   chat?(): ChatItem[];
 }
@@ -960,15 +964,19 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         const views = ((input.views as string[] | undefined)?.length ? input.views : ["front", "top", "left", "iso"]) as ViewName[];
         const bad = views.filter((v) => !(VIEW_NAMES as readonly string[]).includes(v));
         if (bad.length) throw new QueryError(`Unknown view ${bad.join(", ")}. Views: ${VIEW_NAMES.join(", ")}`);
+        const look = input.look ?? "plain";
+        if (look !== "plain" && look !== "finished") throw new QueryError(`Unknown look ${String(look)}. Looks: plain, finished`);
         const png = ctx.renderPng(views, {
           highlight: input.highlight as string[] | undefined,
           isolate: input.isolate as string[] | undefined,
           xray: input.see_through === true,
+          look,
         });
+        const finished = look === "finished" ? ", finished look. Each face shows its timber with its finish as one flat colour, an estimate like the app's" : "";
         return {
           content: [
             { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } },
-            { type: "text", text: `Views: ${views.join(", ")}. Part ids are written on the parts. Overall sizes are marked on the flat views.` },
+            { type: "text", text: `Views: ${views.join(", ")}${finished}. Part ids are written on the parts. Overall sizes are marked on the flat views.` },
           ],
         };
       }

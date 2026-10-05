@@ -28,6 +28,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AXIS_INDEX, derive, FACE_AXIS, segmentDistance, type Axis, type AxisSpec, type Bound, type DeriveResult, type Design, type Face, type PanelCut, type ProfileCut, type Pt, type ViewName } from "@woodchuck/core";
 import { cacheControl, cacheTtl, systemPrompt, type CacheTtl } from "./prompt.js";
+import type { RenderOptions } from "./render.js";
 import type { ChatItem, Compaction, Job, Pending, Pin, Project, Refused, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import type { Summaries } from "./summaries.js";
@@ -824,7 +825,7 @@ export class Turn {
     private store: Store,
     private client: MessagesClient,
     private events: TurnEvents,
-    private renderPng: (project: Project, views: ViewName[], opts: { highlight?: string[]; isolate?: string[]; xray?: boolean }) => Buffer,
+    private renderPng: (project: Project, views: ViewName[], opts: RenderOptions) => Buffer,
     private library: LibraryAccess = EMPTY_LIBRARY,
     /** Tests pass no waits. */
     private retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,

@@ -490,6 +490,13 @@ room sits behind the model at its true size. The optional AI blend may
 relight only the piece and its shadow, through a mask, and the rest of the
 photo stays as taken.
 
+The pictures Claude looks at are plan views drawn on the server, with no
+browser, so they're quick and need no key to test. They come in the plain
+look or the finished one. The finished look gives each face the average
+colour of its timber with its finish on it. That's the same arithmetic as
+the 3D view's Finished look, without the grain or the lighting, so Claude
+can check the colours before it says they're on.
+
 An image model can quietly change drawer counts and proportions, so a blend
 is labelled as not to scale, on screen and in the corner of the saved
 picture. The page draws the label as it makes the copy to save, since the

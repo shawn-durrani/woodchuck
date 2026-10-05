@@ -65,12 +65,22 @@ end, each hole's place and size, and a part turned over for its machining.
 The views, the drawings and their PDF of every example with no cuts have to
 match fixed digests.
 
+### Finishes
+
 The finish tests hold every tinted Linolie colour to its photo on Douglas fir,
 to within a shade the eye can barely tell. They check that no tint leans away
 from its oil's own colour, and that a dark oil gains no colour on pale
 timber that its photo lacks. Kyoto has to stay near-black on every timber,
 and the Osmo oils stay as modelled. A test also fails when a stored tint or
 pigment differs from what `scripts/fit-oil-colours.ts` would write.
+
+The finished look of the views is tested on an invented bedside cabinet.
+Each face has to take the colour its finish gives on its timber, by the
+colour cards' own arithmetic. That finish comes from the face, its part or
+its material, and a face with none shows bare timber. An array's copies
+take their original's finish, and a stand-in stays hatched. A shaped panel
+keeps its holes open in its finish, and a slope takes its top's. The plain
+look has to stay the same whatever the finishes.
 
 ### The server
 
@@ -169,6 +179,15 @@ whole again. The second list runs to the end, names the edits that were
 already there, and leaves one undo step. A different joint under a taken
 id stops the list, and a single edit that's already there says it changed
 nothing.
+
+### Claude's pictures
+
+`render_views` is held to the plain look unless Claude asks for the
+finished one, and to refusing a look it doesn't have. Its words say when
+the colours are estimates. The plain look's sheet has to match the core
+sheet byte for byte. The record console takes two invented finishes, and
+the finished sheet has to show each one. A scripted Claude sets those
+finishes and asks for the finished look, and gets a picture of it back.
 
 ### Summaries of a long chat
 

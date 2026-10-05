@@ -6,11 +6,17 @@
 // as its true solid, with its holes left open. Joinery tongues sit inside
 // their hosts, so they'd never show, and leaving them out keeps the drawing
 // order exact.
+//
+// The plain look gives each material a flat colour of its own. The finished
+// look gives each face the colour the Finished look's timber and finish
+// average out to, from finishes.ts, so Claude can see the colours too.
 
 import { AXIS_INDEX, type Box, type DeriveResult, type DerivedPart, type Vec3 } from "./derive.js";
 import { fmt } from "./expr.js";
+import { finishedFaceColour } from "./finishes.js";
 import { solidOf, type Solid, type SolidWall } from "./outline.js";
 import { sliceIntervals, type Pt } from "./shape.js";
+import type { Design, Face } from "./types.js";
 
 export type ViewName = "front" | "back" | "top" | "left" | "right" | "iso";
 export const VIEW_NAMES: readonly ViewName[] = ["front", "back", "top", "left", "right", "iso"];
@@ -72,6 +78,12 @@ export interface ViewOptions {
   xray?: boolean;
   /** The sheet's colours, where they differ from white paper. */
   paper?: Partial<PaperColours>;
+  /**
+   * The finished look, from this design's materials and finishes: each face
+   * in its timber's average colour with its finish on it. Without it, the
+   * plain look.
+   */
+  finished?: Pick<Design, "materials" | "finishes">;
 }
 
 /** The sheet to draw on: white paper, with any colours asked for that are safe to draw. */
@@ -142,6 +154,25 @@ function colourFor(p: DerivedPart): string {
   if (p.unverified) return "#f0a24a";
   if (p.decor) return "#c9c9c9";
   return WOOD[hash(p.material) % WOOD.length]!;
+}
+
+/**
+ * A face's colour before its light. In the finished look a part of timber
+ * takes its face's finish, while hardware, decor and stand-ins keep their
+ * plain colours, as they do in the 3D view.
+ */
+function faceBase(p: DerivedPart, face: Face, finished: ViewOptions["finished"]): string {
+  if (!finished || p.material === HARDWARE || p.decor || p.unverified) return colourFor(p);
+  return finishedFaceColour(finished, p, face);
+}
+
+/** A line round a finished face that shows on it: darker on a light colour, lighter on a dark one. */
+function edgeOn(fill: string): string {
+  const n = parseInt(fill.slice(1), 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const light = 0.2126 * rgb[0]! + 0.7152 * rgb[1]! + 0.0722 * rgb[2]!;
+  if (light >= 64) return shade(fill, 0.6);
+  return `#${rgb.map((c) => Math.round(c + (255 - c) * 0.45).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function esc(s: string): string {
@@ -228,21 +259,23 @@ export interface ViewFace {
   /** Holes in the face, drawn open with the even-odd rule. Only a shaped part's broad face has them. */
   holes?: P2[][];
   light: number;
+  /** The part's face it counts as, for its finish. */
+  face: Face;
 }
 
 /** Visible faces of a box as polygons, nearest-facing first. */
-function faces(view: ViewName, b: Box): { pts: P2[]; light: number }[] {
+function faces(view: ViewName, b: Box): ViewFace[] {
   const v = VIEWER[view];
-  const out: { pts: P2[]; light: number }[] = [];
+  const out: ViewFace[] = [];
   const [x0, y0, z0] = b.min;
   const [x1, y1, z1] = b.max;
-  const quad = (pts: [number, number, number][], light: number) =>
-    out.push({ pts: pts.map(([x, y, z]) => project(view, x, y, z)), light });
-  if (v[0] > 0) quad([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], 0.82);
-  if (v[0] < 0) quad([[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]], 0.9);
-  if (v[1] > 0) quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], 1.08);
-  if (v[2] > 0) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 1);
-  if (v[2] < 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], 0.95);
+  const quad = (pts: [number, number, number][], light: number, face: Face) =>
+    out.push({ pts: pts.map(([x, y, z]) => project(view, x, y, z)), light, face });
+  if (v[0] > 0) quad([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], 0.82, "right");
+  if (v[0] < 0) quad([[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]], 0.9, "left");
+  if (v[1] > 0) quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], 1.08, "top");
+  if (v[2] > 0) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 1, "front");
+  if (v[2] < 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], 0.95, "back");
   return out;
 }
 
@@ -274,13 +307,13 @@ export function partFaces(view: ViewName, p: Pick<DerivedPart, "nominal" | "prof
   const hidden = behindWood(solid, v);
   const walls = solid.walls
     .filter((w) => facing(w.normal) && !hidden(w))
-    .map((w) => ({ at: depth(w.corners), face: { pts: w.corners.map(flat), light: lightOf(w.normal) } }))
+    .map((w) => ({ at: depth(w.corners), face: { pts: w.corners.map(flat), light: lightOf(w.normal), face: w.face } }))
     .sort((a, b) => a.at - b.at)
     .map((w) => w.face);
   const cap = solid.caps.find((c) => facing(c.normal));
   if (!cap) return walls;
   const [outline, ...holes] = cap.loops.map((l) => l.map(flat));
-  return [...walls, { pts: outline!, ...(holes.length ? { holes } : {}), light: lightOf(cap.normal) }];
+  return [...walls, { pts: outline!, ...(holes.length ? { holes } : {}), light: lightOf(cap.normal), face: cap.face }];
 }
 
 /**
@@ -414,20 +447,21 @@ function viewBody(view: ViewName, d: DeriveResult, opts: ViewOptions, w: number,
     faces: partFaces(view, p).map((f): ViewFace => ({ ...f, pts: f.pts.map(tx), ...(f.holes ? { holes: f.holes.map((h) => h.map(tx)) } : {}) })),
   }));
   for (const { p, faces: fs } of drawn) {
-    const base = colourFor(p);
     const hl = highlight.has(p.id) || highlight.has(p.source);
     // A solid part's outline sits on its own colour. A see-through one has only the outline to show it.
     const stroke = hl ? "#d6336c" : opts.xray ? paper.edge : "#3b2f25";
     const sw = hl ? 2.2 : 0.8;
     const opacity = opts.xray ? ' fill-opacity="0.12"' : "";
     for (const f of fs) {
-      const fill = p.unverified ? "url(#unverified)" : shade(base, f.light);
+      const fill = p.unverified ? "url(#unverified)" : shade(faceBase(p, f.face, opts.finished), f.light);
+      // A finished face is outlined in a shade of its own colour, so the line shows on a dark oil too.
+      const edge = opts.finished && !hl && !opts.xray && !p.unverified ? edgeOn(fill) : stroke;
       if (f.holes) {
-        out.push(`<path d="${evenOddPath([f.pts, ...f.holes])}" fill-rule="evenodd" fill="${fill}"${opacity} stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`);
+        out.push(`<path d="${evenOddPath([f.pts, ...f.holes])}" fill-rule="evenodd" fill="${fill}"${opacity} stroke="${edge}" stroke-width="${sw}" stroke-linejoin="round"/>`);
         continue;
       }
       const pts = f.pts.map((q) => q.map((v) => v.toFixed(1)).join(",")).join(" ");
-      out.push(`<polygon points="${pts}" fill="${fill}"${opacity} stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`);
+      out.push(`<polygon points="${pts}" fill="${fill}"${opacity} stroke="${edge}" stroke-width="${sw}" stroke-linejoin="round"/>`);
     }
   }
   if (opts.xray) {
@@ -506,6 +540,11 @@ const TITLES: Record<ViewName, string> = {
   iso: "Isometric",
 };
 
+/** A view's title, naming see-through and the finished look when they're on, such as "Front, finished". */
+function titleOf(view: ViewName, opts: ViewOptions): string {
+  return `${TITLES[view]}${opts.xray ? " (see-through)" : ""}${opts.finished ? ", finished" : ""}`;
+}
+
 export function renderView(view: ViewName, d: DeriveResult, opts: ViewOptions = {}): RenderedView {
   const w = opts.width ?? 640;
   const h = opts.height ?? 480;
@@ -514,7 +553,7 @@ export function renderView(view: ViewName, d: DeriveResult, opts: ViewOptions = 
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Helvetica, Arial, sans-serif">` +
     DEFS +
     `<rect width="${w}" height="${h}" fill="${paper.background}"/>` +
-    `<text x="12" y="20" font-size="13" font-weight="bold" fill="${paper.ink}">${TITLES[view]}${opts.xray ? " (see-through)" : ""}</text>` +
+    `<text x="12" y="20" font-size="13" font-weight="bold" fill="${paper.ink}">${titleOf(view, opts)}</text>` +
     viewBody(view, d, opts, w, h) +
     `</svg>`;
   return { svg, width: w, height: h };
@@ -534,7 +573,7 @@ export function renderSheet(views: ViewName[], d: DeriveResult, opts: ViewOption
     const y = Math.floor(i / cols) * ch;
     return (
       `<g transform="translate(${x} ${y})"><rect width="${cw}" height="${ch}" fill="${paper.background}" stroke="${paper.rule}"/>` +
-      `<text x="12" y="20" font-size="13" font-weight="bold" fill="${paper.ink}">${TITLES[v]}${opts.xray ? " (see-through)" : ""}</text>` +
+      `<text x="12" y="20" font-size="13" font-weight="bold" fill="${paper.ink}">${titleOf(v, opts)}</text>` +
       viewBody(v, d, opts, cw, ch) +
       `</g>`
     );
