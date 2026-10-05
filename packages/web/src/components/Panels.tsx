@@ -130,7 +130,10 @@ export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect
   if (!rows.length) return <div className="empty">Nothing to cut yet.</div>;
   return (
     <div className="panel-body">
-      <p className="muted">Cut sizes include joinery. Lengths run along the grain.</p>
+      <p className="muted">
+        Cut sizes include joinery. Lengths run along the grain.
+        {rows.some((r) => r.shape?.length) && " A shaped part is cut from the blank these sizes give, and its row says how."}
+      </p>
       <table className="cut">
         <thead>
           <tr>
@@ -145,11 +148,16 @@ export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.row} onClick={() => onSelect(r.parts)} title={r.machining.join("\n")}>
+            <tr key={r.row} onClick={() => onSelect(r.parts)} title={[...r.machining, ...(r.shape ?? [])].join("\n")}>
               <td>{r.row}</td>
               <td>
                 {r.name}
                 {r.machining.length > 0 && <span className="muted small"> · {r.machining.length} machining</span>}
+                {r.shape?.map((s) => (
+                  <div key={s} className="shape-note small muted">
+                    {s}
+                  </div>
+                ))}
               </td>
               <td>{r.qty}</td>
               <td>{r.length_mm}</td>
