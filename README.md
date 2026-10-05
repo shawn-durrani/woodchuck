@@ -8,6 +8,8 @@ every change and set out on a cut list and workshop drawings you can trust
 before you cut timber. It runs on your own computer and keeps your designs
 there.
 
+![Woodchuck with a freestanding Douglas fir bookshelf: the chat with Claude on the left, the finished 3D model in the middle, and the oil colour cards on the right](docs/images/woodchuck.png)
+
 ## Get it running
 
 You need these.
