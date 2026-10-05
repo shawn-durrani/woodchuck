@@ -8,6 +8,10 @@
 // design's existing parameters can also change straight away, through the
 // same operations as the app's own controls.
 //
+// Any tool but the two that send Woodchuck's Claude a message also asks the
+// app to warm its prompt cache, which it does only once the cache has gone
+// cold, so the next message doesn't wait on a cold cache.
+//
 // Run it with: tsx packages/server/src/mcp.ts (WOODCHUCK_URL defaults to
 // http://127.0.0.1:8905).
 
@@ -435,6 +439,25 @@ export function paramChangeText(planned: PlannedChange[], change: EditSummary, u
   return lines.join("\n");
 }
 
+/** The least time between two asks to warm Woodchuck's cache. Woodchuck decides whether one is needed. */
+const WARM_ASK_EVERY_MS = 60_000;
+let warmAskedAt = -Infinity;
+
+/**
+ * Asks Woodchuck to warm its Claude's prompt cache, without waiting. A tool
+ * call from another app is a sign the woodworker is about to talk about the
+ * design, and Woodchuck sends a warm-up only when the cache has gone cold.
+ * The tools that send its Claude a message never ask, since that message
+ * writes the cache itself.
+ */
+function warmUp() {
+  if (Date.now() - warmAskedAt < WARM_ASK_EVERY_MS) return;
+  warmAskedAt = Date.now();
+  void fetch(`${BASE}/api/warm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from: "mcp" }) })
+    .then((r) => r.body?.cancel())
+    .catch(() => undefined);
+}
+
 async function getState(): Promise<AppState> {
   const r = await fetch(`${BASE}/api/state`);
   if (!r.ok) throw new Error(`Woodchuck answered ${r.status}`);
@@ -543,6 +566,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       inputSchema: {},
     },
     async () => {
+      warmUp();
       try {
         const p = await watch(replyWait);
         return withProgress(p.state === "running" ? `It's still working.\n${progressText(p)}` : answer(p), p);
@@ -561,6 +585,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       inputSchema: {},
     },
     async () => {
+      warmUp();
       try {
         const p = await getProgress();
         const said = hasReply(p.state) ? `\n\n${p.reply}` : "";
@@ -637,6 +662,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       },
     },
     async (a) => {
+      warmUp();
       try {
         const view: Record<string, unknown> = { from: CALLER };
         if (a.plan_views !== undefined) view.mode = a.plan_views ? "plan" : "3d";
@@ -683,6 +709,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       },
     },
     async ({ targets, finish }) => {
+      warmUp();
       try {
         const id = normaliseFinish(finish);
         if (!id) return text(`"${finish}" isn't a colour Woodchuck knows. Call woodchuck_colours for the list.`);
@@ -727,6 +754,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       },
     },
     async ({ params, confirmed }) => {
+      warmUp();
       try {
         const plan = planParams((await getState()).design, params);
         if ("refused" in plan) return text(`Nothing changed. ${plan.refused}`);
@@ -756,6 +784,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       inputSchema: {},
     },
     async () => {
+      warmUp();
       try {
         return text(designText(await getState()));
       } catch (e) {
@@ -771,7 +800,10 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       description: "List the finishes Woodchuck knows: the Linolie Satin Wood Oil colours with how each looks on Douglas fir, and the Osmo Polyx-Oils. Use the name or number with woodchuck_finish.",
       inputSchema: {},
     },
-    async () => text(colourCards()),
+    async () => {
+      warmUp();
+      return text(colourCards());
+    },
   );
 
   server.registerTool(
@@ -782,6 +814,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       inputSchema: {},
     },
     async () => {
+      warmUp();
       try {
         return text(summarise(await getState()));
       } catch (e) {
@@ -804,6 +837,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       },
     },
     async ({ preview, look, lighting, view }) => {
+      warmUp();
       try {
         const q = new URLSearchParams({ look: look ?? "finished", lighting: lighting ?? "daylight", view: view ?? "iso" });
         if (preview) {

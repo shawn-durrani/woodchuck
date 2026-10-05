@@ -26,6 +26,7 @@ import { isFace } from "./select";
 import { PreviewDrawer, type Drawer } from "./components/PreviewDrawer";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { NO_SLOTS, openSlot, type Slots } from "./waiting";
+import { warmWhenSeen } from "./warm";
 import { draftView, ghostShown, hideGhost, livePreview, modelView, previewChange, seeIt, showGhost, type GhostPref, type PreviewResult, type Side } from "./ghost";
 import { ALL_SECTIONS, PILL_TAB, readMake, readTab, routeView, tabAfterPick, waitingIn, type MakeView, type Section, type Tab } from "./tabs";
 import { boxOf } from "./checkFixes";
@@ -543,6 +544,9 @@ export function App() {
       setGhostPref(null);
     }
   }, [state]);
+
+  // A window that opens or comes back into view warms Claude's prompt cache, if it's gone cold.
+  useEffect(() => warmWhenSeen(document, () => void post("/api/warm", { from: "window" }).catch(() => undefined)), []);
 
   // After an update the server serves a new build. Reload onto it when
   // nothing would be lost: no unsent message, and Claude isn't replying.

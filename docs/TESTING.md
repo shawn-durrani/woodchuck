@@ -186,6 +186,27 @@ the rough count stands in. It counts a picture as 5,000 tokens and a
 document as 30,000, wherever they sit, and never reads a signature or
 encoded data as words.
 
+### Warming the cache
+
+The warm-up tests use a scripted Claude that also answers a request sent
+whole, and a clock the test moves. A warm-up goes when a design is opened,
+a window comes into view or an MCP tool is called, once the design's last
+request is older than the cache lasts. The tests hold it to none within
+that time, on either lifetime. They also allow none for an empty chat, none
+while Claude works or a summary is written, and none with
+`WOODCHUCK_CACHE_PREWARM=off`. A failed one waits a cache lifetime too. A
+turn that starts stops one on its way, and so does closing the app. The
+restart gate never waits on one.
+
+The warm-up has to match the next turn's first request byte for byte, in
+everything but its size and where its cache point sits. That's checked on
+a plain chat, on one with effort messages and a stored summary, and on one
+waiting on Claude's question. A chat at the size where the API summarises
+it isn't warmed. Each warm-up's tokens go in `warmups.json`, the chat stays
+as it was, and turn-stats counts them apart from the turns. In the web
+tests, a window asks for one as it opens in view and each time it comes
+back, and never while it's out of view.
+
 ### Timing, dropped connections and backups
 
 Each turn's usage line is held to its timing on a fake clock. That covers
@@ -340,7 +361,9 @@ It prints a line per turn, then the median and 90th percentile of rounds,
 seconds and tokens. It also gives the share of requests that carried more
 than one tool call, and how often a turn started on a cold cache. It
 tallies the level of every request and the rule behind each turn, and
-the edits made through apply_edits. Designs
+the edits made through apply_edits. Warm-ups of the cache aren't turns,
+and it sums up their tokens, times and what set them off on a line of
+their own. Designs
 are numbered, and it prints no names, chat text or design content. Turns
 from older chats have no timing of their own. The script rebuilds their
 rounds and tool calls from the saved conversation, and their seconds from

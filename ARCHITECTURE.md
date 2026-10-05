@@ -323,6 +323,43 @@ longer lifetime to come before a shorter one. The app reads the setting
 once a turn, like your workshop, so every request in a turn matches the
 one before it apart from the chat.
 
+## A cold cache is warmed before you speak
+
+A cold cache makes the next reply write the whole chat before Claude can
+start, which takes many seconds on a long chat. The cache goes cold once
+its lifetime has passed since the last request, and a restart can bring
+new instructions or tools that the old cache doesn't match. Woodchuck warms it in the background
+while you're still looking. Opening a design, a window coming into view
+and another app calling a Woodchuck tool each ask for a warm-up. The tools
+that send Claude a message don't ask, since that message writes the cache
+itself.
+
+A warm-up goes only when the open design's chat isn't empty, Claude isn't
+working or summarising, and the design's last request is older than the
+cache lasts. A restart forgets when that was, so the first ask after one
+warms the design whatever the gap. A design gets one at most once a cache
+lifetime, even when it fails. It waits two seconds first, so clicking
+through designs warms only the one you stop on. A turn that starts
+meanwhile stops it, and the restart gate doesn't wait on one, since the
+next reply writes the cache itself if a restart cuts one short.
+
+The warm-up is a copy of the next request that asks for no reply. With
+`max_tokens` at 0 the API writes the cache, answers nothing and bills no
+output, as the
+[prompt caching docs](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+describe. It isn't streamed, since the API refuses that with a zero size.
+The same code builds it as every request in a turn, so the two match in
+everything the cache reads: the model, instructions, tools, thinking,
+effort and betas, and the chat with its summary and effort messages. Only
+its cache point differs. It sits on the last block of the chat as it
+stands, with the same lifetime, and a placeholder message follows it where
+your next message will go. A cache point isn't part of what the cache
+matches, so the next turn reads that entry. A chat at the size where the
+API summarises inside a request isn't warmed, since the summary starts a
+new cache. Each warm-up's tokens and time go in a file beside the chat,
+where turn-stats counts them, and the chat never shows them.
+[CONFIG.md](docs/CONFIG.md) says what one costs and how to turn them off.
+
 ## Each turn thinks as hard as it needs
 
 Thinking is most of the wait on a turn, and a colour try needs far less of

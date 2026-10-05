@@ -21,15 +21,18 @@
 // Each turn picks how hard Claude thinks (route.ts). The request's own
 // level never changes, since that would restart the cache, so a turn sets
 // its level with an effort message in the chat, only when the level changes.
+//
+// Every request comes from nextRequest(). A warm-up of the cache (warm.ts)
+// sends a copy of the next one, so the two always match.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { AXIS_INDEX, derive, FACE_AXIS, segmentDistance, type Axis, type AxisSpec, type Bound, type DeriveResult, type Design, type Face, type PanelCut, type ProfileCut, type Pt, type ViewName } from "@woodchuck/core";
-import { cacheControl, cacheTtl, systemPrompt } from "./prompt.js";
+import { cacheControl, cacheTtl, systemPrompt, type CacheTtl } from "./prompt.js";
 import type { ChatItem, Compaction, Job, Pending, Pin, Project, Refused, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import type { Summaries } from "./summaries.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
-import { searchCountry } from "./workshop.js";
+import { searchCountry, type Workshop } from "./workshop.js";
 
 /** Models the chat can use. All take the same request: adaptive thinking, effort, effort messages and fallbacks. */
 export const MODELS = [
@@ -444,6 +447,8 @@ export interface MessagesClient {
   };
   /** The API's token count for a request, which is free. A client without it gets a rough count instead. */
   countTokens?(params: Anthropic.Beta.Messages.MessageCountTokensParams): Promise<{ input_tokens: number }>;
+  /** A request answered in one piece, not streamed, for warming the cache. A client without it never warms. */
+  create?(body: Anthropic.Beta.MessageCreateParamsNonStreaming, options?: { signal?: AbortSignal }): Promise<Anthropic.Beta.BetaMessage>;
 }
 
 /** The parts of the SDK's stream that keepSignatures reads. */
@@ -498,6 +503,7 @@ export function defaultClient(client: Anthropic = new Anthropic()): MessagesClie
   return {
     stream: (body) => keepSignatures(client.beta.messages.stream(body)),
     countTokens: (params) => client.beta.messages.countTokens(params),
+    create: (body, options) => client.beta.messages.create(body, options),
   };
 }
 
@@ -641,6 +647,154 @@ export function editsIn(calls: readonly { name: string; input: unknown }[]): num
   }, 0);
 }
 
+/** Claude's tools for a workshop: the woodworking tools, then the web tools searching in its country. */
+function toolsFor(workshop: Workshop) {
+  return [...TOOLS, ...webTools(searchCountry(workshop))];
+}
+
+/**
+ * What every request in a turn shares: the instructions, the tools, the
+ * cache's lifetime and the size a single long turn is summarised at. A turn
+ * reads them once, so a change to the workshop or a setting never splits
+ * the cache mid-turn. A warm-up reads them the same way.
+ */
+export interface RequestSettings {
+  system: Anthropic.Beta.BetaTextBlockParam[];
+  tools: ReturnType<typeof toolsFor>;
+  ttl: CacheTtl;
+  /** The size at which a single long turn is summarised while it runs, or null with summaries off. */
+  fallbackAt: number | null;
+}
+
+export function requestSettings(workshop: Workshop, ttl: CacheTtl = cacheTtl(), fallbackAt: number | null = compactAt()): RequestSettings {
+  return { system: systemPrompt(workshop, ttl), tools: toolsFor(workshop), ttl, fallbackAt };
+}
+
+/** The next request to Claude, and what a turn keeps about it. */
+export interface NextRequest {
+  /** The messages it carries, from the latest summary on. */
+  sent: Anthropic.Beta.BetaMessageParam[];
+  /** Whether it starts from a summary written between turns. */
+  summarised: boolean;
+  body: Anthropic.Beta.MessageCreateParamsStreaming;
+  /** Where it ends in the saved chat. */
+  upto: number;
+  /** Which summary it starts from. */
+  base: string;
+  /** The level it's written at. */
+  effort: Effort;
+}
+
+/**
+ * The next request to Claude, from the chat as it stands. A turn sends one
+ * for every step, and a warm-up sends a copy of it, so the two can't drift.
+ */
+export function nextRequest(project: Project, settings: RequestSettings): NextRequest {
+  const sent = sendable(project.messages, project.compactions, project.refused);
+  // The API can't summarise at a threshold on a request that carries a
+  // summary written between turns, so that request sends no trigger.
+  const summarised = onDemandSummary(project.messages, project.compactions, project.refused) !== null;
+  const compactTrigger = summarised ? null : settings.fallbackAt;
+  const body = {
+    // Switching models mid-conversation is fine: other models skip the
+    // earlier thinking blocks, and the history stays append-only.
+    model: project.model ?? MODEL,
+    max_tokens: 64000,
+    // Tools render first, then the system blocks, so the breakpoint on
+    // the workshop block caches all of them. The top-level breakpoint
+    // caches the history. Both last as long as WOODCHUCK_CACHE_TTL
+    // says, an hour unless it's set to five minutes.
+    system: settings.system,
+    tools: settings.tools,
+    messages: sent,
+    // Each thinking block is tied to the instructions, tools and chat
+    // it came from. A changed prompt, tool list or workshop would
+    // otherwise refuse an open chat, so the API drops the thinking
+    // that no longer fits instead, on every request that carries it.
+    thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
+    // The request's own level stays the same all chat long, so the
+    // cache holds. Effort messages in the chat lower or raise it.
+    output_config: { effort: EFFORT },
+    cache_control: cacheControl(settings.ttl),
+    ...(compactTrigger
+      ? {
+          context_management: {
+            edits: [{ type: "compact_20260112", trigger: { type: "input_tokens", value: compactTrigger }, instructions: SUMMARY_INSTRUCTIONS }],
+          },
+        }
+      : {}),
+    // If a safety check declines the request, the API retries it on
+    // a fallback model instead of stopping.
+    betas: [
+      "server-side-fallback-2026-07-01",
+      "thinking-binding-controls-2026-08-01",
+      ...(compactTrigger ? ["compact-2026-01-12"] : []),
+      ...(summarised ? [ON_DEMAND_BETA] : []),
+      // Sent whenever the chat holds an effort message, which stays
+      // true after routing is turned off.
+      ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
+    ],
+    fallbacks: "default",
+  } as Anthropic.Beta.MessageCreateParamsStreaming;
+  return {
+    sent,
+    summarised,
+    body,
+    upto: project.messages.length,
+    base: summaryBase(project.messages, project.compactions, project.refused),
+    effort: effortInForce(project.messages, EFFORT, project.compactions, project.refused),
+  };
+}
+
+/** The words a warm-up sends where the woodworker's next message will go. Claude reads them and never answers. */
+export const WARM_PLACEHOLDER = "warmup";
+
+/** Whether a block can carry a cache breakpoint: anything but thinking, and text with nothing in it. */
+function markable(block: Anthropic.Beta.BetaContentBlockParam): boolean {
+  if (block.type === "thinking" || block.type === "redacted_thinking") return false;
+  return block.type !== "text" || block.text.trim() !== "";
+}
+
+/**
+ * The warm-up for a request: the same request, with max_tokens 0 and not
+ * streamed, which the API takes as a request to write the cache and answer
+ * nothing. Everything the cache reads stays as it is. The top-level
+ * breakpoint would land on the placeholder, so it moves onto the last
+ * block of the chat as it stands, with the same lifetime. A breakpoint
+ * isn't part of what the cache matches, so the next turn reads that entry
+ * from its own request. A chat that ends on Claude's reply gets the
+ * placeholder after it, with a result for each tool call the reply holds.
+ * Returns null for a chat with nothing to warm.
+ */
+export function warmRequest(body: Anthropic.Beta.MessageCreateParamsStreaming): { body: Anthropic.Beta.MessageCreateParamsNonStreaming; shared: number } | null {
+  const marker = body.cache_control;
+  if (!marker) return null;
+  const messages = [...body.messages];
+  let marked = false;
+  for (let i = messages.length - 1; i >= 0 && !marked; i--) {
+    const m = messages[i]!;
+    if (!Array.isArray(m.content)) continue;
+    const at = m.content.findLastIndex(markable);
+    if (at < 0) continue;
+    messages[i] = { ...m, content: m.content.map((b, j) => (j === at ? ({ ...b, cache_control: marker } as Anthropic.Beta.BetaContentBlockParam) : b)) };
+    marked = true;
+  }
+  if (!marked) return null;
+  const last = body.messages.at(-1)!;
+  if (last.role === "assistant") {
+    const calls = Array.isArray(last.content) ? last.content.flatMap((b) => (b.type === "tool_use" ? [b.id] : [])) : [];
+    messages.push({
+      role: "user",
+      content: [...calls.map((id): Anthropic.Beta.BetaToolResultBlockParam => ({ type: "tool_result", tool_use_id: id, content: WARM_PLACEHOLDER })), { type: "text", text: WARM_PLACEHOLDER }],
+    });
+  }
+  // Spread over the request, so every field keeps its place, and only the size and the messages change.
+  const warm: Record<string, unknown> = { ...body, max_tokens: 0, messages };
+  delete warm.cache_control;
+  delete warm.stream;
+  return { body: warm as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming, shared: body.messages.length };
+}
+
 export class Turn {
   private stream: ReturnType<MessagesClient["stream"]> | null = null;
   private stopped = false;
@@ -776,73 +930,13 @@ export class Turn {
     // Timing and counts only, for seeing where a turn's time goes.
     const model = project.model ?? MODEL;
     let toolMs = 0;
-    // The size at which a single long turn is summarised while it runs.
-    const fallbackAt = compactAt();
     // Read once a turn, so a change to the workshop or the cache's lifetime
     // never splits the cache mid-turn.
-    const workshop = this.store.workshop();
-    const ttl = cacheTtl();
-    const system = systemPrompt(workshop, ttl);
-    const tools = [...TOOLS, ...webTools(searchCountry(workshop))];
+    const settings = requestSettings(this.store.workshop());
+    // The size at which a single long turn is summarised while it runs.
+    const fallbackAt = settings.fallbackAt;
     /** The next request, from the chat as it stands. */
-    const request = () => {
-      const sent = sendable(project.messages, project.compactions, project.refused);
-      // The API can't summarise at a threshold on a request that carries a
-      // summary written between turns, so that request sends no trigger.
-      const summarised = onDemandSummary(project.messages, project.compactions, project.refused) !== null;
-      const compactTrigger = summarised ? null : fallbackAt;
-      const body = {
-        // Switching models mid-conversation is fine: other models skip the
-        // earlier thinking blocks, and the history stays append-only.
-        model: project.model ?? MODEL,
-        max_tokens: 64000,
-        // Tools render first, then the system blocks, so the breakpoint on
-        // the workshop block caches all of them. The top-level breakpoint
-        // caches the history. Both last as long as WOODCHUCK_CACHE_TTL
-        // says, an hour unless it's set to five minutes.
-        system,
-        tools,
-        messages: sent,
-        // Each thinking block is tied to the instructions, tools and chat
-        // it came from. A changed prompt, tool list or workshop would
-        // otherwise refuse an open chat, so the API drops the thinking
-        // that no longer fits instead, on every request that carries it.
-        thinking: { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } },
-        // The request's own level stays the same all chat long, so the
-        // cache holds. Effort messages in the chat lower or raise it.
-        output_config: { effort: EFFORT },
-        cache_control: cacheControl(ttl),
-        ...(compactTrigger
-          ? {
-              context_management: {
-                edits: [{ type: "compact_20260112", trigger: { type: "input_tokens", value: compactTrigger }, instructions: SUMMARY_INSTRUCTIONS }],
-              },
-            }
-          : {}),
-        // If a safety check declines the request, the API retries it on
-        // a fallback model instead of stopping.
-        betas: [
-          "server-side-fallback-2026-07-01",
-          "thinking-binding-controls-2026-08-01",
-          ...(compactTrigger ? ["compact-2026-01-12"] : []),
-          ...(summarised ? [ON_DEMAND_BETA] : []),
-          // Sent whenever the chat holds an effort message, which stays
-          // true after routing is turned off.
-          ...(sent.some((m) => effortOf(m)) ? [EFFORT_MESSAGE_BETA] : []),
-        ],
-        fallbacks: "default",
-      } as Anthropic.Beta.MessageCreateParamsStreaming;
-      return {
-        sent,
-        summarised,
-        body,
-        // Where this request ends in the saved chat, and which summary it starts from.
-        upto: project.messages.length,
-        base: summaryBase(project.messages, project.compactions, project.refused),
-        // The level this request is written at, kept with its round.
-        effort: effortInForce(project.messages, EFFORT, project.compactions, project.refused),
-      };
-    };
+    const request = () => nextRequest(project, settings);
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
         let next = request();

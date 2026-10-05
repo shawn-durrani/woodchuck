@@ -123,6 +123,12 @@ to about eight seconds. `woodchuck_finish`, `woodchuck_set_param`,
 `woodchuck_design` and `woodchuck_view` return within a second, since no
 model is involved.
 
+Every tool but `woodchuck_ask` and `woodchuck_preview` also asks Woodchuck
+to warm its Claude's prompt cache, without waiting, at most once a minute.
+Woodchuck sends a warm-up only once the cache has gone cold, so a message
+after a long pause starts sooner. Those two send Claude a message, which
+writes the cache itself.
+
 ## Watching a build
 
 `woodchuck_ask`, `woodchuck_progress` and `woodchuck_reply` each put a
