@@ -6,6 +6,8 @@
 // beside it in compactions.json, which only grows too, with the number of
 // messages it stands in for. A chat whose stored summary the API refused
 // says so in refused.json, and its requests leave that summary out.
+// What each warm-up of the prompt cache cost goes in warmups.json, apart
+// from the chat, since it isn't a turn.
 
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -110,6 +112,29 @@ export type ChatItem =
    * a turn's request has none here, since they're in that request's round.
    */
   | { id: string; kind: "summary"; at: string; input?: number; cached?: number; written?: number; output?: number; ms?: number };
+
+/** What set off a warm-up: the design opened or switched to, a window coming into view, or another app through MCP. */
+export type WarmTrigger = "open" | "window" | "mcp";
+
+/**
+ * A warm-up of Claude's prompt cache, sent before the woodworker's next
+ * message. It isn't a turn and the chat never shows it, so it's kept in a
+ * file of its own, warmups.json, which turn-stats reads.
+ */
+export interface Warmup {
+  at: string;
+  model: string;
+  trigger: WarmTrigger;
+  /** From sending the request to its answer. */
+  ms: number;
+  /** Tokens read at the full price, read from the cache and written to it. */
+  input: number;
+  cached: number;
+  written: number;
+}
+
+/** The most warm-ups a design keeps, newest last. */
+const WARMUPS_KEPT = 200;
 
 /** One request to Claude within a turn: its timing, tokens and tool calls. */
 export interface RoundTiming {
@@ -440,6 +465,20 @@ export class Project {
 
   addChat(item: ChatItem) {
     this.chat.push(item);
+  }
+
+  /** The design's warm-ups, oldest first. */
+  warmups(): Warmup[] {
+    return readJson<Warmup[]>(path.join(this.dir, "warmups.json"), []);
+  }
+
+  /**
+   * Keeps a warm-up's numbers. Only warmups.json is written, read fresh
+   * each time, so a warm-up that lands after the design was opened again
+   * never writes over anything newer.
+   */
+  addWarmup(w: Warmup) {
+    writePrivate(path.join(this.dir, "warmups.json"), JSON.stringify([...this.warmups(), w].slice(-WARMUPS_KEPT)));
   }
 
   saveRender(png: Buffer): string {

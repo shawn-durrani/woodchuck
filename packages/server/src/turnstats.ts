@@ -8,11 +8,14 @@
 // calls counted, and the turn's time taken from the chat's timestamps.
 // Each timed round keeps the effort it was written at. Turns saved just
 // before rounds were kept list their efforts on the usage line instead.
+//
+// Warm-ups of the prompt cache aren't turns. Each design keeps them in
+// warmups.json, and the report sums them up on a line of their own.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ChatItem, RoundTiming } from "./store.js";
+import type { ChatItem, RoundTiming, Warmup } from "./store.js";
 
 type Usage = Extract<ChatItem, { kind: "usage" }>;
 
@@ -136,6 +139,34 @@ export function readTurns(dataDir: string): TurnStat[] {
   });
 }
 
+/** A warm-up of the prompt cache, with only its numbers. */
+export interface WarmupStat {
+  design: number;
+  trigger: string | null;
+  ms: number;
+  input: number;
+  cached: number;
+  written: number;
+}
+
+const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+/** One design's warm-ups, from its warmups.json, with nothing but numbers kept. */
+export function warmupsOf(warmups: Warmup[], design = 1): WarmupStat[] {
+  return warmups.map((w) => ({ design, trigger: word(w.trigger), ms: count(w.ms), input: count(w.input), cached: count(w.cached), written: count(w.written) }));
+}
+
+/** Every design's warm-ups in a data folder, numbered the way readTurns numbers the designs. */
+export function readWarmups(dataDir: string): WarmupStat[] {
+  const projects = path.join(dataDir, "projects");
+  if (!existsSync(projects)) throw new Error(`There's no projects folder in ${dataDir}`);
+  const dirs = readdirSync(projects, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith(".") && existsSync(path.join(projects, d.name, "chat.json")))
+    .map((d) => d.name)
+    .sort();
+  return dirs.flatMap((name, i) => warmupsOf(readJson<Warmup[]>(path.join(projects, name, "warmups.json"), []), i + 1));
+}
+
 /** The median and 90th percentile, nearest rank. */
 export function spread(values: number[]): { n: number; median: number | null; p90: number | null } {
   const v = [...values].sort((a, b) => a - b);
@@ -175,8 +206,8 @@ function counted(values: string[]): string {
   );
 }
 
-/** The report: one line per turn, then the medians and shares across them all. */
-export function report(turns: TurnStat[]): string {
+/** The report: one line per turn, then the medians and shares across them all, and the warm-ups of the cache. */
+export function report(turns: TurnStat[], warmups: WarmupStat[] = []): string {
   const out: string[] = [];
   const head = ["design", "turn", "src", "rounds", "secs", "s/round", "tool s", "calls per round", "output", "cached", "written", "input", "model", "effort", "route"];
   const widths = [6, 4, 3, 6, 7, 7, 6, 24, 7, 9, 8, 7, 17, 16, 12];
@@ -247,5 +278,10 @@ export function report(turns: TurnStat[]): string {
   out.push(`Models: ${counted(timed.map((t) => t.model ?? "-"))}.`);
   out.push(`Effort per request: ${counted(turns.flatMap((t) => t.efforts ?? []))}.`);
   out.push(`Routes: ${counted(turns.flatMap((t) => (t.route ? [t.route] : [])))}.`);
+  const warmed = warmups.reduce((sum, w) => sum + w.written, 0);
+  const read = warmups.reduce((sum, w) => sum + w.cached, 0);
+  out.push(
+    `Cache warm-ups, which aren't turns: ${warmups.length}, writing ${warmed} tokens and reading ${read}, median ${s1(spread(warmups.map((w) => w.ms)).median)} s. Asked for by ${counted(warmups.map((w) => w.trigger ?? "-"))}.`,
+  );
   return out.join("\n");
 }

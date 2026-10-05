@@ -111,13 +111,16 @@ working, and `{"busy":false,"reasons":[]}` once it's free. The reason
 `backup` shows for the few seconds a snapshot takes to write. The reason
 `chat_summary` shows while Claude summarises a long chat after a turn,
 when that's turned on, and it can take a minute. A restart then drops the summary, and the next
-turn asks for it again. The health
+turn asks for it again. A warm-up of Claude's prompt cache never counts as
+busy. A restart cuts it short, and the next reply writes the cache itself. The health
 route, `/api/health`, answers `{"ok":true,...}` as soon as the server is
 up. Both still answer from this computer while Funnel is on and Woodchuck
 serves nothing else.
 
 An open window reloads itself onto the new version once nothing would be
-lost, such as a message you're still typing.
+lost, such as a message you're still typing. A window in view then asks
+for a warm-up of Claude's cache, which goes once for each design after a
+restart, and [CONFIG.md](CONFIG.md) says what it costs.
 
 ## Writing your own update script
 

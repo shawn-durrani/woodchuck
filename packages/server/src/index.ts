@@ -45,6 +45,7 @@ import { progress, type Item } from "./progress.js";
 import { scriptFromFile } from "./scripted.js";
 import { editSummary } from "./tools.js";
 import { Summaries } from "./summaries.js";
+import { Warmer, type WarmerOptions } from "./warm.js";
 import {
   bindHost,
   browserOrigin,
@@ -128,6 +129,8 @@ export function createApp(opts: {
   webDist?: string;
   /** How often to back up the data folder, how many to keep, and the mirror folder. The defaults without it. */
   backup?: BackupSettings;
+  /** The clock and wait for warming the prompt cache. Tests pass their own. */
+  prewarm?: Pick<WarmerOptions, "clock" | "delayMs">;
 }) {
   // The startup snapshot reads the data folder before anything else touches it.
   const backups = new Backups(opts.dataDir, opts.backup ?? BACKUP_DEFAULTS);
@@ -150,6 +153,12 @@ export function createApp(opts: {
   const summaries = new Summaries(store, {
     chat: (item) => send({ type: "chat", item }),
     changed: () => broadcastState(),
+  });
+  /** Warms the prompt cache in the background, before the woodworker's next message. */
+  const warmer = new Warmer(store, {
+    busy: () => turn !== null || summaries.busy,
+    client: () => client ?? (hasCredentials() ? (client = defaultClient()) : null),
+    ...opts.prewarm,
   });
   /** Set once the server is shutting down, so no new turn starts. */
   let closing = false;
@@ -283,6 +292,10 @@ export function createApp(opts: {
    */
   async function startTurn(input: TurnInput) {
     client ??= defaultClient();
+    // The turn writes the cache itself, so a warm-up waiting or on its way stops.
+    warmer.stop();
+    const slug = store.project.slug;
+    warmer.asked(slug);
     const t = new Turn(
       store,
       client,
@@ -302,6 +315,7 @@ export function createApp(opts: {
     try {
       await t.run(input);
     } finally {
+      warmer.asked(slug);
       const next = closing ? null : followUp(store.project);
       turn = null;
       if (next) void startTurn(next);
@@ -345,6 +359,7 @@ export function createApp(opts: {
             backups_kept: backups.list().length,
           });
         // The restart gate: a script that restarts the app waits while Claude is mid-turn, a summary of the chat or a backup is being written.
+        // A warm-up of the cache doesn't count, since the next reply writes the cache itself if a restart cuts one short.
         case "GET /api/busy": {
           const reasons = [...(backups.busy ? ["backup"] : []), ...(turn ? ["claude_turn"] : []), ...(summaries.busy ? ["chat_summary"] : [])];
           return json(200, { busy: reasons.length > 0, reasons });
@@ -477,8 +492,15 @@ export function createApp(opts: {
         case "POST /api/projects/open": {
           if (turn) return fail(409, "Claude is working. Wait or stop it first.");
           store.open(String((await body()).slug));
+          warmer.start("open");
           broadcastState();
           return json(200, { ok: true });
+        }
+        // Asks for a warm-up of the open design's prompt cache: from a window coming into view, or another app through MCP.
+        // It goes only when the cache has gone cold, so asking often costs nothing.
+        case "POST /api/warm": {
+          const answer = warmer.start((await body()).from === "mcp" ? "mcp" : "window");
+          return json(200, { ok: true, started: answer === "started", answer });
         }
         // Your edits work while Claude does too. Each is a step of its own between Claude's, and Claude hears of it after its current step.
         case "POST /api/ops": {
@@ -936,6 +958,7 @@ export function createApp(opts: {
       turn?.stop();
       // A summary still being written is abandoned. The next turn's end asks again.
       summaries.stop();
+      warmer.close();
       for (const ws of sockets) ws.terminate();
       wss.close();
       // A snapshot being written finishes first, so nothing is left half done.
@@ -944,7 +967,7 @@ export function createApp(opts: {
       server.closeAllConnections();
     });
 
-  return { server, store, snapshot, close, lock, checkFunnel, backups, summaries };
+  return { server, store, snapshot, close, lock, checkFunnel, backups, summaries, warmer };
 }
 
 class TooLarge extends Error {}
