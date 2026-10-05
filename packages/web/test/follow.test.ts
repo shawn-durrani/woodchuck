@@ -125,6 +125,16 @@ describe("where each tool shows", () => {
     expect(joined.frame.length).toBe(4);
   });
 
+  // Issue #12: one call can carry a whole stage of edits. It opens Edit, and the parts it moved frame themselves.
+  it("places a list of edits in Edit by its count", () => {
+    expect(PLACES.apply_edits).toBe("part");
+    const stage = place("apply_edits", "apply 14 edits");
+    expect(stage).toEqual({ tool: "apply_edits", area: "part", id: "14" });
+    expect(describePlace(stage, look)).toMatchObject({ caption: "Claude made 14 edits in Edit", words: "Made 14 edits", marks: ["tab:edit"], pick: [] });
+    expect(describePlace(place("apply_edits", "apply 1 edit"), look).words).toBe("Made 1 edit");
+    expect(placeOf(line("apply_edits", "apply 14 edits: edit 5 of 14 (add_joint shelf_l) failed: Joint \"shelf_l\" already exists. 4 made, 9 not run", true))).toBeNull();
+  });
+
   it("names a part Claude removed by the design from before its turn", () => {
     const after = applyOps(design, [{ op: "delete_part", id: "shelf_slat" } as Op, { op: "delete_array", id: "shelf_slats" } as Op].reverse());
     const now = lookupOf({ design: after, derived: derive(after) }, design);

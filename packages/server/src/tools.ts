@@ -1,6 +1,7 @@
-// The tools Claude uses. Edit tools wrap one design operation each; the rest
-// read the design, draw it, plan, ask, or request a tool that doesn't exist
-// yet. None of them runs arbitrary code. tests/tools.test.ts pins this list.
+// The tools Claude uses. Edit tools wrap one design operation each, and
+// apply_edits runs a list of those same operations in order; the rest read
+// the design, draw it, plan, ask, or request a tool that doesn't exist yet.
+// None of them runs arbitrary code. test/agent.test.ts pins this list.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { recallChat } from "./recall.js";
@@ -88,6 +89,16 @@ const panelProps: Record<string, Schema> = {
 function obj(properties: Record<string, Schema>, required: string[]): Anthropic.Beta.BetaTool.InputSchema {
   return { type: "object", properties, required, additionalProperties: false } as Anthropic.Beta.BetaTool.InputSchema;
 }
+
+/** A list of edits, as preview_change and apply_edits take it. */
+const editList = (description: string): Schema => ({
+  type: "array",
+  description: `${description} Each is an edit tool's name as "op" plus that tool's input, for example {"op": "set_param", "name": "shelf_depth", "expr": "320", "unit": "mm"}`,
+  items: { type: "object", properties: { op: { type: "string" } }, required: ["op"] },
+});
+
+/** The most edits one apply_edits call takes. A stage of a build fits well inside it. */
+export const MAX_EDITS = 40;
 
 const FINISH_HELP =
   `Put a finish on a material, whole parts or single faces. A face beats its part, and a part beats its material; anything unfinished is bare timber ("raw"). ` +
@@ -307,6 +318,15 @@ export const TOOLS: Tool[] = [
     input_schema: obj({ name: { type: "string" } }, ["name"]),
   },
   {
+    name: "apply_edits",
+    description:
+      `Make several edits in one call, in order, so a whole stage of a build is one step: every carcass panel, then the joints, then the finishes. ` +
+      `A later edit can use a part an earlier one added. Up to ${MAX_EDITS} edits. Every edit is checked for an edit tool's name and that tool's fields before any runs. ` +
+      `If one is refused, the ones before it stay made and the rest don't run; the result names the edit that failed and why, so send that one fixed with the rest. ` +
+      `The result sums up the whole list once: parts added and moved, and the problems it made or fixed.`,
+    input_schema: obj({ edits: editList(`The edits, in order, at most ${MAX_EDITS}.`) }, ["edits"]),
+  },
+  {
     name: "get_part",
     description: "Describe one part: finished and cut sizes, position, how each size is worked out, and its machining.",
     input_schema: obj({ id: { type: "string" } }, ["id"]),
@@ -323,7 +343,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "check_design",
-    description: "Run every check: overlaps, support, housing depths, stock sizes, the design's rules and unverified parts. Call it after building or changing parts.",
+    description: "Run every check: overlaps, support, housing depths, stock sizes, the design's rules and unverified parts, with the working for each problem. Each edit's result already lists the problems it made and fixed, so call this once a build or a big change is done, or for the detail of an error.",
     input_schema: obj({}, []),
   },
   {
@@ -396,7 +416,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "render_views",
-    description: "Draw the design from fixed cameras and look at it. Part ids are written on the parts. Use it after changes to catch gross mistakes; trust the numbers for exact sizes.",
+    description: "Draw the design from fixed cameras and look at it. Part ids are written on the parts. Use it once a build or a big change is done, to catch gross mistakes; a size tweak doesn't need it. Trust the numbers for exact sizes.",
     input_schema: obj(
       {
         views: { type: "array", items: { type: "string", enum: [...VIEW_NAMES] }, description: "Default: front, top, left, iso" },
@@ -455,11 +475,7 @@ export const TOOLS: Tool[] = [
       {
         title: { type: "string", description: "A few words, such as Deeper shelves" },
         explanation: { type: "string", description: "One or two plain sentences on what it does and why" },
-        ops: {
-          type: "array",
-          description: 'The edits, in order. Each is an edit tool\'s name as "op" plus that tool\'s input, for example {"op": "set_param", "name": "shelf_depth", "expr": "320", "unit": "mm"}',
-          items: { type: "object", properties: { op: { type: "string" } }, required: ["op"] },
-        },
+        ops: editList("The edits, in order."),
       },
       ["title", "explanation", "ops"],
     ),
@@ -571,6 +587,8 @@ export interface ToolOutcome {
     | { kind: "preview"; title: string; explanation: string; ops: Op[] };
   /** Set when Claude opened a worked joint example, so the chat can show its card. */
   example?: { joint: JointType; note?: string };
+  /** A short line for the chat when a failed result is too long to show whole. */
+  chatLine?: string;
 }
 
 const json = (v: unknown) => JSON.stringify(v, null, 1);
@@ -626,6 +644,87 @@ function withLibraryPart(name: string, input: Record<string, unknown>, library: 
   };
 }
 
+/** Each edit tool's input schema, so a listed edit is held to the same fields as a call of its own. */
+const EDIT_SCHEMAS = new Map(TOOLS.filter((t) => EDIT_TOOLS.has(t.name)).map((t) => [t.name, t.input_schema]));
+
+/**
+ * The edits listed for preview_change or apply_edits, each checked before
+ * any runs: an edit tool's name, only that tool's fields, and every field it
+ * needs. A library part fills in set_hardware the same as a call of its own.
+ */
+export function parseEdits(raw: unknown, library: LibraryAccess, field: string, max = Infinity): Op[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new QueryError(`${field} must list at least one edit`);
+  if (raw.length > max) throw new QueryError(`${field} lists ${raw.length} edits, and the most is ${max}. Split it into stages, such as the panels, then the joints, then the finishes`);
+  return raw.map((item: unknown, i) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) throw new QueryError(`Edit ${i + 1} must be an object with "op" and that tool's input`);
+    const { op: name, ...rest } = item as Record<string, unknown>;
+    const op = String(name ?? "");
+    const schema = EDIT_SCHEMAS.get(op);
+    if (!schema) throw new QueryError(`Edit ${i + 1}: "${op}" isn't an edit tool. Use one of: ${[...EDIT_TOOLS].join(", ")}`);
+    const fields = Object.keys(schema.properties ?? {});
+    const unknown = Object.keys(rest).filter((k) => !fields.includes(k));
+    if (unknown.length) throw new QueryError(`Edit ${i + 1} (${op}): ${unknown.join(", ")} ${unknown.length === 1 ? "isn't a field" : "aren't fields"} of ${op}. Its fields: ${fields.join(", ") || "none"}`);
+    const missing = (schema.required ?? []).filter((k) => rest[k] === undefined);
+    if (missing.length) throw new QueryError(`Edit ${i + 1} (${op}) needs ${missing.join(", ")}`);
+    return { op, ...withLibraryPart(op, rest, library) } as Op;
+  });
+}
+
+/** An edit in a few words, such as "add_panel left_side". */
+function editName(op: Op): string {
+  const o = op as Record<string, unknown>;
+  const id = o.id ?? o.name ?? (Array.isArray(o.targets) ? o.targets.join(", ") : "");
+  return `${op.op}${id ? ` ${String(id)}` : ""}`;
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** "edit 3", or "edits 3 to 7". */
+const editRange = (from: number, to: number) => (from === to ? `edit ${from}` : `edits ${from} to ${to}`);
+
+/**
+ * Makes a list of edits in order, each through ctx.apply as one of Claude's
+ * edits, so the turn's one undo and the live window work as they do for a
+ * single call. It stops at the first edit that's refused. The edits before
+ * it stay made, and the result says which one failed and why, so Claude can
+ * send that one fixed with the rest. What the list changed comes back once,
+ * as one change summary, rather than once an edit.
+ */
+function applyEdits(input: Record<string, unknown>, ctx: ToolContext, before: DeriveResult): ToolOutcome {
+  const edits = parseEdits(input.edits, ctx.library, "edits", MAX_EDITS);
+  const beforeReport = runChecks(ctx.design(), before);
+  let made = 0;
+  let failed: { edit: number; op: string; error: string } | null = null;
+  for (const op of edits) {
+    try {
+      ctx.apply(op);
+      made++;
+    } catch (e) {
+      failed = { edit: made + 1, op: editName(op), error: e instanceof Error ? e.message : String(e) };
+      break;
+    }
+  }
+  const design = ctx.design();
+  const after = derive(design);
+  const { ok: _ok, ...changed } = changeSummary(before, beforeReport, after, runChecks(design, after));
+  // Plain JSON with no indents, since a stage's summary can be long.
+  if (!failed) return { content: JSON.stringify({ ok: true, applied: made, ...changed }) };
+  const total = edits.length;
+  const notRun = total - failed.edit;
+  const why = failed.error.replace(/\.$/, "");
+  const lead = [
+    `Edit ${failed.edit} of ${total} (${failed.op}) was refused: ${why}.`,
+    made ? `${capital(editRange(1, made))} ${made === 1 ? "is" : "are"} made and stay in this turn's change.` : "Nothing was changed.",
+    ...(notRun ? [`${capital(editRange(failed.edit + 1, total))} didn't run.`] : []),
+    `Send edit ${failed.edit} fixed${notRun ? ", with the ones after it," : ""} in a new call.`,
+  ].join(" ");
+  return {
+    content: `${lead}\n${JSON.stringify({ ok: false, applied: made, failed, not_run: notRun, ...(made ? changed : {}) })}`,
+    isError: true,
+    chatLine: `edit ${failed.edit} of ${total} (${failed.op}) failed: ${why}. ${made} made, ${notRun} not run`,
+  };
+}
+
 export function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): ToolOutcome {
   try {
     input = withLibraryPart(name, input, ctx.library);
@@ -639,6 +738,8 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
     const design = ctx.design();
     const d = derive(design);
     switch (name) {
+      case "apply_edits":
+        return applyEdits(input, ctx, d);
       case "get_design": {
         const report = runChecks(design, d);
         const values = Object.fromEntries(
@@ -734,13 +835,7 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         const title = String(input.title ?? "").trim();
         const explanation = String(input.explanation ?? "").trim();
         if (!title || !explanation) throw new QueryError("preview_change needs a title and an explanation");
-        if (!Array.isArray(input.ops) || input.ops.length === 0) throw new QueryError("ops must list at least one edit");
-        const ops = (input.ops as Record<string, unknown>[]).map((raw, i) => {
-          const op = String(raw?.op ?? "");
-          if (!EDIT_TOOLS.has(op)) throw new QueryError(`Edit ${i + 1}: "${op}" isn't an edit tool. Use one of: ${[...EDIT_TOOLS].join(", ")}`);
-          const { op: _op, ...rest } = raw;
-          return { op, ...withLibraryPart(op, rest, ctx.library) } as Op;
-        });
+        const ops = parseEdits(input.ops, ctx.library, "ops");
         // Try it on a copy now, so a mistake comes back to you rather than the woodworker.
         const proposed = applyOps(design, ops);
         const changes = diffDesigns(design, proposed);

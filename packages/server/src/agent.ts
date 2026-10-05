@@ -299,6 +299,10 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
       return "ask you";
     case "submit_plan":
       return "submit a plan";
+    case "apply_edits": {
+      const n = Array.isArray(input.edits) ? input.edits.length : 0;
+      return n ? `apply ${n} edit${n === 1 ? "" : "s"}` : "apply edits";
+    }
     default:
       return `${name.replace(/_/g, " ")}${id ? ` ${String(id)}` : ""}`;
   }
@@ -531,7 +535,7 @@ export class Turn {
             id: nextId("x"),
             kind: "tool",
             name: call.name,
-            summary: out.isError ? `${toolSummary(call.name, input)}: ${String(out.content)}` : toolSummary(call.name, input),
+            summary: out.isError ? `${toolSummary(call.name, input)}: ${out.chatLine ?? String(out.content)}` : toolSummary(call.name, input),
             is_error: !!out.isError,
             at: now(),
             ...(image ? { image } : {}),
