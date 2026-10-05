@@ -486,11 +486,13 @@ question Claude asks. It grows until the API summarises it inside a
 request, then asks for a summary between turns and runs one more turn.
 That turn sets `prefix_mismatch_behavior` to `"error"`, so kept thinking
 that fails the API's check fails the request. The script prints `PASS`,
-`FAIL` or `SKIP` for each check, and the summary's length but never its
-text.
+`FAIL` or `SKIP` for each check, `INFO` for what the API does that isn't a
+fault, and the summary's length but never its text.
 
 - The API's own summary is stored with its signature. The line names the
-  stream event that carried it, or says none did.
+  stream event that carried it. The API doesn't sign a summary it writes
+  inside a request, so that's an `INFO` line. It fails only when the
+  stream carried a signature the app didn't keep.
 - The summary request comes back with `stop_reason` `"compaction"` and
   `usage.iterations`.
 - It reads from the prompt cache.
