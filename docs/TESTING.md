@@ -266,12 +266,19 @@ alignment, with bold and code inside its cells. A short row is padded and
 a long one widens the table. Pipes that don't make a table stay as text,
 and nothing in a cell becomes markup.
 
+The floor grid is held to a sheet just wide enough for its fade, kept
+under the camera, that never reads or writes depth. In three.js's own
+draw order it has to come before every part, ghost and mark, wherever the
+camera is.
+
 A cut part's mesh is held to a closed solid with every triangle facing
 out, to the volume its shape holds, and to the face each triangle counts
 as. A click on its slope has to pick the top, and a click through a hole
 has to miss it. A change to a part's shape alone has to show in a suggested
 change's ghost and in Claude's glow. The cutting layout has to shade the
 wood a part's cuts take from its blank.
+
+### Controls, following and the phone
 
 The toolbar tests hold its groups and menus to fixed slots, and check
 that every view command from another chat lands on its control. An orbit
