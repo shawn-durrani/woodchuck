@@ -7,7 +7,7 @@
 // until you click Apply. The phone layout draws the same ghost. Kept free of
 // React and three.js so the tests can hold it.
 
-import { applyOps, derive, diffDesigns, fmt, runChecks, type Box, type CheckReport, type Derived, type DerivedPart, type Design, type Op } from "@woodchuck/core";
+import { applyOps, derive, diffDesigns, fmt, runChecks, shapeSig, type Box, type CheckReport, type Derived, type DerivedPart, type Design, type Op, type PartProfile } from "@woodchuck/core";
 import type { ChatItem, ServerState } from "./api";
 import { waitingMoments } from "./waiting";
 
@@ -20,7 +20,7 @@ export interface PreviewResult {
   report: CheckReport;
   /** In names, such as "Book shelf height from 100 to 140 mm". */
   changes: string[];
-  /** Parts in both designs whose box moves or changes size. */
+  /** Parts in both designs whose box moves or changes size, or whose cuts change shape. */
   changed: string[];
   /** Parts only the change has. */
   added: string[];
@@ -37,6 +37,9 @@ export interface PreviewResult {
 const SAME_MM = 0.05;
 
 const sameBox = (a: Box, b: Box) => [0, 1, 2].every((i) => Math.abs(a.min[i]! - b.min[i]!) < SAME_MM && Math.abs(a.max[i]! - b.max[i]!) < SAME_MM);
+
+/** A part looks the same when its box and the shape its cuts leave are both unchanged. */
+const samePart = (a: DerivedPart, b: DerivedPart) => sameBox(a.nominal, b.nominal) && shapeSig(a) === shapeSig(b);
 
 const drawn = (parts: DerivedPart[]) => parts.filter((p) => !p.broken);
 
@@ -55,7 +58,7 @@ export function previewChange(now: Pick<ServerState, "design" | "derived" | "rep
     for (const p of drawn(after.parts)) {
       const was = before.get(p.id);
       if (!was) added.push(p.id);
-      else if (!sameBox(was.nominal, p.nominal)) changed.push(p.id);
+      else if (!samePart(was, p)) changed.push(p.id);
     }
     return {
       proposed,
@@ -80,6 +83,8 @@ export type Vec = [number, number, number];
 export interface GhostPart {
   id: string;
   box: Box;
+  /** The shape its cuts leave, drawn in place of the box. */
+  profile?: PartProfile;
   /** A part the change adds, rather than one it moves. */
   added: boolean;
 }
@@ -139,9 +144,10 @@ export function ghostOf(before: DerivedPart[], after: DerivedPart[], names: (id:
   const pairs: [DerivedPart, DerivedPart][] = [];
   for (const p of later) {
     const was = old.get(p.id);
-    if (!was) parts.push({ id: p.id, box: p.nominal, added: true });
-    else if (!sameBox(was.nominal, p.nominal)) {
-      parts.push({ id: p.id, box: p.nominal, added: false });
+    const shape = p.profile ? { profile: p.profile } : {};
+    if (!was) parts.push({ id: p.id, box: p.nominal, ...shape, added: true });
+    else if (!samePart(was, p)) {
+      parts.push({ id: p.id, box: p.nominal, ...shape, added: false });
       pairs.push([was, p]);
     }
   }

@@ -1,11 +1,14 @@
 // The Cut layout tab: how the cut list's parts come out of the timber you
 // buy. One drawing per sheet and length, what to buy, the offcuts and the
 // waste. The stock settings are part of the design, so each change to them
-// is one you can undo.
+// is one you can undo. The layout places each part's blank, and a part its
+// cuts shape shows its outline inside the blank, with the wood it loses
+// shaded like the stock.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { cutLayout, DEFAULT_KERF_MM, DEFAULT_TRIM_MM, fmt, type MaterialLayout, type Op, type PlacedPart, type StockPiece } from "@woodchuck/core";
+import { cutLayout, DEFAULT_KERF_MM, DEFAULT_TRIM_MM, fmt, outlineOnBlank, type Loop, type MaterialLayout, type Op, type PlacedPart, type StockPiece } from "@woodchuck/core";
 import { applyOps, type ServerState } from "../api";
+import { cutAwayPath } from "../cutAway";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -19,12 +22,24 @@ const MAX_DRAWING_PX = 720;
 /** How tall a length is drawn, whatever its width. */
 const LENGTH_PX = 34;
 
+/** Each shaped part's outline on its blank, by part id. */
+type Shapes = Map<string, { outline: Loop; holes: Loop[] }>;
+
 export function CutLayoutPanel({ state, onSelect }: { state: ServerState; onSelect: (ids: string[]) => void }) {
   const { design, cutlist } = state;
   // A streaming reply replaces the state many times a second, so lay out
   // again only when the parts or the stock change.
   const key = JSON.stringify([cutlist.rows, design.materials, design.stock ?? null]);
   const layout = useMemo(() => cutLayout(design, cutlist), [key]);
+  // A cut list row only groups parts whose shapes match, so its rows say when a shape changed.
+  const shapes = useMemo<Shapes>(() => {
+    const out: Shapes = new Map();
+    for (const p of state.derived.parts) {
+      const on = p.profile ? outlineOnBlank(p) : null;
+      if (on) out.set(p.id, on);
+    }
+    return out;
+  }, [JSON.stringify(cutlist.rows)]);
   const [error, setError] = useState<string | null>(null);
   // Drawings fill the panel, so labels are sized from its width.
   const [width, setWidth] = useState(0);
@@ -76,7 +91,7 @@ export function CutLayoutPanel({ state, onSelect }: { state: ServerState; onSele
         )}
       </div>
       {layout.materials.map((m) => (
-        <MaterialSection key={m.material} m={m} trim={layout.trim_mm} px={px} apply={apply} onSelect={onSelect} />
+        <MaterialSection key={m.material} m={m} trim={layout.trim_mm} px={px} shapes={shapes} apply={apply} onSelect={onSelect} />
       ))}
     </div>
   );
@@ -86,6 +101,7 @@ function MaterialSection({
   m,
   trim,
   px,
+  shapes,
   apply,
   onSelect,
 }: {
@@ -93,6 +109,7 @@ function MaterialSection({
   trim: number;
   /** How wide the drawings are on screen. */
   px: number;
+  shapes: Shapes;
   apply: Apply;
   onSelect: (ids: string[]) => void;
 }) {
@@ -127,9 +144,9 @@ function MaterialSection({
             </span>
           </figcaption>
           {m.kind === "sheet" ? (
-            <SheetDrawing s={s} trim={trim} px={px} onSelect={onSelect} />
+            <SheetDrawing s={s} trim={trim} px={px} shapes={shapes} onSelect={onSelect} />
           ) : (
-            <LengthDrawing s={s} longest={longest} px={px} onSelect={onSelect} />
+            <LengthDrawing s={s} longest={longest} px={px} shapes={shapes} onSelect={onSelect} />
           )}
           {s.offcuts.length > 0 && (
             <div className="muted small">Offcuts to keep: {s.offcuts.map((o) => `${fmt(o.length_mm)} × ${fmt(o.width_mm)}`).join(", ")}</div>
@@ -140,7 +157,7 @@ function MaterialSection({
   );
 }
 
-function SheetDrawing({ s, trim, px, onSelect }: { s: StockPiece; trim: number; px: number; onSelect: (ids: string[]) => void }) {
+function SheetDrawing({ s, trim, px, shapes, onSelect }: { s: StockPiece; trim: number; px: number; shapes: Shapes; onSelect: (ids: string[]) => void }) {
   const L = s.length_mm;
   const W = s.width_mm;
   const fonts = LABEL_PX.map((f) => (f * L) / px);
@@ -153,14 +170,14 @@ function SheetDrawing({ s, trim, px, onSelect }: { s: StockPiece; trim: number; 
       ))}
       {s.parts.map((p, i) => {
         const [w, h] = p.rotated ? [p.width_mm, p.length_mm] : [p.length_mm, p.width_mm];
-        return <PartBox key={i} p={p} x={p.x_mm} y={p.y_mm} w={w} h={h} fonts={fonts} onSelect={onSelect} />;
+        return <PartBox key={i} p={p} x={p.x_mm} y={p.y_mm} w={w} h={h} fonts={fonts} shape={shapes.get(p.part)} onSelect={onSelect} />;
       })}
     </svg>
   );
 }
 
 /** A length drawn to scale along it, and thicker than life across it so the labels fit. */
-function LengthDrawing({ s, longest, px, onSelect }: { s: StockPiece; longest: number; px: number; onSelect: (ids: string[]) => void }) {
+function LengthDrawing({ s, longest, px, shapes, onSelect }: { s: StockPiece; longest: number; px: number; shapes: Shapes; onSelect: (ids: string[]) => void }) {
   const H = (LENGTH_PX * longest) / px;
   const fonts = LABEL_PX.map((f) => (f * longest) / px);
   return (
@@ -170,7 +187,7 @@ function LengthDrawing({ s, longest, px, onSelect }: { s: StockPiece; longest: n
         <rect key={i} className="lay-offcut" x={o.x_mm} y={0} width={o.length_mm} height={H} />
       ))}
       {s.parts.map((p, i) => (
-        <PartBox key={i} p={p} x={p.x_mm} y={0} w={p.length_mm} h={H} fonts={fonts} onSelect={onSelect} solid />
+        <PartBox key={i} p={p} x={p.x_mm} y={0} w={p.length_mm} h={H} fonts={fonts} shape={p.board ? undefined : shapes.get(p.part)} onSelect={onSelect} solid />
       ))}
     </svg>
   );
@@ -196,6 +213,7 @@ function PartBox({
   h,
   fonts,
   solid,
+  shape,
   onSelect,
 }: {
   p: PlacedPart;
@@ -206,6 +224,8 @@ function PartBox({
   /** Label sizes to try, in the drawing's units. */
   fonts: number[];
   solid?: boolean;
+  /** The outline its cuts leave on the blank, if they shape it. */
+  shape?: { outline: Loop; holes: Loop[] } | undefined;
   onSelect: (ids: string[]) => void;
 }) {
   const name = p.board ? `${p.name}, board ${p.board[0]} of ${p.board[1]}` : p.name;
@@ -227,6 +247,7 @@ function PartBox({
     <g className="lay-part" onClick={() => onSelect([p.part])}>
       <title>{`${name} (${p.part}), ${fmt(p.length_mm)} × ${fmt(p.width_mm)} mm, cut list row ${p.row}${p.rotated ? ", turned across the sheet" : ""}`}</title>
       <rect x={x} y={y} width={w} height={h} />
+      {shape && <path className="lay-cutaway" d={cutAwayPath(shape, p, x, y, w, h)} fillRule="evenodd" />}
       {label?.lines.map((t, i) => (
         <text key={i} x={x + w / 2} y={y + h / 2 + (i - (label.lines.length - 1) / 2) * label.f * 1.2} fontSize={label.f} textAnchor="middle" dominantBaseline="central">
           {t}

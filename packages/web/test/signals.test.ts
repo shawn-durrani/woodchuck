@@ -96,6 +96,32 @@ describe("Claude's glow", () => {
     expect(steps[4]!.claude).toEqual({ parts: ["seat"], finishes: false });
   });
 
+  it("lights a part whose cuts Claude changed, though its box stayed put", () => {
+    const shaped = (s: ReturnType<typeof state>, outline: number[][]) => {
+      const parts = (s as unknown as { derived: { parts: { id: string; profile?: unknown }[] } }).derived.parts;
+      parts.find((p) => p.id === "seat")!.profile = { u: "z", v: "x", outline_mm: outline, holes: [] };
+      return s;
+    };
+    const square = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ];
+    const cornerOff = [
+      [0, 0],
+      [10, 0],
+      [10, 6],
+      [6, 10],
+      [0, 10],
+    ];
+    const [, done] = run([
+      shaped(state("bench", [{ id: 1, author: "claude" }], { leg: 0, seat: 0 }), square),
+      shaped(state("bench", [{ id: 1, author: "claude" }, { id: 2, author: "claude" }], { leg: 0, seat: 0 }), cornerOff),
+    ]);
+    expect(done!.claude).toEqual({ parts: ["seat"], finishes: false });
+  });
+
   it("stays dark on the first state a window sees", () => {
     expect(run([state("bench", [{ id: 4, author: "claude" }], { seat: 0 })])[0]!.claude).toBeNull();
   });

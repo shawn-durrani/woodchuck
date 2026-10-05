@@ -20,6 +20,7 @@ import {
 } from "../src/ghost.js";
 import { partNamer } from "../src/names.js";
 import { readScene } from "../src/theme.js";
+import type { Op } from "@woodchuck/core";
 import { bench, stateOf } from "./bench.js";
 
 const lowShelf = stateOf(bench());
@@ -145,6 +146,28 @@ describe("the ghost's geometry", () => {
       ]),
     );
     expect(ghostOf(lowShelf.derived.parts, busy.after.parts).marks.length).toBe(MAX_MARKS);
+  });
+});
+
+describe("a change to a part's shape", () => {
+  const grip = (x: string): Op => ({ op: "set_cutout", id: "seat", cut: "grip", shape: "rect", x: { start: { at: x }, size: "100" }, z: { start: { at: "150" }, size: "30" }, radius: "15" });
+
+  it("counts a part whose cuts change as changed, though its box stays put", () => {
+    const cut = fits(previewChange(lowShelf, [grip("500")]));
+    expect(cut.changed).toEqual(["seat"]);
+    const ghost = ghostOf(lowShelf.derived.parts, cut.after.parts);
+    expect(ghost.parts).toEqual([{ id: "seat", box: lowShelf.derived.parts.find((p) => p.id === "seat")!.nominal, profile: cut.after.parts.find((p) => p.id === "seat")!.profile, added: false }]);
+    expect(ghost.parts[0]!.profile!.holes).toHaveLength(1);
+    expect(ghost.faded).toEqual(["seat"]);
+    // Nothing moved, so there's no move to size.
+    expect(ghost.marks).toEqual([]);
+  });
+
+  it("notices a hole moving, and a shape taken off", () => {
+    const holed = stateOf(bench([grip("500")]));
+    expect(fits(previewChange(holed, [grip("520")])).changed).toEqual(["seat"]);
+    expect(fits(previewChange(holed, [{ op: "delete_cut", id: "seat", cut: "grip" }])).changed).toEqual(["seat"]);
+    expect(fits(previewChange(holed, [grip("500")])).changed).toEqual([]);
   });
 });
 

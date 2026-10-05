@@ -3,7 +3,9 @@
 // painted on, so the long faces show stripes and arches, and the ends show
 // growth rings. Plywood shows its plies on the edges. Each face then gets
 // its own finish: bare or oiled timber, a see-through tint and a covering
-// pigment, as in @woodchuck/core's finishes.ts.
+// pigment, as in @woodchuck/core's finishes.ts. A box finds each face by
+// the way it points. A shaped part's geometry names the face each triangle
+// counts as (shapeMesh.ts), so a sloped top takes the top's finish.
 
 import * as THREE from "three";
 import {
@@ -136,10 +138,14 @@ vec3 woodColour(vec3 g, bool edge, bool endGrain, vec3 early, vec3 lateC, float 
 
 const FRAGMENT_MAIN = /* glsl */ `
   vec3 wn = normalize(vWoodNormal);
+#ifdef WOOD_FACES
+  int wFace = int(vWoodFace + 0.5);
+#else
   vec3 an = abs(wn);
   int wAxis = an.x > an.y && an.x > an.z ? 0 : (an.y > an.z ? 1 : 2);
   float wSign = wAxis == 0 ? wn.x : (wAxis == 1 ? wn.y : wn.z);
   int wFace = wAxis * 2 + (wSign > 0.0 ? 1 : 0);
+#endif
   vec3 g = vec3(dot(vWoodPos, uL), dot(vWoodPos, uW), dot(vWoodPos, uT));
   bool endGrain = abs(dot(wn, uL)) > 0.5;
   bool edge = abs(dot(wn, uT)) < 0.5;
@@ -153,8 +159,12 @@ const FRAGMENT_MAIN = /* glsl */ `
   diffuseColor.rgb = wood;
 `;
 
-/** A standard three.js material with the wood worked into it, so lights and shadows still apply. */
-export function makeWoodMaterial(): THREE.MeshStandardMaterial {
+/**
+ * A standard three.js material with the wood worked into it, so lights and
+ * shadows still apply. With faces set, each face's finish follows the
+ * geometry's aFace attribute, which a shaped part's geometry has.
+ */
+export function makeWoodMaterial(faces = false): THREE.MeshStandardMaterial {
   const uniforms = {
     uL: { value: new THREE.Vector3(1, 0, 0) },
     uW: { value: new THREE.Vector3(0, 0, 1) },
@@ -178,18 +188,21 @@ export function makeWoodMaterial(): THREE.MeshStandardMaterial {
   };
   const m = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0 });
   m.userData.uniforms = uniforms;
+  // Kept beside three.js's own defines, such as STANDARD, which the shader needs.
+  if (faces) m.defines = { ...m.defines, WOOD_FACES: "" };
+  const face = faces ? { declare: "\nattribute float aFace;\nvarying float vWoodFace;", set: "\nvWoodFace = aFace;", read: "\nvarying float vWoodFace;" } : { declare: "", set: "", read: "" };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vWoodPos;\nvarying vec3 vWoodNormal;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWoodPos = position;\nvWoodNormal = normal;");
+      .replace("#include <common>", `#include <common>\nvarying vec3 vWoodPos;\nvarying vec3 vWoodNormal;${face.declare}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\nvWoodPos = position;\nvWoodNormal = normal;${face.set}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\n${WOOD}`)
+      .replace("#include <common>", `#include <common>${face.read}\n${WOOD}`)
       .replace("#include <color_fragment>", `#include <color_fragment>\n${FRAGMENT_MAIN}`)
       // Oil leaves a satin sheen; bare timber is dull.
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = fRough;");
   };
-  m.customProgramCacheKey = () => "woodchuck-wood";
+  m.customProgramCacheKey = () => (faces ? "woodchuck-wood-faces" : "woodchuck-wood");
   return m;
 }
 

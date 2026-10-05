@@ -1333,6 +1333,12 @@ li.version {
 .lay-part:hover rect {
   fill: var(--wc-part-hover);
 }
+/* The wood a shaped part loses from its blank, shaded like the stock, with the part's outline. */
+.lay-part path.lay-cutaway {
+  fill: var(--on);
+  stroke: var(--accent);
+  vector-effect: non-scaling-stroke;
+}
 .lay-part text {
   fill: var(--ink);
   pointer-events: none;

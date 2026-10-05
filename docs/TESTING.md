@@ -41,6 +41,15 @@ operations are held to what they refuse and to a panel keeping its cuts
 through any other change. Every example with no cuts has to derive to a
 fixed digest, so cuts can't change a design that has none.
 
+The pictures of a cut part have tests of their own, on an invented tray
+with sloped sides and a panel with a round hole, a slot and a notch. The
+plan views are held to the side's true outline from each side, to holes
+drawn open by the even-odd rule, and to walls hidden behind wood left out.
+The workshop drawings are held to the slope's angle, the height at each
+end, each hole's place and size, and a part turned over for its machining.
+The views, the drawings and their PDF of every example with no cuts have to
+match fixed digests.
+
 The finish tests hold every tinted Linolie colour to its photo on Douglas fir,
 to within a shade the eye can barely tell. They check that no tint leans away
 from its oil's own colour, and that a dark oil gains no colour on pale
@@ -167,6 +176,13 @@ before the first paint, and the themes' colours, which must read on every
 surface and stay out of the stylesheet. Others hold the buttons each of
 Claude's waiting moments offers, how a turn's steps fold into one line,
 and the timing line at each turn's foot.
+
+A cut part's mesh is held to a closed solid with every triangle facing
+out, to the volume its shape holds, and to the face each triangle counts
+as. A click on its slope has to pick the top, and a click through a hole
+has to miss it. A change to a part's shape alone has to show in a suggested
+change's ghost and in Claude's glow. The cutting layout has to shade the
+wood a part's cuts take from its blank.
 
 The toolbar tests hold its groups and menus to fixed slots, and check
 that every view command from another chat lands on its control. An orbit

@@ -3,6 +3,7 @@ export * from "./expr.js";
 export * from "./derive.js";
 export * from "./shape.js";
 export * from "./profile.js";
+export * from "./outline.js";
 export * from "./checks.js";
 export * from "./cutlist.js";
 export * from "./layout.js";

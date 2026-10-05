@@ -1,7 +1,7 @@
-// The 3D view. Each part is drawn as its visible box, coloured by material,
-// or in the finished look as real timber with its finish under a choice of
-// lighting. Click a part to select it, or a face in face mode; shift-click
-// adds to the selection.
+// The 3D view. Each part is drawn as its visible box, or as its true solid
+// once cuts shape it, coloured by material, or in the finished look as real
+// timber with its finish under a choice of lighting. Click a part to select
+// it, or a face in face mode; shift-click adds to the selection.
 
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, Html, Line, OrbitControls } from "@react-three/drei";
@@ -9,7 +9,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { FACES, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Design, type Face, type JointFeature } from "@woodchuck/core";
+import { FACES, shapeSig, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Design, type Face, type JointFeature, type PartProfile } from "@woodchuck/core";
 import { facesOf, NO_TOUCH_BOX, partsInRect, touchBox, type FingerEvent, type TouchBox } from "../select";
 import { autoFit, framing, type FitMemory, type FitReason } from "../autofit";
 import { orbitStep, turnAround } from "../orbit";
@@ -17,6 +17,7 @@ import { lookKey, makeWoodMaterial, setWood, woodLookOf, type WoodLook } from ".
 import { useScene, type SceneColours } from "../theme";
 import { FinishedLights, type Lighting } from "./Lights";
 import type { Ghost, MoveMark, Vec } from "../ghost";
+import { faceOfHit, faceSheetGeometry, shapeGeometry, type Shaped } from "../shapeMesh";
 
 /** Plain colours for editing, or the timber and its finish. */
 export type Look = "plain" | "finished";
@@ -45,6 +46,13 @@ export interface ViewportApi {
   nudge(turnDegrees: number, zoom: number): void;
 }
 
+/** Where a click landed on a part, and the face it counts as when the part names its faces itself. */
+interface Hit {
+  point: THREE.Vector3;
+  normal: THREE.Vector3 | null;
+  face?: Face;
+}
+
 const FACE_BY_NORMAL: Record<string, string> = { "0+": "right", "0-": "left", "1+": "top", "1-": "bottom", "2+": "front", "2-": "back" };
 
 function faceFromNormal(n: THREE.Vector3): string {
@@ -54,6 +62,19 @@ function faceFromNormal(n: THREE.Vector3): string {
 }
 
 const half = (v: number) => Math.round(v * 2) / 2;
+
+/**
+ * A shaped part's geometry, made again only when its box or its shape
+ * changes, and let go when it does. Null for a part with no shape, which
+ * draws as its box.
+ */
+function useShape<T>(p: Shaped, make: (p: Shaped) => T | null): T | null {
+  const key = p.profile ? `${p.nominal.min.join(",")}|${p.nominal.max.join(",")}|${shapeSig(p)}` : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const made = useMemo(() => (key ? make(p) : null), [key]);
+  useEffect(() => () => (made as { dispose?: () => void } | null)?.dispose?.(), [made]);
+  return made;
+}
 
 /** A numbered red dot that stays the same size on screen and shows through parts. */
 function PinMarker({ pin, scene }: { pin: Pin; scene: SceneColours }) {
@@ -552,6 +573,7 @@ function FaceMarks({ parts, faces, scene }: { parts: DerivedPart[]; faces: strin
         const p = byId.get(key.slice(0, dot));
         const face = key.slice(dot + 1) as Face;
         if (!p || !FACES.includes(face)) return null;
+        if (p.profile) return <ShapedFaceMark key={key} p={p} face={face} scene={scene} />;
         const axis = Math.floor(FACES.indexOf(face) / 2);
         const max = FACES.indexOf(face) % 2 === 1;
         const size = p.nominal.max.map((v, i) => v - p.nominal.min[i]!) as [number, number, number];
@@ -566,6 +588,17 @@ function FaceMarks({ parts, faces, scene }: { parts: DerivedPart[]; faces: strin
         );
       })}
     </>
+  );
+}
+
+/** The sheet over a shaped part's face: every triangle that counts as the face, lifted just off it, so it lies on a slope too. */
+function ShapedFaceMark({ p, face, scene }: { p: DerivedPart; face: Face; scene: SceneColours }) {
+  const geometry = useShape(p, (q) => faceSheetGeometry(q, face));
+  if (!geometry) return null;
+  return (
+    <mesh geometry={geometry} position={boxCentre(p.nominal)} renderOrder={5} userData={{ uiOnly: true }}>
+      <meshBasicMaterial color={scene.pickEdge} transparent opacity={0.45} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
+    </mesh>
   );
 }
 
@@ -633,16 +666,24 @@ function GhostLayer({ ghost, scene }: { ghost: Ghost; scene: SceneColours }) {
   return (
     <>
       {ghost.parts.map((g) => (
-        <mesh key={`ghost:${g.id}`} position={boxCentre(g.box)} renderOrder={4} raycast={() => null}>
-          <boxGeometry args={boxSize(g.box)} />
-          <meshBasicMaterial color={scene.ghost} transparent opacity={g.added ? 0.3 : 0.22} depthWrite={false} toneMapped={false} />
-          <Edges color={scene.ghost} lineWidth={2} />
-        </mesh>
+        <GhostPart key={`ghost:${g.id}`} box={g.box} profile={g.profile} added={g.added} scene={scene} />
       ))}
       {ghost.marks.map((m) => (
         <MoveDimension key={`${m.axis}:${m.from.join(",")}:${m.label}`} m={m} scene={scene} />
       ))}
     </>
+  );
+}
+
+/** One part's new place in a suggested change, in its true shape when cuts shape it. */
+function GhostPart({ box, profile, added, scene }: { box: Box; profile?: PartProfile | undefined; added: boolean; scene: SceneColours }) {
+  const geometry = useShape({ nominal: box, profile }, shapeGeometry);
+  return (
+    <mesh geometry={geometry ?? undefined} position={boxCentre(box)} renderOrder={4} raycast={() => null}>
+      {!geometry && <boxGeometry args={boxSize(box)} />}
+      <meshBasicMaterial color={scene.ghost} transparent opacity={added ? 0.3 : 0.22} depthWrite={false} toneMapped={false} />
+      <Edges color={scene.ghost} lineWidth={2} />
+    </mesh>
   );
 }
 
@@ -669,13 +710,15 @@ function Part({
   xray: boolean;
   /** Set in the finished look: the timber and the finish on each face. */
   wood: WoodLook | null;
-  onPick: (id: string, add: boolean, hit: { point: THREE.Vector3; normal: THREE.Vector3 | null }) => void;
+  onPick: (id: string, add: boolean, hit: Hit) => void;
   onHover: (id: string | null) => void;
 }) {
   const size = p.nominal.max.map((v, i) => v - p.nominal.min[i]!) as [number, number, number];
   const centre = p.nominal.max.map((v, i) => (v + p.nominal.min[i]!) / 2) as [number, number, number];
   const colour = selected ? scene.pick : colourFor(p);
-  const woodMaterial = useMemo(() => (wood ? makeWoodMaterial() : null), [wood !== null]);
+  // A shaped part draws its true solid, and names its faces itself.
+  const shape = useShape(p, shapeGeometry);
+  const woodMaterial = useMemo(() => (wood ? makeWoodMaterial(!!shape) : null), [wood !== null, !!shape]);
   useEffect(() => () => woodMaterial?.dispose(), [woodMaterial]);
   const sig = wood ? `${lookKey(wood)}|${size.join(",")}|${p.grain_axis}${p.thickness_axis}` : "";
   useLayoutEffect(() => {
@@ -687,9 +730,11 @@ function Part({
       castShadow={!!wood}
       receiveShadow={!!wood}
       position={centre}
+      geometry={shape ?? undefined}
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation();
-        onPick(p.id, e.shiftKey || e.metaKey, { point: e.point.clone(), normal: e.face ? e.face.normal.clone() : null });
+        const face = shape ? faceOfHit(shape, e) : null;
+        onPick(p.id, e.shiftKey || e.metaKey, { point: e.point.clone(), normal: e.face ? e.face.normal.clone() : null, ...(face ? { face } : {}) });
       }}
       onPointerOver={(e) => {
         e.stopPropagation();
@@ -697,7 +742,7 @@ function Part({
       }}
       onPointerOut={() => onHover(null)}
     >
-      <boxGeometry args={size} />
+      {!shape && <boxGeometry args={size} />}
       {woodMaterial ? (
         <primitive object={woodMaterial} attach="material" />
       ) : (
@@ -843,16 +888,18 @@ export function Viewport({
     if (orbit !== null) onOrbitEnd?.();
   };
 
-  const pick = (id: string, add: boolean, hit: { point: THREE.Vector3; normal: THREE.Vector3 | null }) => {
+  const pick = (id: string, add: boolean, hit: Hit) => {
     if (mode === "pan") return;
+    // A box's face is the way the hit points. A shaped part's triangle names its own, so a slope reads as the face it was cut from.
+    const face = hit.face ?? (hit.normal ? faceFromNormal(hit.normal) : null);
     if (mode === "pin") {
-      onPin({ part: id, face: hit.normal ? faceFromNormal(hit.normal) : "front", point_mm: [half(hit.point.x), half(hit.point.y), half(hit.point.z)] });
+      onPin({ part: id, face: face ?? "front", point_mm: [half(hit.point.x), half(hit.point.y), half(hit.point.z)] });
       return;
     }
-    if (hit.normal) onClickFace?.(`${id}.${faceFromNormal(hit.normal)}`);
+    if (face) onClickFace?.(`${id}.${face}`);
     if (faceMode) {
-      if (!hit.normal) return;
-      const key = `${id}.${faceFromNormal(hit.normal)}`;
+      if (!face) return;
+      const key = `${id}.${face}`;
       onFaces(add ? (faces.includes(key) ? faces.filter((f) => f !== key) : [...faces, key]) : [key]);
       return;
     }

@@ -107,8 +107,22 @@ has, so a check errs towards finding an overlap. Straight edges are exact.
 The cut list gives a hole the size you set, and it groups parts only when
 their shapes match to 0.1 mm. A mirror image keeps a row of its own.
 
-The pictures draw the blank until they learn to draw shapes. Claude's tools
-leave cuts out until then, since every picture comes from the same model.
+Every picture draws the shape. The 3D view, the plan views and the
+server's pictures carry the outline through the part's thickness and leave
+its holes open. Each wall of that solid counts as the face its edge counts
+as, so a sloped top takes the top's finish and a click on it picks the top.
+A hole's walls count as the faces they look towards. A part with no cuts is
+still drawn as its box, and a test holds every example's views, drawings and
+PDF to the same bytes.
+
+The workshop drawings draw the shape you cut, tongues and all, with its
+holes. A part's sheet sizes each slope's angle and the wood left at each
+end, and places and sizes each hole. Its notes give a slope's two ends and a
+hole's centre or corner in the sheet's own along and up. A part turned over
+for its machining turns its shape over too. The cutting layout still places
+the blanks, and draws each part's outline inside its own.
+
+Claude's tools don't make cuts yet.
 
 ## Checks run after every change
 

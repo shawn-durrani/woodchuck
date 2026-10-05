@@ -4,6 +4,7 @@
 // restoring a version and your own edits never set them off. The chat's
 // change lines say when Undo took a change back.
 
+import { shapeSig } from "@woodchuck/core";
 import type { Author, ServerState } from "./api";
 
 /** What the window last saw of the open design. */
@@ -16,7 +17,7 @@ export interface Seen {
    * change set above it is new, and one that comes back with redo isn't.
    */
   topId: number;
-  /** Each part's box, from before Claude's turn began, to tell what Claude moved. */
+  /** Each part's box and shape, from before Claude's turn began, to tell what Claude moved or cut. */
   boxes: Map<string, string>;
   /** The finishes from before Claude's turn began. */
   finishes: string;
@@ -24,13 +25,13 @@ export interface Seen {
 
 type Shape = Pick<ServerState, "project" | "history" | "derived" | "design" | "busy">;
 
-/** What a new change set by Claude did: the parts it moved or resized, and whether it changed colours. */
+/** What a new change set by Claude did: the parts it moved, resized or cut, and whether it changed colours. */
 export interface ClaudeChange {
   parts: string[];
   finishes: boolean;
 }
 
-const boxesOf = (state: Shape) => new Map(state.derived.parts.map((p) => [p.id, [...p.nominal.min, ...p.nominal.max].join(",")]));
+const boxesOf = (state: Shape) => new Map(state.derived.parts.map((p) => [p.id, `${[...p.nominal.min, ...p.nominal.max].join(",")}${p.profile ? `|${shapeSig(p)}` : ""}`]));
 const finishesOf = (state: Shape) => JSON.stringify(state.design.finishes ?? {});
 
 /**
