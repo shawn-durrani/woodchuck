@@ -118,11 +118,11 @@ export interface Progress {
   state: JobState;
   started_at: string | null;
   elapsed_s: number;
-  /** Tool calls in this request. */
+  /** Tool calls in this request. One apply_edits call is one step, however many edits it holds. */
   steps: number;
   /** Parts in the design now, which the Woodchuck window shows as they're added. */
   parts: number;
-  /** Edits Claude has made to the design in this request. */
+  /** Edits Claude has made to the design in this request, counting each edit in an apply_edits call. */
   edits: number;
   /** When an error ended the request, what it was. */
   error: string;

@@ -105,9 +105,11 @@ A chat app reads it to watch a long build without holding its turn.
 - `reply` holds what Claude said and did, once it's done or waiting. A
   failed or stopped request's reply opens with how it ended, and says the
   woodworker can ask Claude to carry on.
+- `steps` counts Claude's tool calls in this request.
 - `parts` counts the parts in the design, and `edits` counts Claude's edits
   in this request. Both grow during a build, and the Woodchuck window
-  shows each part as it's added.
+  shows each part as it's added. One call can make a whole list of edits,
+  so `edits` often grows faster than `steps`.
 
 The app's own `GET /api/progress` gives the same facts, with the last
 three steps and any messages Claude hasn't read yet. Its `state` names

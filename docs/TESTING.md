@@ -47,7 +47,11 @@ back fixed replies, so the turn loop, previews, questions and tool requests
 run for real without a key. One scripted reply can carry many tool calls.
 The tests hold those calls to running in order, each with its result, and
 to one undo step for all of them. A failed call leaves the rest running, and
-only one question, plan, part or preview can wait at a time. Every request
+only one question, plan, part or preview can wait at a time. One call can
+carry a list of edits too, and every edit in it is checked before any
+runs. The tests hold the list to the same order and one undo step. They
+check that a refused edit stops it with the edits before it kept, and that
+the problems come back once for the whole list. Every request
 asks the API to drop earlier thinking that a changed prompt, tool list or
 workshop doesn't match. Stand-ins also
 take the place of OpenAI, GitHub, Tailscale and the picture camera, which

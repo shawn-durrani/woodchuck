@@ -59,6 +59,7 @@ export const PLACES: Record<string, Where> = {
   delete_rule: "check",
   add_unverified_box: "part",
   rename_design: "name",
+  apply_edits: "part",
   get_part: "part",
   explain: "none",
   measure: "none",
@@ -134,6 +135,8 @@ export function placeOf(line: ToolLine): Place | null {
     const views = line.summary.replace(/^render\s*/, "").split(/,\s*/).filter(Boolean);
     return { tool: line.name, area: where, id: "", views, ...from };
   }
+  // A list of edits names no one thing, so it carries its count, from "apply 14 edits".
+  if (line.name === "apply_edits") return { tool: line.name, area: where, id: /^apply (\d+) edit/.exec(line.summary)?.[1] ?? "", ...from };
   const words = line.name.replace(/_/g, " ");
   const id = line.summary.startsWith(`${words} `) ? line.summary.slice(words.length + 1).trim() : "";
   return { tool: line.name, area: where, id, ...from };
@@ -380,6 +383,11 @@ export function describe(place: Place, look: Lookup): Described {
       if (place.tool === "set_rule") marks = [`rule:${id}`];
       break;
     }
+    case "apply_edits":
+      // The parts it moved glow and are framed as the design changes.
+      verb = "made";
+      thing = id ? `${id} edit${id === "1" ? "" : "s"}` : "a list of edits";
+      break;
     case "rename_design":
       verb = "renamed";
       thing = "the design";

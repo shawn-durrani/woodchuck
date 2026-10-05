@@ -29,7 +29,8 @@ each open window.
 
 Claude can't write code or pick from furniture templates. It edits with a
 fixed set of woodworking tools, such as adding a panel, a joint or an
-array, and each one checks its input and does its own arithmetic. A piece
+array, and each one checks its input and does its own arithmetic. One more
+tool takes a list of those same edits and makes them in order. A piece
 of furniture is anything those tools can express, so there's no catalogue
 of shapes to outgrow.
 
@@ -100,10 +101,13 @@ carries on without it.
 ## You can talk and edit while Claude works
 
 A build can take minutes, so the chat box and the edit controls stay open
-while Claude works. A step is one reply from Claude, and Claude puts the
-edits that don't depend on each other into one reply. Its tools run in
-order, so a whole stage of a build, such as every carcass panel, is one
-step. A message you send waits for Claude's current step to end. It then
+while Claude works. A step is one reply from Claude. Claude makes a whole
+stage of a build, such as every carcass panel, as one list of edits in one
+step. The list runs in order and stops at the first edit that's refused.
+The edits before it stay made, and Claude hears which one failed and why.
+Each edit's result already lists the problems it made, so Claude runs the
+full checks and draws the model once a stage is done. A message you send
+waits for Claude's current step to end. It then
 goes in beside that step's tool results, in the same message, and Claude
 carries on with it in mind. Your edits reach Claude the same way. Nothing
 earlier in the chat changes to fit them in, which keeps Claude's earlier

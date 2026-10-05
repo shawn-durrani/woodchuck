@@ -488,6 +488,7 @@ describe("the tool list", () => {
         "add_joint",
         "add_panel",
         "add_unverified_box",
+        "apply_edits",
         "ask_user",
         "check_design",
         "clear_design",
