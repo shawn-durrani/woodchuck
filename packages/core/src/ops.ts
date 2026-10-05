@@ -113,13 +113,99 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], what: string
   return v as T;
 }
 
+const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
 function finite(v: unknown, what: string): number {
   if (typeof v !== "number" || !Number.isFinite(v)) throw new OpError(`${what} must be a number`);
   return v;
 }
 
-function checkExpr(src: unknown, what: string): string {
-  if (typeof src !== "string" || src.trim() === "") throw new OpError(`${what} needs a number or a formula`);
+/** JSON on one line, spaced the way the tools' own examples are. */
+function showJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(showJson).join(", ")}]`;
+  if (v !== null && typeof v === "object") {
+    const fields = Object.entries(v).filter(([, x]) => x !== undefined);
+    return `{${fields.map(([k, x]) => `${JSON.stringify(k)}: ${showJson(x)}`).join(", ")}}`;
+  }
+  return JSON.stringify(v);
+}
+
+/**
+ * Two values the same as JSON, whatever order their fields come in. A field
+ * set to undefined counts as left out.
+ */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) return a.length === (b as unknown[]).length && a.every((x, i) => sameJson(x, (b as unknown[])[i]));
+  const ka = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => sameJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/**
+ * An expression as an edit gives it. A JSON number reads as its digits, and
+ * a number wrapped in one pair of matching quotes, such as "'20'", reads as
+ * the number inside. Anything else stays as it came, so nothing looser gets
+ * a meaning it wasn't given. Null means it isn't text or a number at all.
+ */
+export function exprInput(raw: unknown): string | null {
+  if (typeof raw === "number") return Number.isFinite(raw) ? String(raw) : null;
+  if (typeof raw !== "string") return null;
+  const quoted = /^\s*(["'])(-?(?:\d+\.?\d*|\.\d+))\1\s*$/.exec(raw);
+  return quoted ? quoted[2]! : raw;
+}
+
+/**
+ * The right shape for each field that takes a list or an object. A refusal
+ * of the wrong shape quotes the example, so the next try can copy it.
+ */
+export const SHAPES = {
+  sheet_sizes_mm: { rule: "must be a list of [length along the grain, width] pairs in mm", example: "[[2440, 1220]]" },
+  sheet_mm: { rule: "must be [length along the grain, width] in mm", example: "[2440, 1220]" },
+  lengths_mm: { rule: "must list 1 to 20 lengths in mm", example: "[2400, 3000, 3600]" },
+  tags: { rule: "must be a list of words", example: '["carcass", "drawer"]' },
+  parts: { rule: "must list at least one part", example: '["shelf"]' },
+  connects: { rule: "must list the parts it joins", example: '["side_l", "drawer_side_l"]' },
+  spec: { rule: "must be an object of numbers and words", example: '{"load_kg": 30, "clearance_per_side_mm": 12.7}' },
+  place: { rule: "must be an object of x, y and z expressions, and length_axis if the model turns", example: '{"x": "0", "y": "100", "z": "20", "length_axis": "z"}' },
+  min_mm: { rule: "must be [x, y, z] in mm", example: "[0, 0, 0]" },
+  max_mm: { rule: "must be [x, y, z] in mm", example: "[600, 720, 560]" },
+  targets: { rule: 'must list what to finish: "material:<id>", "<part>" or "<part>.<face>"', example: '["material:ply18", "shelf", "shelf.front"]' },
+} as const;
+
+export type ShapeField = keyof typeof SHAPES;
+
+/** A face to sit against on each axis, for examples. */
+const EXAMPLE_FACE: Record<Axis, string> = { x: "left_side.right", y: "base.top", z: "back.front" };
+
+/** A start or end on an axis, written both ways. */
+const boundExample = (axis: Axis) => `{"at": "0"} or {"face": "${EXAMPLE_FACE[axis]}", "offset": "2"}`;
+
+/** A span along an axis. On a thickness axis, one end alone. */
+const spanExample = (thickness = false) => (thickness ? '{"start": {"at": "0"}}' : '{"start": {"at": "0"}, "size": "600"}');
+
+/**
+ * An example of a field's right shape, as "field": value, for a field that
+ * takes a list or an object, such as a span or a bound. Undefined for a
+ * plain value.
+ */
+export function fieldExample(field: string): string | undefined {
+  if (Object.hasOwn(SHAPES, field)) return `"${field}": ${SHAPES[field as ShapeField].example}`;
+  if (field === "x" || field === "y" || field === "z") return `"${field}": ${spanExample()}`;
+  if (field === "start" || field === "end") return `"${field}": {"at": "0"}`;
+  return undefined;
+}
+
+/** A refusal for a field whose value has the wrong shape, with the right one. */
+function shapeError(field: ShapeField): OpError {
+  return new OpError(`${field} ${SHAPES[field].rule}. Example: ${fieldExample(field)}`);
+}
+
+function checkExpr(raw: unknown, what: string): string {
+  const src = exprInput(raw);
+  if (src === null || src.trim() === "") throw new OpError(`${what} needs a number or a formula, such as "600" or "bay - 2 * 18"`);
   try {
     parse(src);
   } catch (e) {
@@ -167,8 +253,13 @@ function checkRefs(d: Design, src: string, what: string, extraParts: string[] = 
 
 /** A bound on an axis. A part's own faces are allowed only for its cuts, which nothing reads back. */
 function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: string, ownFaces = false): Bound {
-  if (typeof b !== "object" || b === null) throw new OpError(`${what} must be {"at": expr} or {"face": "part.face", "offset": expr}`);
+  const shape = `${what} must be {"at": expression} or {"face": "part.face", "offset": expression}`;
+  if (typeof b !== "object" || b === null || Array.isArray(b)) throw new OpError(`${shape}. Example: ${boundExample(axis)}`);
   const o = b as Record<string, unknown>;
+  // A field left over would be dropped without a word, and move the part.
+  const kept = "at" in o ? ["at"] : ["face", "offset"];
+  const extra = Object.keys(o).filter((k) => !kept.includes(k) && o[k] !== undefined && o[k] !== null);
+  if (extra.length) throw new OpError(`${shape}, so ${extra.join(" and ")} can't go with ${kept[0]}. Example: ${boundExample(axis)}`);
   if ("at" in o) {
     const at = checkExpr(o.at, what);
     checkRefs(d, at, what, [partId]);
@@ -193,14 +284,14 @@ function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: str
       throw new OpError(`There's no part called "${source}" for ${what}, which sits against ${face}. Check the name, or add the part first.`);
     }
     const out: Bound = { face };
-    if (o.offset !== undefined && o.offset !== null && String(o.offset).trim() !== "") {
-      const offset = checkExpr(String(o.offset), `${what} offset`);
+    if (o.offset !== undefined && o.offset !== null && !(typeof o.offset === "string" && o.offset.trim() === "")) {
+      const offset = checkExpr(o.offset, `${what} offset`);
       checkRefs(d, offset, what, [partId]);
       out.offset = offset;
     }
     return out;
   }
-  throw new OpError(`${what} must have "at" or "face"`);
+  throw new OpError(`${shape}. Example: ${boundExample(axis)}`);
 }
 
 const CUT_FIELDS = {
@@ -213,15 +304,27 @@ const given = (v: unknown) => v !== undefined && v !== null && !(typeof v === "s
 
 /** An expression in a cut. It may use its own part's sizes. */
 function checkCutExpr(d: Design, partId: string, src: unknown, what: string): string {
-  const expr = checkExpr(String(src ?? ""), what);
+  const expr = checkExpr(src, what);
   checkRefs(d, expr, what, [partId]);
   return expr;
 }
 
+/** An axis's span must be an object of start, end and size, and nothing else. */
+function checkSpanShape(raw: unknown, what: string, thickness = false): AxisSpec {
+  const example = `Example: ${spanExample(thickness)}`;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new OpError(`${what} must be an object of ${thickness ? "start or end" : "two of start, end and size"}. ${example}`);
+  }
+  const o = raw as Record<string, unknown>;
+  const extra = Object.keys(o).filter((k) => !["start", "end", "size"].includes(k) && o[k] !== undefined && o[k] !== null);
+  if (extra.length) throw new OpError(`${what} takes only start, end and size, not ${extra.join(", ")}. ${example}`);
+  return raw as AxisSpec;
+}
+
 /** A cutout's span on one axis: two of start, end and size, like a part's own. */
 function checkCutSpan(d: Design, partId: string, a: Axis, raw: unknown, what: string): AxisSpec {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new OpError(`${what} needs two of start, end and size`);
-  const spec = raw as AxisSpec;
+  if (raw === undefined || raw === null) throw new OpError(`${what} needs two of start, end and size`);
+  const spec = checkSpanShape(raw, what);
   const clean: AxisSpec = {};
   if (given(spec.start)) clean.start = checkBound(d, partId, a, spec.start, `${what}.start`, true);
   if (given(spec.end)) clean.end = checkBound(d, partId, a, spec.end, `${what}.end`, true);
@@ -309,6 +412,22 @@ function cutStranded(c: PanelCut, thickness: Axis): string | null {
   return axes.includes(thickness) ? `is drawn on ${axes.join(" and ")}` : null;
 }
 
+/**
+ * Why a part's thickness axis was refused, with the span to send instead in
+ * the caller's own values. The material sets the size there, so a start and
+ * an end can't both be kept without one of them meaning something else.
+ */
+function thicknessRefusal(d: Design, p: Panel, a: Axis, spec: AxisSpec): string {
+  const m = d.materials.find((x) => x.id === p.material)!;
+  const gave = (["start", "end", "size"] as const).filter((k) => spec[k] !== undefined);
+  const head =
+    `${p.id}.${a} is the thickness axis, so its size is the ${m.thickness_mm} mm thickness of material ${m.id}, and it takes exactly one of start or end. ` +
+    `It was given ${gave.length ? gave.join(" and ") : "neither"}.`;
+  const send = spec.start ? { start: spec.start } : spec.end ? { end: spec.end } : { start: { at: "0" } };
+  const instead = `Send ${showJson({ [a]: send })}${spec.start && spec.end ? `, or ${showJson({ [a]: { end: spec.end } })} to place it by its ${AXIS_FACES[a][1]} face` : ""}.`;
+  return `${head} ${instead} For another thickness, give the part a material that thick`;
+}
+
 function checkPanel(d: Design, p: Panel, before?: Panel): Panel {
   checkId(p.id, "Part id");
   need(p.name, "name");
@@ -321,29 +440,26 @@ function checkPanel(d: Design, p: Panel, before?: Panel): Panel {
   if (thickness_axis === grain_axis) throw new OpError("grain_axis must differ from thickness_axis");
   const out: Panel = { id: p.id, name: p.name, material: p.material, thickness_axis, grain_axis, x: {}, y: {}, z: {} };
   for (const a of AXES) {
-    const spec = (p[a] ?? {}) as AxisSpec;
     const what = `${p.id}.${a}`;
+    const spec = checkSpanShape(p[a] ?? {}, what, a === thickness_axis);
     const clean: AxisSpec = {};
-    if (spec.start !== undefined) clean.start = checkBound(d, p.id, a, spec.start, `${what}.start`);
-    if (spec.end !== undefined) clean.end = checkBound(d, p.id, a, spec.end, `${what}.end`);
-    if (spec.size !== undefined && String(spec.size).trim() !== "") {
-      clean.size = checkExpr(String(spec.size), `${what}.size`);
+    if (spec.start !== undefined && spec.start !== null) clean.start = checkBound(d, p.id, a, spec.start, `${what}.start`);
+    if (spec.end !== undefined && spec.end !== null) clean.end = checkBound(d, p.id, a, spec.end, `${what}.end`);
+    if (spec.size !== undefined && spec.size !== null && !(typeof spec.size === "string" && spec.size.trim() === "")) {
+      clean.size = checkExpr(spec.size, `${what}.size`);
       // A part may use its own thickness; a real loop is caught when it's worked out.
       checkRefs(d, clean.size, `${what}.size`, [p.id]);
     }
     const given = [clean.start, clean.end, clean.size].filter((x) => x !== undefined).length;
     if (a === thickness_axis) {
-      if (clean.size !== undefined) {
-        throw new OpError(`${what} is the thickness axis. Its size comes from the material, so give only start or end`);
-      }
-      if (given !== 1) throw new OpError(`${what} is the thickness axis, so give exactly one of start or end`);
+      if (given !== 1 || clean.size !== undefined) throw new OpError(thicknessRefusal(d, p, a, clean));
     } else if (given !== 2) {
       throw new OpError(`${what} needs two of start, end and size, but it has ${given}. ${given > 2 ? "Clear one of them" : "Fill in one more"}.`);
     }
     out[a] = clean;
   }
   if (p.tags !== undefined) {
-    if (!Array.isArray(p.tags) || p.tags.some((t) => typeof t !== "string")) throw new OpError("tags must be a list of words");
+    if (!Array.isArray(p.tags) || p.tags.some((t) => typeof t !== "string")) throw shapeError("tags");
     out.tags = p.tags;
   }
   if (p.decor) out.decor = true;
@@ -488,8 +604,8 @@ function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
   let own: MaterialStock | null = null;
   if (op.sheet_mm !== undefined && op.sheet_mm !== null) {
     const s = op.sheet_mm;
-    if (!Array.isArray(s) || s.length !== 2) throw new OpError("sheet_mm must be [length along the grain, width] in mm");
-    const sheet: [number, number] = [finite(s[0], "sheet length"), finite(s[1], "sheet width")];
+    if (!Array.isArray(s) || s.length !== 2 || !s.every(isNumber)) throw shapeError("sheet_mm");
+    const sheet: [number, number] = [s[0], s[1]];
     const trim = next.trim_mm ?? DEFAULT_TRIM_MM;
     if (sheet.some((v) => v <= 2 * trim || v > 10000)) {
       throw new OpError(`Each side of sheet_mm must be more than twice the ${trim} mm trim, and at most 10000 mm`);
@@ -498,8 +614,8 @@ function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
   }
   if (op.lengths_mm !== undefined && op.lengths_mm !== null) {
     const ls = op.lengths_mm;
-    if (!Array.isArray(ls) || ls.length === 0 || ls.length > 20) throw new OpError("lengths_mm must list 1 to 20 lengths in mm, such as [2400, 3000, 3600]");
-    const lengths = ls.map((v) => finite(v, "Each length"));
+    if (!Array.isArray(ls) || ls.length === 0 || ls.length > 20 || !ls.every(isNumber)) throw shapeError("lengths_mm");
+    const lengths = [...ls];
     if (lengths.some((v) => v <= 0 || v > 12000)) throw new OpError("Each length must be above 0 and at most 12000 mm");
     own = { lengths_mm: [...new Set(lengths)].sort((a, b) => a - b) };
   }
@@ -508,11 +624,86 @@ function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
   return withStock(d, next);
 }
 
+/**
+ * Applies one operation. One that leaves the design as it was, such as a
+ * parameter set to the value it has, hands back the design itself, so the
+ * caller can tell that nothing changed.
+ */
 export function applyOp(d: Design, op: Op): Design {
+  const next = change(d, op);
+  return next !== d && sameJson(next, d) ? d : next;
+}
+
+/**
+ * An add under an id that's taken. The same definition again changes
+ * nothing, so a list of edits sent a second time runs on past it. Any other
+ * definition is refused, and the refusal shows the one that's there, so
+ * Claude can change that instead. Fields in ignore are left out of both.
+ */
+function readd<T extends { id: string }>(d: Design, kind: string, existing: T, check: () => T, ignore: string[], instead: string): Design {
+  let given: Record<string, unknown> | null = null;
+  try {
+    given = check();
+  } catch (e) {
+    // A definition that's refused can't be the one that's there.
+    if (!(e instanceof OpError)) throw e;
+  }
+  const kept = (v: Record<string, unknown>) => Object.fromEntries(Object.entries(v).filter(([k, x]) => !ignore.includes(k) && x !== undefined));
+  const there = kept(existing);
+  if (given && sameJson(kept(given), there)) return d;
+  const fields = given ? [...new Set([...Object.keys(there), ...Object.keys(kept(given))])] : [];
+  const differs = fields.filter((k) => !sameJson(there[k], given![k]));
+  const { id: _id, ...shown } = there;
+  throw new OpError(`${kind} "${existing.id}" already exists${differs.length ? `, and this one differs in ${differs.join(", ")}` : ""}. It's ${showJson(shown)}. ${instead}`);
+}
+
+/** A joint, checked. Its sizes are optional: the joint library fills in usual proportions. */
+function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
+  const id = checkId(op.id, "Joint id");
+  const type = oneOf(op.type, JOINT_TYPES, "Joint type");
+  const host = checkPartRef(d, op.host, "host");
+  const guest = checkPartRef(d, op.guest, "guest");
+  if (host === guest) throw new OpError("host and guest must be different parts");
+  const j: Joint = { id, type, host, guest };
+  for (const f of ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger"] as const) {
+    const v: unknown = op[f];
+    if (v === undefined || v === null || (typeof v === "string" && v.trim() === "")) continue;
+    j[f] = checkExpr(v, `the ${f} of joint ${id}`);
+    checkRefs(d, j[f]!, `the ${f} of joint ${id}`);
+  }
+  if (op.count !== undefined) {
+    const count = finite(op.count, "count");
+    if (!Number.isInteger(count) || count < 1) throw new OpError("count must be a whole number of 1 or more");
+    j.count = count;
+  }
+  const family = JOINT_FAMILY[type];
+  const misplaced = (["thickness", "shoulder"] as const).filter((f) => j[f] !== undefined && family !== "inset");
+  if (misplaced.length) throw new OpError(`${misplaced.join(" and ")} only apply to tongue and mortise_tenon joints`);
+  if (j.finger !== undefined && type !== "box_joint") throw new OpError("finger only applies to box_joint");
+  if (op.note) j.note = op.note;
+  return j;
+}
+
+/** A stand-in box, checked. */
+function checkBox(op: Extract<Op, { op: "add_unverified_box" }>): UnverifiedBox {
+  const id = checkId(op.id, "Part id");
+  const corner = (v: unknown, field: "min_mm" | "max_mm") => {
+    if (!Array.isArray(v) || v.length !== 3 || !v.every(isNumber)) throw shapeError(field);
+    return [...v] as [number, number, number];
+  };
+  const min = corner(op.min_mm, "min_mm");
+  const max = corner(op.max_mm, "max_mm");
+  if (min.some((v, i) => v >= max[i]!)) throw new OpError("Each min_mm value must be below its max_mm value");
+  const u: UnverifiedBox = { id, name: need(op.name, "name"), min_mm: min, max_mm: max, reason: need(op.reason, "reason") };
+  if (op.request_id) u.request_id = op.request_id;
+  return u;
+}
+
+function change(d: Design, op: Op): Design {
   switch (op.op) {
     case "set_param": {
       const name = checkId(op.name, "Parameter name");
-      const expr = checkExpr(String(op.expr), `parameter ${name}`);
+      const expr = checkExpr(op.expr, `parameter ${name}`);
       checkRefs(d, expr, `parameter ${name}`);
       const unit = oneOf(op.unit ?? "mm", PARAM_UNITS, "unit");
       const p: Param = { name, expr, unit };
@@ -545,10 +736,9 @@ export function applyOp(d: Design, op: Op): Design {
       if (m.thickness_mm <= 0) throw new OpError("thickness_mm must be above 0");
       if (op.nominal_thickness_mm !== undefined) m.nominal_thickness_mm = finite(op.nominal_thickness_mm, "nominal_thickness_mm");
       if (op.sheet_sizes_mm !== undefined) {
-        if (!Array.isArray(op.sheet_sizes_mm) || op.sheet_sizes_mm.some((s) => !Array.isArray(s) || s.length !== 2)) {
-          throw new OpError("sheet_sizes_mm must be a list of [length, width] pairs");
-        }
-        m.sheet_sizes_mm = op.sheet_sizes_mm.map(([l, w]) => [finite(l, "sheet length"), finite(w, "sheet width")]);
+        const sizes: unknown = op.sheet_sizes_mm;
+        if (!Array.isArray(sizes) || sizes.some((s) => !Array.isArray(s) || s.length !== 2 || !s.every(isNumber))) throw shapeError("sheet_sizes_mm");
+        m.sheet_sizes_mm = sizes.map(([l, w]) => [l, w] as [number, number]);
       }
       if (op.board_max_length_mm !== undefined) m.board_max_length_mm = finite(op.board_max_length_mm, "board_max_length_mm");
       if (op.board_max_width_mm !== undefined) m.board_max_width_mm = finite(op.board_max_width_mm, "board_max_width_mm");
@@ -576,7 +766,10 @@ export function applyOp(d: Design, op: Op): Design {
     }
     case "add_panel": {
       const { op: _op, ...rest } = op;
-      if (partExists(d, rest.id)) throw new OpError(`Part "${rest.id}" already exists. Use update_panel to change it`);
+      const existing = d.parts.find((p) => p.id === rest.id);
+      // add_panel brings no cuts of its own, so cuts made since don't count against it.
+      if (existing) return readd(d, "Part", existing, () => checkPanel(d, rest as Panel), rest.cuts === undefined ? ["cuts"] : [], "Use update_panel to change it, or pick a new id");
+      if (partExists(d, rest.id)) throw new OpError(`Part "${rest.id}" already exists as a stand-in box. delete_part it first to replace it, or pick a new id`);
       const p = checkPanel(d, rest as Panel);
       return { ...d, parts: [...d.parts, p] };
     }
@@ -633,31 +826,9 @@ export function applyOp(d: Design, op: Op): Design {
       });
     }
     case "add_joint": {
-      const id = checkId(op.id, "Joint id");
-      if (d.joints.some((j) => j.id === id)) throw new OpError(`Joint "${id}" already exists`);
-      const type = oneOf(op.type, JOINT_TYPES, "Joint type");
-      const host = checkPartRef(d, op.host, "host");
-      const guest = checkPartRef(d, op.guest, "guest");
-      if (host === guest) throw new OpError("host and guest must be different parts");
-      const j: Joint = { id, type, host, guest };
-      // Sizes are optional: the joint library fills in usual proportions.
-      for (const f of ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger"] as const) {
-        const v = op[f];
-        if (v === undefined || v === null || String(v).trim() === "") continue;
-        j[f] = checkExpr(String(v), `the ${f} of joint ${id}`);
-        checkRefs(d, j[f]!, `the ${f} of joint ${id}`);
-      }
-      if (op.count !== undefined) {
-        const count = finite(op.count, "count");
-        if (!Number.isInteger(count) || count < 1) throw new OpError("count must be a whole number of 1 or more");
-        j.count = count;
-      }
-      const family = JOINT_FAMILY[type];
-      const misplaced = (["thickness", "shoulder"] as const).filter((f) => j[f] !== undefined && family !== "inset");
-      if (misplaced.length) throw new OpError(`${misplaced.join(" and ")} only apply to tongue and mortise_tenon joints`);
-      if (j.finger !== undefined && type !== "box_joint") throw new OpError("finger only applies to box_joint");
-      if (op.note) j.note = op.note;
-      return { ...d, joints: [...d.joints, j] };
+      const existing = d.joints.find((j) => j.id === op.id);
+      if (existing) return readd(d, "Joint", existing, () => checkJoint(d, op), [], "To change it, delete_joint it and add it again, or pick a new id");
+      return { ...d, joints: [...d.joints, checkJoint(d, op)] };
     }
     case "delete_joint": {
       if (!d.joints.some((j) => j.id === op.id)) throw new OpError(`There's no joint "${op.id}"`);
@@ -665,7 +836,7 @@ export function applyOp(d: Design, op: Op): Design {
     }
     case "set_array": {
       const id = checkId(op.id, "Array id");
-      if (!Array.isArray(op.parts) || op.parts.length === 0) throw new OpError("parts must list at least one part");
+      if (!Array.isArray(op.parts) || op.parts.length === 0 || op.parts.some((p) => typeof p !== "string")) throw shapeError("parts");
       for (const p of op.parts) {
         if (!d.parts.some((x) => x.id === p)) throw new OpError(`Array part "${p}" isn't a panel`);
         const other = d.arrays.find((a) => a.id !== id && a.parts.includes(p));
@@ -675,8 +846,8 @@ export function applyOp(d: Design, op: Op): Design {
         id,
         parts: op.parts,
         axis: oneOf(op.axis, AXES, "axis"),
-        count: checkExpr(String(op.count), `the count of array ${id}`),
-        pitch: checkExpr(String(op.pitch), `the pitch of array ${id}`),
+        count: checkExpr(op.count, `the count of array ${id}`),
+        pitch: checkExpr(op.pitch, `the pitch of array ${id}`),
       };
       checkRefs(d, a.count, `the count of array ${id}`);
       checkRefs(d, a.pitch, `the pitch of array ${id}`);
@@ -688,12 +859,13 @@ export function applyOp(d: Design, op: Op): Design {
     }
     case "set_hardware": {
       const id = checkId(op.id, "Hardware id");
-      if (!Array.isArray(op.connects) || op.connects.length === 0) throw new OpError("connects must list the parts it joins");
+      if (!Array.isArray(op.connects) || op.connects.length === 0) throw shapeError("connects");
       const connects = op.connects.map((c) => checkPartRef(d, c, "connects"));
       const qty = op.qty === undefined ? 1 : finite(op.qty, "qty");
       const h: Hardware = { id, kind: need(op.kind, "kind"), name: need(op.name, "name"), connects, qty };
       if (op.spec) {
-        if (typeof op.spec !== "object") throw new OpError("spec must be an object of numbers and words");
+        const spec: unknown = op.spec;
+        if (typeof spec !== "object" || Array.isArray(spec) || Object.values(spec as object).some((v) => typeof v !== "number" && typeof v !== "string")) throw shapeError("spec");
         h.spec = op.spec;
       }
       if (op.library_part) h.library_part = String(op.library_part);
@@ -706,13 +878,15 @@ export function applyOp(d: Design, op: Op): Design {
       }
       if (op.place !== undefined) {
         if (!h.shape) throw new OpError("place needs a model: give library_part or shape");
-        const pl = op.place as Record<string, unknown>;
+        const pl: unknown = op.place;
+        if (typeof pl !== "object" || pl === null || Array.isArray(pl) || Object.keys(pl).some((k) => !["x", "y", "z", "length_axis"].includes(k))) throw shapeError("place");
+        const given = pl as Record<string, unknown>;
         const place: NonNullable<Hardware["place"]> = { x: "", y: "", z: "" };
         for (const a of AXES) {
-          place[a] = checkExpr(String(pl[a] ?? ""), `place.${a} of ${id}`);
+          place[a] = checkExpr(given[a], `place.${a} of ${id}`);
           checkRefs(d, place[a], `place.${a} of ${id}`);
         }
-        if (pl.length_axis !== undefined) place.length_axis = oneOf(pl.length_axis, AXES, "place.length_axis");
+        if (given.length_axis !== undefined) place.length_axis = oneOf(given.length_axis, AXES, "place.length_axis");
         h.place = place;
       }
       if (op.on_floor) h.on_floor = true;
@@ -735,30 +909,23 @@ export function applyOp(d: Design, op: Op): Design {
       return { ...d, rules: d.rules.filter((r) => r.id !== op.id) };
     }
     case "add_unverified_box": {
-      const id = checkId(op.id, "Part id");
-      if (partExists(d, id)) throw new OpError(`Part "${id}" already exists`);
-      const min = op.min_mm?.map((v) => finite(v, "min_mm")) as [number, number, number];
-      const max = op.max_mm?.map((v) => finite(v, "max_mm")) as [number, number, number];
-      if (min?.length !== 3 || max?.length !== 3) throw new OpError("min_mm and max_mm must each be [x, y, z]");
-      if (min.some((v, i) => v >= max[i]!)) throw new OpError("Each min_mm value must be below its max_mm value");
-      const u: UnverifiedBox = { id, name: need(op.name, "name"), min_mm: min, max_mm: max, reason: need(op.reason, "reason") };
-      if (op.request_id) u.request_id = op.request_id;
-      return { ...d, unverified: [...d.unverified, u] };
+      const existing = d.unverified.find((u) => u.id === op.id);
+      if (existing) return readd(d, "Stand-in box", existing, () => checkBox(op), [], "To change it, delete_part it and add it again, or pick a new id");
+      if (partExists(d, op.id)) throw new OpError(`Part "${op.id}" already exists as a panel. Pick a new id`);
+      return { ...d, unverified: [...d.unverified, checkBox(op)] };
     }
     case "set_plan": {
       const p = op.plan;
       need(p?.summary, "plan.summary");
-      for (const dim of p.key_dims ?? []) {
-        checkExpr(dim.expr, `plan dimension "${dim.label}"`);
-        finite(dim.expected_mm, `plan dimension "${dim.label}" expected_mm`);
-      }
+      const key_dims = (p.key_dims ?? []).map((dim) => ({ ...dim, expr: checkExpr(dim.expr, `plan dimension "${dim.label}"`) }));
+      for (const dim of key_dims) finite(dim.expected_mm, `plan dimension "${dim.label}" expected_mm`);
       return {
         ...d,
         plan: {
           status: "proposed",
           summary: p.summary,
           parts: p.parts ?? [],
-          key_dims: p.key_dims ?? [],
+          key_dims,
           joints: p.joints ?? [],
           assumptions: p.assumptions ?? [],
         },
@@ -769,9 +936,7 @@ export function applyOp(d: Design, op: Op): Design {
       return { ...d, plan: { ...d.plan, status: oneOf(op.status, ["proposed", "approved", "changes_requested"] as const, "status") } };
     }
     case "set_finish": {
-      if (!Array.isArray(op.targets) || op.targets.length === 0) {
-        throw new OpError('targets must list what to finish: "material:<id>", "<part>" or "<part>.<face>"');
-      }
+      if (!Array.isArray(op.targets) || op.targets.length === 0) throw shapeError("targets");
       let finish: string | null = null;
       if (op.finish !== null && op.finish !== undefined && String(op.finish).trim() !== "") {
         finish = normaliseFinish(String(op.finish));
