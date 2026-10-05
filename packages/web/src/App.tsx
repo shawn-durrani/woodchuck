@@ -183,6 +183,8 @@ function useOpen(key: string, startClosed = false) {
 
 /** The layout the window starts in, which sets a portrait tablet's narrower panels and folded chat. */
 const startLayout = () => layoutFor(typeof innerWidth === "number" ? innerWidth : 1280);
+/** The computer asks for less motion, so nothing turns by itself. */
+const lessMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** State that survives a reload of this tab, such as after an update. read makes sense of what was kept, such as a tab from before the five. */
 function useKept<T extends string>(key: string, fallback: T, read?: (stored: string | null) => T) {
@@ -276,6 +278,8 @@ export function App() {
   /** The newest preview and example the window has seen, so only new examples open by themselves, and a new preview puts the drawer away. */
   const seen = useRef<{ slug: string; preview: string | null; example: string | null } | undefined>(undefined);
   const [fitCount, setFitCount] = useState(0);
+  /** Another app asked the 3D view to keep turning, at this many degrees a second. Null holds it still. */
+  const [orbit, setOrbit] = useState<number | null>(null);
   const viewportApi = useRef<ViewportApi | null>(null);
   const layout = useLayout();
   const phone = layout === "phone";
@@ -373,6 +377,16 @@ export function App() {
       setPlanView(next.planView);
       if (effects.refit) setFitCount((n) => n + 1);
       setFull(next.full);
+      // An orbit keeps going until it's stopped. A room photo holds the
+      // camera to its line-up, and a computer set to reduce motion keeps
+      // the model still.
+      let still: string | null = null;
+      if (effects.orbit === "stop") setOrbit(null);
+      else if (effects.orbit !== null) {
+        if (next.photo && stateRef.current?.backdrop) still = "the model stays still in the room photo, so it keeps its line-up.";
+        else if (lessMotion()) still = "this computer is set to reduce motion, so the model stays still.";
+        else setOrbit(effects.orbit);
+      }
       // The waiting change shows on the model, a joint in the drawer, and picked parts open Edit.
       const routed = routeView(effects, { liveId: liveRef.current, pref: ghostRef.current, tab: tabRef.current });
       if (routed.select) {
@@ -396,12 +410,19 @@ export function App() {
       if (effects.render) setTimeout(() => void renderRef.current?.(), 900);
       // The caller's name starts the line, so it takes a capital, as "another app" does here.
       const who = v.from ? v.from.charAt(0).toUpperCase() + v.from.slice(1) : "Another chat";
-      note(routed.note ? `${who}: ${routed.note}` : v.note ? `${who}: ${v.note}` : `${who} changed the view: ${describeView(v)}.`);
+      if (still && !routed.note) note(`${who} asked for the model to keep turning, but ${still}`);
+      else note(routed.note ? `${who}: ${routed.note}` : v.note ? `${who}: ${v.note}` : `${who} changed the view: ${describeView(v)}.`);
     };
     viewRequests.addEventListener("view", onView);
     return () => viewRequests.removeEventListener("view", onView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The plan views and the room photo hold the camera still, so an orbit stops for them.
+  const photoUp = photoOn === "on" && !!state?.backdrop;
+  useEffect(() => {
+    if (mode === "2d" || photoUp) setOrbit(null);
+  }, [mode, photoUp]);
 
   // A preview in the drawer that's applied, such as from Crossband, closes
   // in this window too. Reopening an old one with "See it again" still
@@ -711,6 +732,7 @@ export function App() {
   const can = (id: string) => controls.get(id)?.disabled === false;
   const chooseCamera = (v: CameraView) => {
     setView(v);
+    setOrbit(null);
     // Choosing the view you're on brings it back square, after a turn.
     setFitCount((n) => n + 1);
   };
@@ -974,6 +996,8 @@ export function App() {
                   autoFit
                   designKey={state.project.slug}
                   paused={mode === "2d"}
+                  orbit={orbit}
+                  onOrbitEnd={() => setOrbit(null)}
                   mode={pointMode}
                   pins={pins}
                   apiRef={viewportApi}

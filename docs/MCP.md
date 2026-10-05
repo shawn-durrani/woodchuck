@@ -37,9 +37,21 @@ after changing the server, since it reads the tools when it starts.
 | `woodchuck_preview` | Applies the preview Woodchuck's Claude is showing, or says not now. |
 | `woodchuck_finish` | Changes colours straight away, through the same operation as the Finish tab, mid-build too. Woodchuck's Claude is told after its current step. |
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
-| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, see-through, the room photo, highlights, the waiting preview on the model, a worked joint in the drawer, and a render to the downloads. A highlight opens the Edit tab. |
+| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview on the model, a worked joint in the drawer, and a render to the downloads. A highlight opens the Edit tab. |
 | `woodchuck_status` | Sums up the design: its problems, timber and finishes. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
+
+## Turning the model while you talk
+
+`woodchuck_view` with `orbit` set to `"start"` keeps the camera turning
+slowly around the model, once round in about half a minute. Add
+`orbit_degrees_per_second` for another speed, from 1 to 60 either way,
+where a positive speed turns it to the right. It eases in, keeps going
+while the look, lighting, zoom or fit change, and eases out at `"stop"`.
+It also stops when the woodworker takes the camera, picks a camera view or
+opens the plan views. A room photo keeps the model still, and so does a
+computer set to reduce motion. For a single turn, `turn_degrees` turns the
+camera once and leaves it there.
 
 ## Timing
 

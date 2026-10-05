@@ -3,7 +3,8 @@
 // view, never the design: the 3D or plan views, the look, lighting and
 // camera, see-through, the room photo, filling the window, which parts
 // are picked and what's open in the drawer. It can also ask the window to
-// save a picture of what it shows.
+// save a picture of what it shows, or to keep turning the model slowly
+// until it's told to stop.
 
 import { JOINT_LIBRARY } from "./joints.js";
 import { JOINT_TYPES, type JointType } from "./types.js";
@@ -11,6 +12,13 @@ import { JOINT_TYPES, type JointType } from "./types.js";
 export const LOOKS = ["plain", "finished"] as const;
 export const LIGHTINGS_ALLOWED = ["daylight", "evening", "workshop"] as const;
 export const CAMERA_VIEWS = ["iso", "front", "top", "left", "right", "back"] as const;
+
+/**
+ * How fast an orbit turns the model, in degrees a second. The default is a
+ * slow showcase spin, once round in half a minute. Positive turns it to the
+ * right, as turn does.
+ */
+export const ORBIT_SPEED = { default: 12, min: 1, max: 60 } as const;
 
 export interface ViewCommand {
   /** The 3D view, or the 2D plan views. */
@@ -24,6 +32,10 @@ export interface ViewCommand {
   turn?: number;
   /** Move the camera closer (above 1) or further away (below 1) by this factor. */
   zoom?: number;
+  /** Keep turning the camera around the model until told to stop, or stop it. */
+  orbit?: "start" | "stop";
+  /** How fast an orbit turns, in degrees a second; positive turns it to the right. Set whenever orbit is "start". */
+  orbitSpeed?: number;
   /** See-through, to show the joints. */
   seeThrough?: boolean;
   /** Place the design in its room photo, or take it out. */
@@ -72,6 +84,23 @@ export function readViewCommand(input: unknown): ViewCommand {
     if (!Number.isFinite(z) || z < 0.2 || z > 5) throw new Error("zoom must be a factor between 0.2 and 5");
     if (z !== 1) c.zoom = z;
   }
+  const orbit = oneOf(o.orbit, ["start", "stop"] as const, "orbit");
+  if (o.orbitSpeed !== undefined && o.orbitSpeed !== null) {
+    const s = Number(o.orbitSpeed);
+    const { min, max } = ORBIT_SPEED;
+    if (!Number.isFinite(s) || Math.abs(s) < min || Math.abs(s) > max) {
+      throw new Error(`orbitSpeed must be between ${min} and ${max} degrees a second, or -${min} to -${max} to turn left`);
+    }
+    if (orbit !== "start") throw new Error('orbitSpeed goes with orbit "start"');
+    c.orbitSpeed = s;
+  }
+  if (orbit === "start") {
+    // The plan views and a room photo hold the camera still.
+    if (mode === "plan") throw new Error("orbit turns the 3D view, so it can't go with the plan views");
+    if (o.photo === true) throw new Error("orbit would move the camera off the room photo's line-up");
+    c.orbit = "start";
+    c.orbitSpeed ??= ORBIT_SPEED.default;
+  } else if (orbit) c.orbit = orbit;
   if (typeof o.seeThrough === "boolean") c.seeThrough = o.seeThrough;
   if (typeof o.photo === "boolean") c.photo = o.photo;
   if (o.render === true) c.render = true;
@@ -89,7 +118,7 @@ export function readViewCommand(input: unknown): ViewCommand {
   if (typeof o.from === "string" && o.from.trim()) c.from = o.from.trim().slice(0, 40);
   if (typeof o.note === "string" && o.note.trim()) c.note = o.note.trim().slice(0, 160);
   if (Object.keys(c).filter((k) => k !== "from").length === 0) {
-    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, seeThrough, photo, fill, select, drawer or render");
+    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, photo, fill, select, drawer or render");
   }
   return c;
 }
@@ -104,6 +133,10 @@ export function describeView(c: ViewCommand): string {
   if (c.fit) parts.push("the whole model in view");
   if (c.turn) parts.push(`turned ${Math.abs(c.turn)}° to the ${c.turn > 0 ? "right" : "left"}`);
   if (c.zoom) parts.push(c.zoom > 1 ? "zoomed in" : "zoomed out");
+  if (c.orbit === "start") {
+    const s = c.orbitSpeed ?? ORBIT_SPEED.default;
+    parts.push(`the model turning ${Math.abs(s)}° a second to the ${s > 0 ? "right" : "left"}`);
+  } else if (c.orbit === "stop") parts.push("the model held still");
   if (c.seeThrough !== undefined) parts.push(c.seeThrough ? "see-through on" : "see-through off");
   if (c.photo !== undefined) parts.push(c.photo ? "the room photo" : "the photo put away");
   if (c.fill === true) parts.push("the 3D view filling the window");

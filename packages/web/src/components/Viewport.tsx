@@ -12,6 +12,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { FACES, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Design, type Face, type JointFeature } from "@woodchuck/core";
 import { facesOf, NO_TOUCH_BOX, partsInRect, touchBox, type FingerEvent, type TouchBox } from "../select";
 import { autoFit, framing, type FitMemory, type FitReason } from "../autofit";
+import { orbitStep, turnAround } from "../orbit";
 import { lookKey, makeWoodMaterial, setWood, woodLookOf, type WoodLook } from "../wood";
 import { useScene, type SceneColours } from "../theme";
 import { FinishedLights, type Lighting } from "./Lights";
@@ -247,7 +248,8 @@ const GLIDE_MS = 280;
  * design changes, the canvas changes size, or a change takes the model past
  * the frame or shrinks it into a corner, as autofit.ts decides. It never
  * does during a drag or a turn, and it keeps the angle you're looking
- * from, gliding there.
+ * from, gliding there. With an orbit on, it turns the camera steadily
+ * around the model's middle, as orbit.ts works out, and pauses for a glide.
  */
 function CameraRig({
   parts,
@@ -260,6 +262,8 @@ function CameraRig({
   designKey = "",
   held = false,
   paused = false,
+  orbit = null,
+  spin,
 }: {
   parts: DerivedPart[];
   /** More boxes the model's frame takes in, such as a suggested change's ghost. */
@@ -275,6 +279,10 @@ function CameraRig({
   held?: boolean;
   /** The canvas is out of sight, so a fit lands at once. */
   paused?: boolean;
+  /** Keep turning at this many degrees a second, or ease to a stop (null). */
+  orbit?: number | null;
+  /** How fast the orbit turns right now, in degrees a second, shared so a grab can stop it dead. */
+  spin: React.MutableRefObject<number>;
 }) {
   const { camera, size: canvas, invalidate } = useThree();
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null;
@@ -292,8 +300,8 @@ function CameraRig({
   const memory = useRef<FitMemory | null>(null);
   const glide = useRef<{ from: Goal; to: Goal; start: number } | null>(null);
   // The latest of everything, for listeners set up once.
-  const now = useRef({ box, view, canvas, paused, design });
-  now.current = { box, view, canvas, paused, design };
+  const now = useRef({ box, view, canvas, paused, design, orbit });
+  now.current = { box, view, canvas, paused, design, orbit };
 
   const place = (g: Goal) => {
     camera.position.copy(g.position);
@@ -310,6 +318,8 @@ function CameraRig({
     camera.far = Math.max(goal.far, animate ? camera.far : 0);
     camera.updateProjectionMatrix();
     glide.current = null;
+    // A fit lands where it was asked to, and an orbit eases in again from there.
+    spin.current = 0;
     if (animate && !p) {
       const from = { position: camera.position.clone(), target: controls?.target.clone() ?? goal.target.clone(), far: camera.far };
       glide.current = { from, to: goal, start: performance.now() };
@@ -335,9 +345,27 @@ function CameraRig({
     if (reason) fit(reason === "design" ? new THREE.Vector3(...DIRS[now.current.view]) : looking(), reason !== "design");
   };
 
-  useFrame(() => {
+  /** One frame of an orbit: the camera and what it looks at both turn around the model's middle. */
+  const orbitFrame = (delta: number) => {
+    const aim = now.current.orbit ?? 0;
+    if (aim === 0 && spin.current === 0) return;
+    const step = orbitStep(spin.current, aim, delta * 1000);
+    spin.current = step.speed;
+    if (!step.degrees) return;
+    const middle = now.current.box.getCenter(new THREE.Vector3()).toArray();
+    camera.position.fromArray(turnAround(camera.position.toArray(), middle, step.degrees));
+    const target = controls?.target ?? new THREE.Vector3(...middle);
+    target.fromArray(turnAround(target.toArray(), middle, step.degrees));
+    camera.lookAt(target);
+    controls?.update();
+  };
+
+  useFrame((_, delta) => {
     const g = glide.current;
-    if (!g) return;
+    if (!g) {
+      orbitFrame(delta);
+      return;
+    }
     const k = Math.min(1, (performance.now() - g.start) / GLIDE_MS);
     const e = 1 - (1 - k) ** 3;
     const target = g.from.target.clone().lerp(g.to.target, e);
@@ -726,6 +754,8 @@ export function Viewport({
   ghost = null,
   outline = [],
   frame = null,
+  orbit = null,
+  onOrbitEnd,
 }: {
   parts: DerivedPart[];
   joints: DerivedJoint[];
@@ -774,6 +804,10 @@ export function Viewport({
   outline?: string[];
   /** A few parts to frame, once per key, as Show me does. */
   frame?: { box: Box; key: number } | null;
+  /** Keep turning around the model at this many degrees a second, as another app can ask. Null holds it still. */
+  orbit?: number | null;
+  /** The woodworker took the camera, so the orbit is over. */
+  onOrbitEnd?: () => void;
 }) {
   const scene = useScene();
   const [hover, setHover] = useState<string | null>(null);
@@ -796,6 +830,18 @@ export function Viewport({
   const hovered = hover ? live.find((p) => p.id === hover) : undefined;
   const down = useRef<[number, number] | null>(null);
   const finished = (look === "finished" || !!photo) && !xray;
+  /** How fast the orbit turns right now, in degrees a second. */
+  const spin = useRef(0);
+  // Out of sight or lined up with a photo, the camera stops dead.
+  const inPhoto = !!photo;
+  useEffect(() => {
+    if (paused || inPhoto) spin.current = 0;
+  }, [paused, inPhoto]);
+  /** Any press, drag or scroll on the view takes the camera back from an orbit at once. */
+  const grab = () => {
+    spin.current = 0;
+    if (orbit !== null) onOrbitEnd?.();
+  };
 
   const pick = (id: string, add: boolean, hit: { point: THREE.Vector3; normal: THREE.Vector3 | null }) => {
     if (mode === "pan") return;
@@ -841,7 +887,7 @@ export function Viewport({
   const drawnBox = rect ?? touch.rect;
 
   return (
-    <div className={`viewport mode-${mode}`}>
+    <div className={`viewport mode-${mode}`} onPointerDownCapture={grab} onWheelCapture={grab}>
     <Canvas
       shadows
       frameloop={paused ? "demand" : "always"}
@@ -964,6 +1010,8 @@ export function Viewport({
         designKey={designKey ?? ""}
         held={rect !== null || touch.rect !== null}
         paused={paused}
+        orbit={paused || inPhoto ? null : orbit}
+        spin={spin}
       />
       {photo && <PhotoCamera fov={photo.fov} memoryKey={photo.memoryKey} />}
       <ApiBridge apiRef={apiRef} />

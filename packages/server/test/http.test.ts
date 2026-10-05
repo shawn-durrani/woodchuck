@@ -208,6 +208,30 @@ describe("the local server", () => {
     render.close();
   });
 
+  it("passes an orbit on with its speed, and says so in words", async () => {
+    const win = await new Promise<WebSocket>((resolve) => {
+      const ws = new WebSocket(`${base.replace("http", "ws")}/ws`);
+      ws.addEventListener("open", () => resolve(ws), { once: true });
+    });
+    const views: unknown[] = [];
+    win.addEventListener("message", (m) => {
+      const msg = JSON.parse(String(m.data)) as { type: string; view?: unknown };
+      if (msg.type === "view") views.push(msg.view);
+    });
+    const start = (await (await postJson("/api/view", { orbit: "start", from: "Crossband" })).json()) as { windows: number; shown: string };
+    expect(start).toMatchObject({ windows: 1, shown: "the model turning 12° a second to the right" });
+    const stop = (await (await postJson("/api/view", { orbit: "stop", from: "Crossband" })).json()) as { shown: string };
+    expect(stop.shown).toBe("the model held still");
+    expect((await postJson("/api/view", { orbit: "start", orbitSpeed: 500 })).status).toBe(400);
+    expect((await postJson("/api/view", { orbit: "start", mode: "plan" })).status).toBe(400);
+    while (views.length < 2) await new Promise((r) => setTimeout(r, 10));
+    expect(views).toEqual([
+      { orbit: "start", orbitSpeed: 12, from: "Crossband" },
+      { orbit: "stop", from: "Crossband" },
+    ]);
+    win.close();
+  });
+
   it("keeps a room photo with the design, and takes it away again", async () => {
     expect((await postJson("/api/backdrop", { media_type: "image/gif", data: "R0lG" })).status).toBe(400);
     const r = (await (await postJson("/api/backdrop", { media_type: "image/jpeg", data: Buffer.from("jpeg").toString("base64") })).json()) as { name: string };

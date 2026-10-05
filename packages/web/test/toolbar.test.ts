@@ -186,7 +186,9 @@ describe("view commands reach the toolbar", () => {
       from: "Crossband",
       note: "Have a look",
     });
-    const routed = Object.keys(every).filter((k) => k !== "from" && k !== "note");
+    // An orbit can't go with the plan views or the photo, so it comes on its own.
+    const orbit = readViewCommand({ orbit: "start", orbitSpeed: 10 });
+    const routed = [...Object.keys(every), ...Object.keys(orbit)].filter((k) => k !== "from" && k !== "note");
     expect(routed.sort()).toEqual(Object.keys(ROUTES).sort());
     const ids = [...allControls(base).keys()];
     for (const [key, home] of Object.entries(ROUTES)) {
@@ -252,7 +254,31 @@ describe("view commands reach the toolbar", () => {
     expect(after({ drawer: "close" }).effects.drawer).toBe("close");
     // Nothing else moves for a command that only picks parts.
     const picked = after({ select: ["leg_fl"] });
-    expect(picked.effects).toMatchObject({ refit: false, nudge: null, render: false, drawer: null });
+    expect(picked.effects).toMatchObject({ refit: false, nudge: null, orbit: null, render: false, drawer: null });
     expect(picked.state).toEqual(view);
+  });
+
+  it("starts and stops an orbit, which keeps going through the look, lighting, zoom and Fit", () => {
+    expect(after({ orbit: "start" }).effects.orbit).toBe(12);
+    expect(after({ orbit: "start", orbitSpeed: -30, view: "front" }).effects.orbit).toBe(-30);
+    expect(after({ orbit: "stop" }).effects.orbit).toBe("stop");
+    for (const v of [{ look: "finished" }, { lighting: "evening" }, { zoom: 1.5 }, { turn: 20 }, { fit: true }, { seeThrough: true }, { select: ["leg_fl"] }] as ViewCommand[])
+      expect(after(v).effects.orbit, JSON.stringify(v)).toBeNull();
+  });
+
+  it("stops an orbit for a camera view, the plan views or the room photo", () => {
+    expect(after({ view: "top" }).effects.orbit).toBe("stop");
+    expect(after({ mode: "plan" }).effects.orbit).toBe("stop");
+    expect(after({ photo: true }).effects.orbit).toBe("stop");
+    // With no photo kept, the photo can't come up, so nothing stops.
+    expect(after({ photo: true }, view, false).effects.orbit).toBeNull();
+  });
+
+  it("leaves the plan views up for a command that only stops an orbit", () => {
+    const plan = after({ mode: "plan" }).state;
+    expect(after({ orbit: "stop" }, plan).state).toEqual(plan);
+    expect(after({ orbit: "stop", note: "Done" }, plan).state.mode).toBe("2d");
+    // Anything more shows the 3D view, as every command does.
+    expect(after({ orbit: "stop", look: "finished" }, plan).state.mode).toBe("3d");
   });
 });
