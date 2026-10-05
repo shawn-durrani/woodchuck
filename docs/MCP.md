@@ -84,7 +84,8 @@ A chat app reads it to watch a long build without holding its turn.
     "outcome": null,
     "error": "",
     "parts": 18,
-    "edits": 42
+    "edits": 42,
+    "answered": ""
 } }
 ```
 
@@ -110,6 +111,9 @@ A chat app reads it to watch a long build without holding its turn.
   in this request. Both grow during a build, and the Woodchuck window
   shows each part as it's added. One call can make a whole list of edits,
   so `edits` often grows faster than `steps`.
+- `answered` is a line when a message sent while Claude worked was taken
+  as the reply to its plan or question, which means Claude isn't waiting
+  on it. It's empty otherwise.
 
 The app's own `GET /api/progress` gives the same facts, with the last
 three steps and any messages Claude hasn't read yet. Its `state` names

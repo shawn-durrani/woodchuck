@@ -140,6 +140,7 @@ describe("the MCP tools while Claude builds", () => {
       "error",
       "parts",
       "edits",
+      "answered",
     ]);
     // Claude's edit so far counts before its change set closes, so another app hears the design is growing.
     expect(now.bg).toMatchObject({ outcome: null, error: "", parts: 0, edits: 1 });
