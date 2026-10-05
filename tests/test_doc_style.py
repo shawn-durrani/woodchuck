@@ -260,7 +260,7 @@ CONVERTED = {
 # a name in a code span or a file name like README.md is never read as prose.
 CAPS_ALLOWED = {"API", "CLI", "CNC", "DAE", "DNS", "DOM", "DXF", "GLB", "GPT", "HTTP",
                 "HTTPS", "ISO", "JSON", "MCP", "MIT", "OLED", "PDF", "SDK", "SKP",
-                "STEP", "STT", "URL", "USDZ", "WAV"}
+                "STEP", "STT", "URL", "USDZ", "UTC", "WAV"}
 
 # A colon may introduce a list, a command or a quoted value. Approximated as:
 # what follows starts with a backtick or a quote, holds an inline list (two or

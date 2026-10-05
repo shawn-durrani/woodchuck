@@ -80,6 +80,8 @@ flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
 block held to the agreed shape.
 
+### Timing, dropped connections and backups
+
 Each turn's usage line is held to its timing on a fake clock. That covers
 every request to Claude, the level it ran at, the wait for its first
 streamed words, its tokens and tool calls, any retries, and the time the
@@ -93,6 +95,13 @@ that an error or Stop ends has to say so to other apps and to the next
 turn, and never leave the typing cursor behind. A message sent during a
 reply that's cut off mid-tool call goes in after its not-run results, and
 answers no plan or question.
+
+The backup tests run on a clock they're handed. They hold the app to a
+snapshot at every start, taken before the store touches the data, and to
+the interval by the wall clock across a computer's sleep. They check the
+counts kept in `data/backups` and the mirror, that every snapshot and its
+folder are private, and that a failing mirror or backup never stops the
+app. A snapshot unpacked with `tar` has to open every design as it was.
 
 ### The web app
 

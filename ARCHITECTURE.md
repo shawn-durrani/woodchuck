@@ -177,6 +177,16 @@ scripts have no way to sign in, and anything running here can read the data
 folder anyway. The lock follows Crossband and Membro, with a password,
 passkeys and a recovery secret.
 
+## The data folder backs itself up
+
+Woodchuck snapshots the whole data folder at every start and then by the
+wall clock, the way Crossband and Membro back up theirs. The server's
+writes are all synchronous, so a snapshot read in one pass between them
+never holds a save half done. Each snapshot is one plain `.tar.gz` that any
+`tar` unpacks, written with Node's own compression and no extra package.
+Sign-ins stay out of it, so a restore never brings back a session you
+ended. [docs/OPERATIONS.md](docs/OPERATIONS.md#backups) has the details.
+
 ## Colours are measured or modelled, never guessed
 
 The Linolie Satin Wood Oil colours come from Linolie's photos of each oil

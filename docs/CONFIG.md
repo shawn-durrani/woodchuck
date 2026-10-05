@@ -37,6 +37,19 @@ setting has a default that suits one person on one computer.
 | `WOODCHUCK_LIBRARY_DIR` | `library/parts` | The folder of merged parts, shared through the repo. The app only reads it. |
 | `WOODCHUCK_CHROME` | the usual install | The Chrome or Chromium the server draws pictures with for other apps. It looks in the usual places on macOS and at `/usr/bin/google-chrome` and `/usr/bin/chromium` on Linux. |
 
+## Backups
+
+Woodchuck backs up its data folder by itself, into `data/backups`.
+[OPERATIONS.md](OPERATIONS.md#backups) says what a snapshot holds and how
+to restore one.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `WOODCHUCK_BACKUP_INTERVAL_HOURS` | `6` | Hours between snapshots by the clock, so time the computer spends asleep counts. There's one more at every start, before anything touches the data. `0` turns the timer off. |
+| `WOODCHUCK_BACKUP_KEEP` | `14` | Snapshots kept in `data/backups`. The oldest go first. |
+| `WOODCHUCK_BACKUP_MIRROR_DIR` | none | A second folder, such as one in iCloud Drive, that gets a copy of each finished snapshot. It never gets the live files, which a sync service can trip over. A relative path starts at the app's folder. |
+| `WOODCHUCK_BACKUP_MIRROR_KEEP` | `7` | Snapshots kept in the mirror folder. |
+
 ## GitHub
 
 Woodchuck can file a missing tool's spec as a GitHub issue, and open a
