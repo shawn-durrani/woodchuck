@@ -36,10 +36,46 @@ after changing the server, since it reads the tools when it starts.
 | `woodchuck_reply` | Waits a few seconds for the latest request to finish, then gives what Claude said and did, or how it's going. |
 | `woodchuck_preview` | Applies the preview Woodchuck's Claude is showing, or says not now. |
 | `woodchuck_finish` | Changes colours straight away, through the same operation as the Finish tab, mid-build too. Woodchuck's Claude is told after its current step. |
+| `woodchuck_set_param` | Sets parameters the design already has straight away, mid-build too, as one undo step. A change over 20%, or to zero or less, waits for the woodworker's yes. Woodchuck's Claude is told after its current step. |
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
 | `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview on the model, a worked joint in the drawer, and a render to the downloads. A highlight opens the Edit tab. |
 | `woodchuck_status` | Sums up the design: its problems, timber and finishes. |
+| `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
+
+## Changing a size straight away
+
+`woodchuck_set_param` sets parameters the design already has, such as
+`top_length`, through the same operation as the size sliders in the app.
+Every size worked out from a parameter moves with it. Give each change as
+`value_mm` for a size in millimetres, `value` for a count or another unit,
+or `expression` for a formula of other parameters. Making a new parameter
+is Claude's job, so the tool refuses a name the design doesn't have. It
+also refuses a formula that doesn't read, names something the design
+lacks, loops back on itself or doesn't work out to a number. A refused
+call changes nothing, even when its other changes were fine.
+
+A misheard number is the main risk in a voice chat, since "15" and "50"
+sound alike. The tool's description asks the calling model to say each
+change back and wait for a yes. A change of more than 20% of a parameter's
+value, or one to zero or less, is refused until the call sets `confirmed`
+to true. That refusal gives the old and new values and a question to put
+to the woodworker.
+
+The reply gives each old and new value and the sizes worked out from them
+that moved. It counts the parts that moved and names each problem the
+change fixed. It names each new error and warning too, up to 20, and
+counts any past that. A parameter that was a formula gets a line naming
+what the formula followed. A plain number in its place stops it following
+them, and undo puts the formula back. The window brings the whole model
+into view, with a note naming the change.
+
+`woodchuck_design` reads the open design in short lines for another
+model. It gives the parameters with their values and formulas, the
+materials, each part's size and the overall size. It also lists the
+problems and says whether Woodchuck's Claude is busy. Copies in an array
+share one line, such as `false_front ×5`, and each list stops at a cap
+with how many more there are.
 
 ## Turning the model while you talk
 
@@ -60,8 +96,9 @@ A chat app holds its turn while a tool runs, so no tool here waits long.
 build carries on in the Woodchuck window, and the tool returns with how
 it's going. Sent while Woodchuck's Claude is working, a message returns at
 once. `woodchuck_progress` answers at once, and `woodchuck_reply` waits up
-to about eight seconds. `woodchuck_finish` and `woodchuck_view` return
-within a second, since no model is involved.
+to about eight seconds. `woodchuck_finish`, `woodchuck_set_param`,
+`woodchuck_design` and `woodchuck_view` return within a second, since no
+model is involved.
 
 ## Watching a build
 

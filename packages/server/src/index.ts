@@ -43,6 +43,7 @@ import { renderPng } from "./render.js";
 import { drawingsPdf, paperOf } from "./pdf.js";
 import { progress, type Item } from "./progress.js";
 import { scriptFromFile } from "./scripted.js";
+import { editSummary } from "./tools.js";
 import {
   bindHost,
   browserOrigin,
@@ -475,9 +476,11 @@ export function createApp(opts: {
           const b = await body();
           const ops = b.ops as Op[];
           if (!Array.isArray(ops) || !ops.length) return fail(400, "ops must be a list");
+          const before = project.design;
           project.change("you", String(b.label ?? ops[0]!.op), ops);
           broadcastState();
-          return json(200, { ok: true });
+          // Asked for, the reply says what the change did: sizes that moved, and problems made or fixed.
+          return json(200, b.summary === true ? { ok: true, change: editSummary(before, project.design) } : { ok: true });
         }
         // An earlier preview, applied as your own change. One Claude is still
         // waiting on is answered through the chat instead.

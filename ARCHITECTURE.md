@@ -300,10 +300,12 @@ never gets a label.
 
 Woodchuck is also an MCP server, so a chat app such as Crossband can work
 on the open design. A message goes to Woodchuck's own Claude, which uses
-the same tools. A colour change can skip that and apply directly, through
-the same operation as the Finish tab, and Woodchuck's Claude is told after
-its current step. A request to change the view moves the open window and
-never touches the design.
+the same tools. A colour change, or a new value for a parameter the design
+already has, can skip that and apply directly. It goes through the same
+operation as the Finish tab or a size slider, and Woodchuck's Claude is
+told after its current step. A big change to a size waits for the
+woodworker's yes, since a misheard number wastes timber. A request to
+change the view moves the open window and never touches the design.
 
 A chat app holds its turn while a tool runs, so no tool waits long. A
 request hands over within a few seconds, and a progress tool answers at
