@@ -21,11 +21,17 @@ const call = (id: string, name: string, input: Block): Block => ({ type: "tool_u
 
 let dir: string;
 let store: Store;
+const envTtl = process.env.WOODCHUCK_CACHE_TTL;
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "woodchuck-"));
   store = new Store(dir);
+  delete process.env.WOODCHUCK_CACHE_TTL;
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+  if (envTtl === undefined) delete process.env.WOODCHUCK_CACHE_TTL;
+  else process.env.WOODCHUCK_CACHE_TTL = envTtl;
+});
 
 function turn(client: MessagesClient) {
   return new Turn(store, client, { chat() {}, delta() {}, changed() {} }, () => Buffer.from("png"));
@@ -199,10 +205,12 @@ describe("a Claude turn", () => {
     await turn(client).run({ text: "hello", selection: [] });
     const body = client.sent[0]! as unknown as Record<string, unknown>;
     // The standing instructions, then the workshop, with the one breakpoint on the workshop.
+    // It lasts an hour, the same as the history's (issue #19).
     const system = body.system as { text: string; cache_control?: unknown }[];
     expect(system).toHaveLength(2);
     expect(system[0]!.cache_control).toBeUndefined();
-    expect(system[1]!.cache_control).toEqual({ type: "ephemeral" });
+    expect(system[1]!.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(body.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(body.tool_choice).toBeUndefined();
     expect(body.thinking).toMatchObject({ type: "adaptive" });
   });

@@ -55,11 +55,13 @@ describe("the prompt, assembled", () => {
   });
 
   it("puts the workshop last, as one block that carries the cache breakpoint", () => {
-    const blocks = systemPrompt(DEFAULT_WORKSHOP);
+    const blocks = systemPrompt(DEFAULT_WORKSHOP, "1h");
     expect(blocks).toEqual([
       { type: "text", text: SYSTEM_PROMPT },
-      { type: "text", text: workshopText(DEFAULT_WORKSHOP), cache_control: { type: "ephemeral" } },
+      { type: "text", text: workshopText(DEFAULT_WORKSHOP), cache_control: { type: "ephemeral", ttl: "1h" } },
     ]);
+    // Five minutes is the API's default, so that breakpoint carries no ttl.
+    expect(systemPrompt(DEFAULT_WORKSHOP, "5m")[1]!.cache_control).toStrictEqual({ type: "ephemeral" });
     expect(blocks[1]!.text).toBe(
       [
         "# The woodworker's workshop",
@@ -76,9 +78,9 @@ describe("the prompt, assembled", () => {
   });
 
   it("gives the same bytes for the same settings, and changes only the workshop block when they change", () => {
-    expect(systemPrompt({ ...DEFAULT_WORKSHOP, tools: [...DEFAULT_WORKSHOP.tools] })).toEqual(systemPrompt(DEFAULT_WORKSHOP));
-    const before = systemPrompt(DEFAULT_WORKSHOP);
-    const after = systemPrompt(mine);
+    expect(systemPrompt({ ...DEFAULT_WORKSHOP, tools: [...DEFAULT_WORKSHOP.tools] }, "1h")).toEqual(systemPrompt(DEFAULT_WORKSHOP, "1h"));
+    const before = systemPrompt(DEFAULT_WORKSHOP, "1h");
+    const after = systemPrompt(mine, "1h");
     expect(after[0]).toEqual(before[0]);
     expect(after[1]!.text).not.toBe(before[1]!.text);
     expect(after[1]!.text).toContain("Tools they have: Track saw; Domino joiner; Router table.");
