@@ -10,7 +10,8 @@
 // It runs with the API's own summary at its floor of 50,000 tokens until
 // the chat holds one, then asks for a summary between turns with a low
 // threshold, and runs one more turn. It prints a PASS, FAIL or SKIP line for
-// each thing the docs left to a live request, and the summary's length.
+// each thing the docs left to a live request, an INFO line for what the API
+// does that isn't a fault, and the summary's length.
 // It never prints the summary or anything else Claude wrote. It watches the
 // raw stream too, to say which event carried a summary's signature, and says
 // how big the whole chat measured when it's summarised whole.
@@ -108,7 +109,7 @@ const client: MessagesClient = {
   countTokens: (params) => sdk.beta.messages.countTokens(params),
 };
 
-type Result = "PASS" | "FAIL" | "SKIP";
+type Result = "PASS" | "FAIL" | "SKIP" | "INFO";
 const results: [string, Result, string][] = [];
 const check = (name: string, result: Result, note = "") => {
   results.push([name, result, note]);
@@ -156,7 +157,8 @@ try {
   const signedBy = log.findLast((s) => !s.summary && s.message?.content.some((b) => b.type === "compaction"))?.signedBy ?? [];
   check(
     "the stored threshold summary has a signature",
-    !olderBlock ? "SKIP" : typeof olderBlock.signature === "string" && olderBlock.signature ? "PASS" : "FAIL",
+    // The API doesn't sign a summary it writes inside a request, and the app sends the whole chat instead, so a missing one is only news. One the stream carried and the app lost is a fault.
+    !olderBlock ? "SKIP" : typeof olderBlock.signature === "string" && olderBlock.signature ? "PASS" : signedBy.length ? "FAIL" : "INFO",
     !olderBlock
       ? "the chat never held one"
       : typeof olderBlock.signature === "string" && olderBlock.signature
@@ -249,7 +251,8 @@ try {
   summaries.stop();
   const count = (r: Result) => results.filter(([, x]) => x === r).length;
   const failed = count("FAIL");
-  console.log(`\n${count("PASS")} passed, ${failed} failed and ${count("SKIP")} skipped.`);
+  const info = count("INFO");
+  console.log(`\n${count("PASS")} passed, ${failed} failed and ${count("SKIP")} skipped${info ? `, with ${info} for information` : ""}.`);
   process.exitCode = failed ? 1 : 0;
 } finally {
   rmSync(dir, { recursive: true, force: true });
