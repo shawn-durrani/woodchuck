@@ -21,6 +21,8 @@ beforeAll(async () => {
   const app = createApp({
     dataDir: dir,
     repo: "globex/woodchuck",
+    // The tests sync tool requests by hand. The app's own check, 5 s after it starts, would race them on a busy computer.
+    watchTools: false,
     client: scriptedClient([]),
     issueLookup: async () => ({ closed: true, completed: true, pr: { number: 7, url: "https://github.com/example/woodchuck/pull/7" } }),
     takePicture: async (req) => {
