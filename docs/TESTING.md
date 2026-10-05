@@ -2,7 +2,9 @@
 
 The tests run with no API keys and never call Claude, OpenAI or GitHub.
 CI runs all of them on every pull request, and a pull request can merge
-only when they pass. Run them before you push.
+only when they pass. Run them before you push. Each test has 30 seconds,
+since a test that writes a design's history to git can take several on a
+busy computer.
 
 ```bash
 npm run typecheck
