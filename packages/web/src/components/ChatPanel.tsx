@@ -18,7 +18,7 @@ import { JOINT_LIBRARY } from "@woodchuck/core";
 import { RichText } from "../richText";
 import { partNamer, pinsLine, selectionLine } from "../names";
 import { changeLine, isUndone } from "../signals";
-import { duringNote, foldLine, foldTurns, joinYourEdits, latestStep, notYetRead, type Folded, type Row } from "../fold";
+import { duringNote, foldLine, foldTurns, joinYourEdits, latestStep, notYetRead, turnTime, type Folded, type Row } from "../fold";
 import { boxPlaceholder, boxReply, buttonReply, waitingMoments, type Answer, type Reply } from "../waiting";
 import { EMPTY_CHAT, emptyChat, FIX_LP_CHECK, STARTERS, starterFill } from "../starters";
 import { TIPS } from "../toolbar";
@@ -648,6 +648,16 @@ export function ChatPanel({
                   {c.text}
                 </div>
               );
+            case "usage": {
+              const time = turnTime(c);
+              return (
+                time && (
+                  <div key={c.id} className="turn-time" title={time.title}>
+                    {time.line}
+                  </div>
+                )
+              );
+            }
           }
           return null;
         })}

@@ -23,7 +23,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ViewName } from "@woodchuck/core";
 import { systemPrompt } from "./prompt.js";
-import type { ChatItem, Job, Pending, Pin, Project, Store } from "./store.js";
+import type { ChatItem, Job, Pending, Pin, Project, RoundTiming, Store } from "./store.js";
 import { atLeast, effortRouting, isEffort, needsJudgement, routeTurn, type Effort, type Route } from "./route.js";
 import { runTool, TOOLS, type LibraryAccess, type ToolContext } from "./tools.js";
 import { searchCountry } from "./workshop.js";
@@ -348,6 +348,20 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
   }
 }
 
+/**
+ * The edits a reply's apply_edits calls listed, or null when it made none.
+ * One apply_edits call is one tool call however many edits it carries, so
+ * the edits are counted apart.
+ */
+export function editsIn(calls: readonly { name: string; input: unknown }[]): number | null {
+  const batches = calls.filter((c) => c.name === "apply_edits");
+  if (!batches.length) return null;
+  return batches.reduce((sum, c) => {
+    const edits = (c.input as { edits?: unknown } | null)?.edits;
+    return sum + (Array.isArray(edits) ? edits.length : 0);
+  }, 0);
+}
+
 export class Turn {
   private stream: ReturnType<MessagesClient["stream"]> | null = null;
   private stopped = false;
@@ -361,14 +375,14 @@ export class Turn {
   private routing = false;
   /** The level this turn wants Claude at, which only rises during the turn. */
   private effort: Effort = EFFORT;
-  /** The level each request this turn was written at, in order. */
-  private readonly efforts: Effort[] = [];
+  /** Each request this turn that Claude replied to, in order: its level, timing, tokens and tool calls. */
+  private readonly rounds: RoundTiming[] = [];
   /** Which rule picked the turn's starting level. */
   private route: Route | null = null;
 
-  /** The level each request this turn was written at, one per request, in order. */
+  /** The level each request this turn was written at, one per reply, in order. */
   roundEfforts(): readonly Effort[] {
-    return this.efforts;
+    return this.rounds.map((r) => r.effort);
   }
 
   constructor(
@@ -379,6 +393,8 @@ export class Turn {
     private library: LibraryAccess = EMPTY_LIBRARY,
     /** Tests pass no waits. */
     private retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+    /** Milliseconds, for timing the turn. Tests pass a fake. */
+    private clock: () => number = () => performance.now(),
   ) {}
 
   stop() {
@@ -388,6 +404,7 @@ export class Turn {
   }
 
   async run(input: TurnInput): Promise<void> {
+    const started = this.clock();
     const project = this.store.project;
     // Messages sent while the last turn worked are already in the chat, and move down to where this turn reads them.
     const queued = input.queued ?? [];
@@ -473,6 +490,9 @@ export class Turn {
     };
 
     let usage = { input: 0, cached: 0, written: 0, output: 0 };
+    // Timing and counts only, for seeing where a turn's time goes.
+    const model = project.model ?? MODEL;
+    let toolMs = 0;
     const compactTrigger = compactAt();
     // Read once a turn, so a change to the workshop never splits the cache mid-turn.
     const workshop = this.store.workshop();
@@ -481,8 +501,9 @@ export class Turn {
     try {
       for (let round = 0; round < MAX_ROUNDS && !this.stopped; round++) {
         const sent = sendable(project.messages);
-        this.efforts.push(effortInForce(project.messages));
-        const message = await this.ask(project, {
+        // The level this request is written at, kept with its round.
+        const effort = effortInForce(project.messages);
+        const { message, timing } = await this.ask(project, {
           // Switching models mid-conversation is fine: other models skip the
           // earlier thinking blocks, and the history stays append-only.
           model: project.model ?? MODEL,
@@ -527,17 +548,33 @@ export class Turn {
         }
         // The summary's own cost is reported apart from the reply's.
         const parts = [message.usage, ...(message.usage.iterations ?? []).filter((i) => i.type === "compaction")];
+        const spent = { input: 0, cached: 0, written: 0, output: 0 };
         for (const u of parts) {
-          usage = {
-            input: usage.input + (u.input_tokens ?? 0),
-            cached: usage.cached + (u.cache_read_input_tokens ?? 0),
-            written: usage.written + (u.cache_creation_input_tokens ?? 0),
-            output: usage.output + (u.output_tokens ?? 0),
-          };
+          spent.input += u.input_tokens ?? 0;
+          spent.cached += u.cache_read_input_tokens ?? 0;
+          spent.written += u.cache_creation_input_tokens ?? 0;
+          spent.output += u.output_tokens ?? 0;
         }
+        usage = {
+          input: usage.input + spent.input,
+          cached: usage.cached + spent.cached,
+          written: usage.written + spent.written,
+          output: usage.output + spent.output,
+        };
+        const compacted = message.content.some((b) => b.type === "compaction");
+        const replyCalls = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
+        const edits = editsIn(replyCalls);
+        this.rounds.push({
+          effort,
+          ...timing,
+          ...spent,
+          calls: replyCalls.length,
+          ...(edits === null ? {} : { edits }),
+          ...(compacted ? { compacted: true as const } : {}),
+        });
         project.messages.push({ role: "assistant", content: message.content as Anthropic.Beta.BetaContentBlockParam[] });
         project.save();
-        if (message.content.some((b) => b.type === "compaction")) {
+        if (compacted) {
           const item: ChatItem = { id: nextId("s"), kind: "summary", at: now() };
           project.addChat(item);
           this.events.chat(item);
@@ -597,11 +634,13 @@ export class Turn {
           if (waits && waiting.some((w) => w.kind === waits)) {
             out = { content: `Not run: this reply already calls ${call.name}, and the woodworker answers one at a time. Call it again after they reply.`, isError: true };
           } else {
+            const ran = this.clock();
             try {
               out = runTool(call.name, input, ctx);
             } catch (e) {
               out = { content: `The tool failed: ${(e as Error).message}`, isError: true };
             }
+            toolMs += this.clock() - ran;
           }
           let image: string | undefined;
           if (Array.isArray(out.content)) {
@@ -646,11 +685,13 @@ export class Turn {
             } else {
               // A picture of the draft as it stood when the plan was pinned.
               let drawing: string | undefined;
+              const drew = this.clock();
               try {
                 drawing = project.saveRender(this.renderPng(project, ["iso", "front"], {}));
               } catch {
                 drawing = undefined;
               }
+              toolMs += this.clock() - drew;
               w = { id: nextId("p"), kind: "plan", plan: project.design.plan!, at: now(), ...(drawing ? { image: drawing } : {}) };
             }
             project.addChat(w);
@@ -699,9 +740,12 @@ export class Turn {
         id: nextId("n"),
         kind: "usage",
         ...usage,
-        efforts: [...this.efforts],
-        ...(this.route ? { route: this.route.reason } : {}),
         at: now(),
+        model,
+        ...(this.route ? { route: this.route.reason } : {}),
+        ms: Math.round(this.clock() - started),
+        tool_ms: Math.round(toolMs),
+        rounds: [...this.rounds],
       };
       project.addChat(usageItem);
       this.events.chat(usageItem);
@@ -761,11 +805,18 @@ export class Turn {
    * short wait. Nothing was added to the history, so the same request is
    * safe to send again, and what the failed try streamed leaves the chat.
    */
-  private async ask(project: Project, body: Anthropic.Beta.MessageCreateParamsStreaming): Promise<Anthropic.Beta.BetaMessage> {
+  private async ask(
+    project: Project,
+    body: Anthropic.Beta.MessageCreateParamsStreaming,
+  ): Promise<{ message: Anthropic.Beta.BetaMessage; timing: Pick<RoundTiming, "ttft_ms" | "ms" | "retries"> }> {
+    const first = this.clock();
     for (let attempt = 0; ; attempt++) {
       const live: { text?: ChatItem & { kind: "assistant" }; thinking?: ChatItem & { kind: "thinking" } } = {};
+      const sent = this.clock();
+      let firstEvent: number | null = null;
       const stream = (this.stream = this.client.stream(body));
       stream.on("thinking", (delta) => {
+        firstEvent ??= this.clock();
         if (!live.thinking) {
           live.thinking = { id: nextId("t"), kind: "thinking", text: "", at: now() };
           project.addChat(live.thinking);
@@ -775,6 +826,7 @@ export class Turn {
         this.events.delta(live.thinking.id, delta);
       });
       stream.on("text", (delta) => {
+        firstEvent ??= this.clock();
         if (!live.text) {
           live.text = { id: nextId("a"), kind: "assistant", text: "", at: now(), streaming: true };
           project.addChat(live.text);
@@ -784,7 +836,17 @@ export class Turn {
         this.events.delta(live.text.id, delta);
       });
       try {
-        return await stream.finalMessage();
+        const message = await stream.finalMessage();
+        // Set inside the stream callbacks, which the compiler can't follow.
+        const ttft = firstEvent as number | null;
+        return {
+          message,
+          timing: {
+            ttft_ms: ttft === null ? null : Math.round(ttft - sent),
+            ms: Math.round(this.clock() - first),
+            ...(attempt ? { retries: attempt } : {}),
+          },
+        };
       } catch (e) {
         const wait = this.retryDelaysMs[attempt];
         if (this.stopped || wait === undefined || !transient(e)) throw e;

@@ -70,10 +70,62 @@ export type ChatItem =
   | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
   /** retry marks a dropped connection that Claude's turn is trying again after, rather than one that ended it. */
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
-  /** efforts holds the level each request was written at, in order, and route the rule that picked the turn's level. */
-  | { id: string; kind: "usage"; input: number; cached: number; written?: number; output: number; efforts?: Effort[]; route?: RouteReason; at: string }
+  /**
+   * What a turn cost and how long it took. Every field past the token counts
+   * is optional: turns from before timing was kept have only the tokens, and
+   * some from just before it have efforts and route without rounds.
+   */
+  | {
+      id: string;
+      kind: "usage";
+      input: number;
+      cached: number;
+      written?: number;
+      output: number;
+      at: string;
+      /** The model asked for. */
+      model?: string;
+      /** The rule that picked the turn's starting level, when turns pick their own. */
+      route?: RouteReason;
+      /** The whole turn, start to finish. */
+      ms?: number;
+      /** Time spent running Claude's tool calls on this computer. */
+      tool_ms?: number;
+      /** One entry per request Claude replied to, each with the level it was written at. */
+      rounds?: RoundTiming[];
+      /**
+       * The level each request was written at, from turns saved before rounds
+       * were kept. Newer turns keep it on each round instead, and never write this.
+       */
+      efforts?: Effort[];
+    }
   /** The API summarised the older chat to keep Claude quick. */
   | { id: string; kind: "summary"; at: string };
+
+/** One request to Claude within a turn: its timing, tokens and tool calls. */
+export interface RoundTiming {
+  /** The level this request was written at: the effort message in force, or the request's own level. */
+  effort: Effort;
+  /**
+   * From sending the request to the first thinking or words streamed back,
+   * on the try that worked. Null when neither streamed.
+   */
+  ttft_ms: number | null;
+  /** The whole round, from its first try to the finished reply, with any waits between tries. */
+  ms: number;
+  input: number;
+  cached: number;
+  written: number;
+  output: number;
+  /** Tool calls the reply carried that run on this computer. Web searches aren't counted. An apply_edits call counts once. */
+  calls: number;
+  /** The edits the reply's apply_edits calls listed, when it made any. */
+  edits?: number;
+  /** Failed tries before the one that worked. */
+  retries?: number;
+  /** The API summarised the older chat on this request. */
+  compacted?: true;
+}
 
 export interface Pending {
   /** Results for the calls that aren't waiting, sent with the woodworker's next message. */

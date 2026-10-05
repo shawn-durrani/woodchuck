@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "../src/api.js";
-import { duringNote, foldLine, foldTurns, joinYourEdits, latestStep, notYetRead, type Folded, type Row } from "../src/fold.js";
+import { duringNote, foldLine, foldTurns, joinYourEdits, latestStep, notYetRead, turnTime, type Folded, type Row } from "../src/fold.js";
 
 const at = "2026-10-04T09:00:00Z";
 const user = (id: string, text: string): ChatItem => ({ id, kind: "user", text, selection: [], at });
@@ -123,7 +123,7 @@ describe("folding a turn's steps", () => {
 });
 
 describe("your own edits", () => {
-  it("still join into one line, and drop usage lines", () => {
+  it("still join into one line, and drop usage lines with no timing", () => {
     const rows = joinYourEdits(
       [
         change("c1", 1, "you", 1),
@@ -165,5 +165,51 @@ describe("a message sent while Claude works", () => {
   it("starts a turn of its own when Claude's turn ended before reading it", () => {
     const chat: Row[] = [user("u1", "Build it"), tool("x1", "set param a"), change("c1", 1), sent("d1", "turn"), tool("x2", "add panel top"), change("c2", 1, "claude", 2)];
     expect(shape(foldTurns(chat, quiet))).toEqual(["u1", "fold(c1: x1)", "d1", "fold(c2: x2)"]);
+  });
+});
+
+describe("a turn's timing line", () => {
+  type Usage = Extract<ChatItem, { kind: "usage" }>;
+  const round = (ms: number, calls: number, retries?: number, effort = "high") => ({ effort, ttft_ms: 900, ms, input: 10, cached: 9000, written: 40, output: 300, calls, ...(retries ? { retries } : {}) });
+  const timed = (id: string, ms: number, rounds = [round(ms, 0)]): Usage => ({
+    id,
+    kind: "usage",
+    input: 40,
+    cached: 36_000,
+    written: 160,
+    output: 1_200,
+    at,
+    model: "claude-sonnet-5-5",
+    route: "build",
+    ms,
+    tool_ms: 300,
+    rounds,
+  });
+
+  it("sits at the foot of its turn, below the change line written after it", () => {
+    const chat = joinYourEdits([user("u1", "Build it"), tool("x1", "set param a"), timed("n1", 38_000), change("c1", 1), user("u2", "Thanks"), said("a1", "Any time.")], []);
+    expect(shape(foldTurns(chat, quiet))).toEqual(["u1", "fold(c1: x1)", "n1", "u2", "a1"]);
+    expect(shape(foldTurns([user("u1", "Hi"), said("a1", "Hello."), timed("n1", 2_000)], quiet))).toEqual(["u1", "a1", "n1"]);
+  });
+
+  it("reads as the time and the rounds, with the rest on hover", () => {
+    const u = timed("n1", 38_400, [round(12_000, 2), round(20_000, 3, 1), round(6_400, 0)]);
+    expect(turnTime(u)).toEqual({
+      line: "38 s · 3 rounds",
+      title: "Claude took 38 s over 3 requests, with 5 tool calls. The tools took 0.3 s of it. 1 request was tried again. 1,200 tokens written out by claude-sonnet-5-5 at high effort.",
+    });
+    expect(turnTime(timed("n2", 4_250))!.line).toBe("4.3 s · 1 round");
+    expect(turnTime(timed("n3", 125_000))!.line).toBe("2 min 5 s · 1 round");
+  });
+
+  it("names each change of level in order, and the edits made in batches", () => {
+    const u = timed("n1", 9_000, [{ ...round(3_000, 1, undefined, "low"), edits: 12 }, round(3_000, 1, undefined, "high"), round(3_000, 0, undefined, "high")]);
+    expect(turnTime(u)!.title).toBe(
+      "Claude took 9 s over 3 requests, with 2 tool calls, making 12 edits in batches. The tools took 0.3 s of it. 1,200 tokens written out by claude-sonnet-5-5 at low, then high effort.",
+    );
+  });
+
+  it("is left out for turns from before timing was kept", () => {
+    expect(turnTime({ id: "g1", kind: "usage", input: 1, cached: 0, output: 1, at })).toBeNull();
   });
 });

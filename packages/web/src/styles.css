@@ -370,6 +370,12 @@ body.dragging {
 .tool.bad {
   color: var(--bad);
 }
+.turn-time {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  margin: 0 0 6px;
+}
 .change-line {
   font-size: 12px;
   color: var(--accent);
