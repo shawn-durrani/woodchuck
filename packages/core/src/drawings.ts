@@ -12,14 +12,18 @@
 // standard scale, with overall sizes and chains across the openings), one
 // drawing per cut-list row with its machining, then the cut list, a drilling
 // list and a hardware list. The arrangement's views are drawn solid, so
-// hidden edges don't show there yet.
+// hidden edges don't show there yet. A part its cuts shape is drawn as its
+// true outline, with its holes left open, and its sheet sizes the slopes,
+// the ends and the cutouts.
 
 import { runChecks } from "./checks.js";
 import { AXIS_INDEX, type Box, type DeriveResult, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
 import { cutList, machiningText, roundCut, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
+import { cutOutline } from "./profile.js";
+import { signedArea, sliceIntervals, type Loop, type Pt } from "./shape.js";
 import { AXES, FACE_AXIS, FACE_IS_MAX, type Axis, type Design, type Face } from "./types.js";
-import { HARDWARE_MATERIAL, hardwareParts, paintOrder, projectPoint, visibleFaces, type ViewName } from "./views.js";
+import { HARDWARE_MATERIAL, hardwareParts, paintOrder, partFaces, projectPoint, type ViewName } from "./views.js";
 
 export type Paper = "A4" | "A3";
 /** Paper sizes, landscape. */
@@ -32,8 +36,8 @@ export const DRAWING_SCALES = [1, 2, 5, 10, 20, 50] as const;
 
 export type Mark =
   | { kind: "line"; x1_mm: number; y1_mm: number; x2_mm: number; y2_mm: number; stroke_mm: number; dashed?: boolean }
-  /** A closed outline. A stroke of 0 draws only the fill. */
-  | { kind: "shape"; points_mm: [number, number][]; stroke_mm: number; fill?: string; dashed?: boolean }
+  /** A closed outline, with any holes in it left open by the even-odd rule. A stroke of 0 draws only the fill. */
+  | { kind: "shape"; points_mm: [number, number][]; holes_mm?: [number, number][][]; stroke_mm: number; fill?: string; dashed?: boolean }
   | { kind: "circle"; cx_mm: number; cy_mm: number; r_mm: number; stroke_mm: number; fill?: string; dashed?: boolean }
   /** Helvetica. The point is on the baseline. Vertical text reads from the bottom up. */
   | {
@@ -52,12 +56,19 @@ export type Mark =
 export interface SheetDim {
   /** front, top or left on the arrangement, and face, edge or end on a part. */
   view: string;
-  /** A world axis on the arrangement, and length, width or thickness on a part. */
+  /**
+   * A world axis on the arrangement, and length, width or thickness on a
+   * part. A part's shape adds its right end, and for a slope the edge or
+   * end it's on, such as top edge.
+   */
   along: string;
-  kind: "overall" | "chain";
+  /** An angle is a slope's, with its run along the part and its rise across it in values_mm. */
+  kind: "overall" | "chain" | "angle";
   values_mm: number[];
   /** The gaps between panels in a chain, in order. */
   openings_mm?: number[];
+  /** A slope's angle to the edge or end it was cut from. */
+  angle_deg?: number;
 }
 
 export interface Sheet {
@@ -192,8 +203,15 @@ class Pen {
   line(x1_mm: number, y1_mm: number, x2_mm: number, y2_mm: number, stroke_mm = THIN, dashed = false) {
     this.marks.push({ kind: "line", x1_mm, y1_mm, x2_mm, y2_mm, stroke_mm, ...(dashed ? { dashed } : {}) });
   }
-  shape(points_mm: [number, number][], o: { stroke_mm?: number; fill?: string; dashed?: boolean } = {}) {
-    this.marks.push({ kind: "shape", points_mm, stroke_mm: o.stroke_mm ?? THIN, ...(o.fill ? { fill: o.fill } : {}), ...(o.dashed ? { dashed: true } : {}) });
+  shape(points_mm: [number, number][], o: { stroke_mm?: number; fill?: string; dashed?: boolean; holes?: [number, number][][] } = {}) {
+    this.marks.push({
+      kind: "shape",
+      points_mm,
+      ...(o.holes?.length ? { holes_mm: o.holes } : {}),
+      stroke_mm: o.stroke_mm ?? THIN,
+      ...(o.fill ? { fill: o.fill } : {}),
+      ...(o.dashed ? { dashed: true } : {}),
+    });
   }
   rect(x: number, y: number, w: number, h: number, o: { stroke_mm?: number; fill?: string; dashed?: boolean } = {}) {
     this.shape(
@@ -480,8 +498,8 @@ function arrangement(design: Design, d: DeriveResult, paper: Paper): Sheet {
     const paperOf = (q: [number, number]): [number, number] => [x0 + (q[0] - v.min[0]) / scale, y0 + (q[1] - v.min[1]) / scale];
     for (const p of paintOrder(v.plan.view, drawn)) {
       const hardware = p.material === HARDWARE_MATERIAL;
-      for (const f of visibleFaces(v.plan.view, p.nominal)) {
-        pen.shape(f.pts.map(paperOf), { stroke_mm: hardware ? THIN : OUTLINE, fill: hardware ? "#e9ecef" : "#ffffff" });
+      for (const f of partFaces(v.plan.view, p)) {
+        pen.shape(f.pts.map(paperOf), { stroke_mm: hardware ? THIN : OUTLINE, fill: hardware ? "#e9ecef" : "#ffffff", ...(f.holes ? { holes: f.holes.map((h) => h.map(paperOf)) } : {}) });
       }
     }
     const w = v.size[0] / scale;
@@ -651,6 +669,186 @@ function centreText(f: Frame, drill: 0 | 1 | 2, c: Vec3): string {
 
 const POSITIONS = "Along is from the left end, up from the bottom edge and in from the near face, on the face view.";
 
+// ---------------------------------------------------------------------------
+// A part's shape, on its sheet
+// ---------------------------------------------------------------------------
+
+type P = [number, number];
+
+interface FrameHole {
+  /** Clockwise on the face view, with the wood on the left of each edge. */
+  pts: P[];
+  circle?: { centre: P; diameter_mm: number };
+  /** Cutouts that overlap make one hole, which has no plain size. */
+  joined: boolean;
+}
+
+interface FrameSlope {
+  /** Its two ends, the one nearer the left end first. */
+  a: P;
+  b: P;
+  /** The edge or end it was cut from, in the drawing's words, such as "top edge". */
+  side: string;
+  /** Its angle to that edge or end. */
+  angle_deg: number;
+  /** Along that edge or end, and across it. */
+  run_mm: number;
+  rise_mm: number;
+  /** A unit vector out of the wood, on the face view. */
+  out: P;
+}
+
+/** A shaped part on its face view: along and up from the corner of its cut box, as the machining is. */
+interface FrameShape {
+  /** Counter-clockwise, with the wood on the left: the shape you cut, tongues and all. */
+  outline: P[];
+  holes: FrameHole[];
+  loops: Loop[];
+  /** The outline's points worth a size: where straight edges meet, leaving out the steps along a curve. */
+  corners: P[];
+  slopes: FrameSlope[];
+}
+
+/** An edge shorter than this may be one step of a curve, which takes no size of its own. */
+const CURVE_STEP_MM = 3;
+/** Edges that turn this much where they meet make a corner, even beside a curve. */
+const SHARP_DEG = 15;
+
+const extent = (pts: P[], k: 0 | 1): [number, number] => [Math.min(...pts.map((q) => q[k])), Math.max(...pts.map((q) => q[k]))];
+const degrees = (n: number) => `${Math.round(n * 10) / 10}°`;
+
+/** The points of a loop that take a size: corners between straight edges, and the ends of a curve where it meets one sharply. */
+function cornersOf(loop: P[]): P[] {
+  const n = loop.length;
+  return loop.filter((q, i) => {
+    const a = loop[(i + n - 1) % n]!;
+    const b = loop[(i + 1) % n]!;
+    const d1: P = [q[0] - a[0], q[1] - a[1]];
+    const d2: P = [b[0] - q[0], b[1] - q[1]];
+    const before = Math.hypot(...d1) >= CURVE_STEP_MM;
+    const after = Math.hypot(...d2) >= CURVE_STEP_MM;
+    const turn = (Math.abs(Math.atan2(d1[0] * d2[1] - d1[1] * d2[0], d1[0] * d2[0] + d1[1] * d2[1])) * 180) / Math.PI;
+    return (before && after) || ((before || after) && turn >= SHARP_DEG);
+  });
+}
+
+/** A shaped part's outline, holes and slopes on its face view, or null for a part with no shape. */
+function shapeInFrame(f: Frame): FrameShape | null {
+  const p = f.part;
+  const pr = p.profile;
+  const cut = cutOutline(p);
+  if (!pr || !cut) return null;
+  const flat = (q: Pt): P => {
+    const w: Vec3 = [...p.nominal.min];
+    w[AXIS_INDEX[pr.u]] += q[0];
+    w[AXIS_INDEX[pr.v]] += q[1];
+    const c = inFrame(f, w);
+    return [c[0], c[1]];
+  };
+  let outline = cut.outline.map(flat);
+  let holes: FrameHole[] = pr.holes.map((h) => ({
+    pts: h.points_mm.map(flat),
+    joined: h.id.includes("+"),
+    ...(h.circle ? { circle: { centre: flat(h.circle.centre_mm), diameter_mm: h.circle.diameter_mm } } : {}),
+  }));
+  // A part turned over shows its other face, which runs each loop the other way round.
+  const turned = signedArea(outline) < 0;
+  if (turned) {
+    outline = [...outline].reverse();
+    holes = holes.map((h) => ({ ...h, pts: [...h.pts].reverse() }));
+  }
+  // Slopes are the outline's slanting edges. Tongues only go on uncut stretches, so they never touch one.
+  const slopes: FrameSlope[] = [];
+  pr.outline_mm.forEach((q, i) => {
+    const a = flat(q);
+    const b = flat(pr.outline_mm[(i + 1) % pr.outline_mm.length]!);
+    const dx = Math.abs(b[0] - a[0]);
+    const dy = Math.abs(b[1] - a[1]);
+    if (dx <= EPS || dy <= EPS || Math.hypot(dx, dy) < CURVE_STEP_MM) return;
+    const face = pr.edge_faces[i]!;
+    const onEnd = FACE_AXIS[face] === f.L;
+    const [run, rise] = onEnd ? [dy, dx] : [dx, dy];
+    const l = Math.hypot(dx, dy);
+    const [from, to] = turned ? [b, a] : [a, b];
+    const out: P = [(to[1] - from[1]) / l, (from[0] - to[0]) / l];
+    const [left, right] = a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]) ? [a, b] : [b, a];
+    slopes.push({ a: left, b: right, side: faceName(f, face), angle_deg: (Math.atan(rise / run) * 180) / Math.PI, run_mm: run, rise_mm: rise, out });
+  });
+  return { outline, holes, loops: [outline, ...holes.map((h) => h.pts)], corners: cornersOf(outline), slopes };
+}
+
+/** A rectangular hole's corner radius, from the straight run along its longer side. */
+function cornerRadius(h: FrameHole): number {
+  const [x0, x1] = extent(h.pts, 0);
+  const [y0, y1] = extent(h.pts, 1);
+  const long: 0 | 1 = x1 - x0 >= y1 - y0 ? 0 : 1;
+  const size = long === 0 ? x1 - x0 : y1 - y0;
+  const short = long === 0 ? y1 - y0 : x1 - x0;
+  const across: 0 | 1 = long === 0 ? 1 : 0;
+  // The longest straight edge along the long side: the side less a radius at each end.
+  const run = Math.max(
+    0,
+    ...h.pts.map((q, i) => {
+      const b = h.pts[(i + 1) % h.pts.length]!;
+      return Math.abs(q[across] - b[across]) <= EPS ? Math.abs(b[long] - q[long]) : 0;
+    }),
+  );
+  return run > EPS ? (size - run) / 2 : short / 2;
+}
+
+/** What to cut for the shape, in the drawing's words, each with where its balloon points. */
+function shapeNotes(s: FrameShape): { text: string; at: P }[] {
+  const out: { text: string; at: P }[] = [];
+  for (const { a, b, side: where, angle_deg } of s.slopes) {
+    const side = where[0]!.toUpperCase() + where.slice(1);
+    // The balloon points a third of the way along, clear of the angle written past the middle.
+    out.push({
+      text: `${side} cut on a slope from ${num(a[0])} along, ${num(a[1])} up to ${num(b[0])} along, ${num(b[1])} up, ${degrees(angle_deg)}.`,
+      at: [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3],
+    });
+  }
+  for (const h of s.holes) {
+    if (h.circle) {
+      const [x, y] = h.circle.centre;
+      out.push({ text: `Ø${num(h.circle.diameter_mm)} hole right through, centre ${num(x)} along, ${num(y)} up.`, at: [x, y] });
+      continue;
+    }
+    const [x0, x1] = extent(h.pts, 0);
+    const [y0, y1] = extent(h.pts, 1);
+    const r = h.joined ? 0 : cornerRadius(h);
+    const corners = r > 0.05 ? `, corners rounded to ${num(r)}` : "";
+    const what = h.joined ? `Cutout right through, ${num(x1 - x0)} × ${num(y1 - y0)} overall` : `${num(x1 - x0)} × ${num(y1 - y0)} cutout right through${corners}`;
+    out.push({ text: `${what}, from ${num(x0)} along, ${num(y0)} up.`, at: [(x0 + x1) / 2, (y0 + y1) / 2] });
+  }
+  return out;
+}
+
+/**
+ * The edges a side view of a shaped part sees, as places across it: the
+ * corners at each end of an edge that faces the view, unless more wood
+ * stands in front of it. look is 0 for the edge view, which looks up at the
+ * bottom edge, and 1 for the end view, which looks at the right end.
+ */
+function seenLines(s: FrameShape, look: 0 | 1): number[] {
+  const [lo, hi] = extent(s.outline, look);
+  const corner = new Set(s.corners);
+  const out: number[] = [];
+  s.outline.forEach((a, i) => {
+    const b = s.outline[(i + 1) % s.outline.length]!;
+    const n: P = [b[1] - a[1], a[0] - b[0]];
+    const m: P = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (look === 0) {
+      if (n[1] >= -EPS) return;
+      if (sliceIntervals(s.loops, 0, m[0]).some(([, top]) => top < m[1] - EPS)) return;
+    } else {
+      if (n[0] <= EPS) return;
+      if (sliceIntervals(s.loops, 1, m[1]).some(([start]) => start > m[0] + EPS)) return;
+    }
+    for (const q of [a, b]) if (corner.has(q) && q[look] > lo + 0.05 && q[look] < hi - 0.05) out.push(q[look]);
+  });
+  return uniqueSorted(out);
+}
+
 /** What to cut, in the cut list's words, and where on this drawing. */
 function noteText(f: Frame, m: Machining, d: DeriveResult): string {
   const what = machiningText({ ...m, with: m.with.replace(/#\d+$/, "") });
@@ -689,8 +887,11 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   pen.text(hx, hy, clip(`Parts: ${row.parts.join(", ")}`, area.w, TEXT), { colour: GREY });
   const top = hy + 4;
 
-  // The notes: one numbered line per piece of machining, under the views.
-  const notes = part.machining.map((m) => noteText(f, m, d));
+  // The notes: one numbered line per piece of machining, then one for each
+  // slope and hole the part's cuts make, under the views.
+  const shape = shapeInFrame(f);
+  const shaped = shape ? shapeNotes(shape) : [];
+  const notes = [...part.machining.map((m) => noteText(f, m, d)), ...shaped.map((x) => x.text)];
   const noteW = area.w - 8;
   const noteLines = notes.map((n) => wrap(n, noteW, TEXT));
   const standing = part.machining.some((m) => LEFT_STANDING.has(m.label)) ? " An outline at an end is a tenon or tongue." : "";
@@ -703,20 +904,36 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const holes = part.machining
     .filter((m) => FASTENER_LABELS.has(m.label))
     .map((m) => ({ m, drill: frameAxis(f, FACE_AXIS[m.face]), at: centresInFrame(f, m, d) }));
-  const chainOf = (k: 0 | 1, full: number) => {
-    const pts = [0, full];
+  // A shape's corners and holes join the chains: every place along goes
+  // above, and each place up goes beside the nearer end, so the right end's
+  // height has a chain of its own.
+  const shapeAt = (k: 0 | 1, keep: (q: P) => boolean = () => true): number[] => {
+    if (!shape) return [];
+    const holeAt = shape.holes.flatMap((h) => {
+      const centre: P = h.circle?.centre ?? [(extent(h.pts, 0)[0] + extent(h.pts, 0)[1]) / 2, (extent(h.pts, 1)[0] + extent(h.pts, 1)[1]) / 2];
+      if (!keep(centre)) return [];
+      return h.circle ? [centre[k]] : extent(h.pts, k);
+    });
+    return [...shape.corners.filter(keep).map((q) => q[k]), ...holeAt];
+  };
+  const chainOf = (k: 0 | 1, full: number, more: number[] = []) => {
+    const pts = [0, full, ...more];
     for (const { b } of regions) if (b.max[k] - b.min[k] < full - EPS) pts.push(b.min[k], b.max[k]);
     for (const h of holes) if (h.drill === 2) for (const c of h.at) pts.push(c[k]);
     const at = uniqueSorted(pts.filter((v) => v >= -EPS && v <= full + EPS).map(roundCut));
     return at.length > 2 ? at : null;
   };
-  const chainX = chainOf(0, L);
-  const chainY = chainOf(1, W);
+  const chainX = chainOf(0, L, shapeAt(0));
+  const chainY = chainOf(1, W, shapeAt(1, (q) => q[0] <= L / 2));
+  const rightEnd = shape ? uniqueSorted([0, W, ...shapeAt(1, (q) => q[0] > L / 2)].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut)) : [];
+  const chainRight = rightEnd.length > 2 ? rightEnd : null;
 
   const GAP = 10;
   const marginTop = dimMargin((chainX ? 1 : 0) + 1);
   const marginLeft = Math.max(dimMargin((chainY ? 1 : 0) + 1), dimMargin(1));
-  const size = (s: number) => ({ w: marginLeft + L / s + GAP + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL });
+  // The right end's chain sits between the face view and the end view.
+  const gapRight = chainRight ? dimMargin(1) + 3 : GAP;
+  const size = (s: number) => ({ w: marginLeft + L / s + gapRight + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL });
   const s = pickScale((scale) => size(scale).w <= area.w && size(scale).h <= bottom - top);
   sheet.scale = s;
   const z = size(s);
@@ -724,7 +941,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const fy = top + marginTop + Math.max(0, (bottom - top - z.h) / 2);
   const ex = fx;
   const ey = fy + W / s + GAP;
-  const nx = fx + L / s + GAP;
+  const nx = fx + L / s + gapRight;
   const ny = fy;
 
   // Paper positions for each view. The face view is X across and Y up. The
@@ -739,9 +956,29 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     return [x, y, Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])] as const;
   };
 
-  pen.rect(...rectOf(face(0, 0), face(L, W)), { stroke_mm: OUTLINE, fill: "#ffffff" });
-  pen.rect(...rectOf(edge(0, 0), edge(L, T)), { stroke_mm: OUTLINE, fill: "#ffffff" });
-  pen.rect(...rectOf(end(0, 0), end(T, W)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+  if (shape) {
+    // The shape you cut on the face view, with its holes open. The edge and
+    // end views are the outline seen from below and from the right, with a
+    // line where each edge they see meets the next, and the holes dashed.
+    const [x0, x1] = extent(shape.outline, 0);
+    const [y0, y1] = extent(shape.outline, 1);
+    pen.shape(
+      shape.outline.map(([x, y]) => face(x, y)),
+      { stroke_mm: OUTLINE, fill: "#ffffff", holes: shape.holes.map((h) => h.pts.map(([x, y]) => face(x, y))) },
+    );
+    pen.rect(...rectOf(edge(x0, 0), edge(x1, T)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+    pen.rect(...rectOf(end(0, y0), end(T, y1)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+    for (const x of seenLines(shape, 0)) pen.line(...edge(x, 0), ...edge(x, T), OUTLINE);
+    for (const y of seenLines(shape, 1)) pen.line(...end(0, y), ...end(T, y), OUTLINE);
+    for (const h of shape.holes) {
+      for (const x of extent(h.pts, 0)) pen.line(...edge(x, 0), ...edge(x, T), FINE, true);
+      for (const y of extent(h.pts, 1)) pen.line(...end(0, y), ...end(T, y), FINE, true);
+    }
+  } else {
+    pen.rect(...rectOf(face(0, 0), face(L, W)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+    pen.rect(...rectOf(edge(0, 0), edge(L, T)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+    pen.rect(...rectOf(end(0, 0), end(T, W)), { stroke_mm: OUTLINE, fill: "#ffffff" });
+  }
 
   // Machining: hidden first, so what shows is drawn over it.
   const views = [
@@ -774,16 +1011,26 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     }
   }
 
-  // Balloons tie each piece of machining on the face view to its note.
-  part.machining.forEach((m, k) => {
-    let anchor: [number, number];
-    if (FASTENER_LABELS.has(m.label)) {
-      const c = holes.find((x) => x.m === m)!.at[0]!;
-      anchor = face(c[0], c[1]);
-    } else {
+  // A slope's angle, written just outside it, two thirds of the way along.
+  for (const sl of shape?.slopes ?? []) {
+    const [mx, my] = face(sl.a[0] + ((sl.b[0] - sl.a[0]) * 2) / 3, sl.a[1] + ((sl.b[1] - sl.a[1]) * 2) / 3);
+    pen.text(mx + sl.out[0] * 3, my - sl.out[1] * 3 + 1, degrees(sl.angle_deg), { anchor: "middle" });
+    sheet.dims.push({ view: "face", along: sl.side, kind: "angle", values_mm: [roundCut(sl.run_mm), roundCut(sl.rise_mm)], angle_deg: Math.round(sl.angle_deg * 10) / 10 });
+  }
+
+  // Balloons tie each piece of machining, and each slope and hole, on the face view to its note.
+  const anchors = [
+    ...part.machining.map((m): [number, number] => {
+      if (FASTENER_LABELS.has(m.label)) {
+        const c = holes.find((x) => x.m === m)!.at[0]!;
+        return face(c[0], c[1]);
+      }
       const b = boxInFrame(f, m.region);
-      anchor = face((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2);
-    }
+      return face((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2);
+    }),
+    ...shaped.map((x) => face(x.at[0], x.at[1])),
+  ];
+  anchors.forEach((anchor, k) => {
     const bx = anchor[0] + 4;
     const by = anchor[1] - 4;
     pen.line(anchor[0], anchor[1], bx - 1.4, by + 1.4, FINE);
@@ -811,6 +1058,12 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   }
   dimRow(pen, "left", faceLeft, rowAt(faceLeft, "left", n), [face(0, 0)[1], face(0, W)[1]], [row.width_mm]);
   sheet.dims.push({ view: "face", along: "width", kind: "overall", values_mm: [row.width_mm] });
+  if (chainRight) {
+    const faceRight = fx + L / s;
+    const values = gapsBetween(chainRight);
+    dimRow(pen, "right", faceRight, rowAt(faceRight, "right", 0), chainRight.map((y) => face(L, y)[1]), values);
+    sheet.dims.push({ view: "face", along: "right end", kind: "chain", values_mm: values });
+  }
   dimRow(pen, "left", ex, rowAt(ex, "left", 0), [edge(0, 0)[1], edge(0, T)[1]], [row.thickness_mm]);
   sheet.dims.push({ view: "edge", along: "thickness", kind: "overall", values_mm: [row.thickness_mm] });
 
@@ -822,7 +1075,8 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   // Notes and the legend.
   let y = bottom + 4;
   if (notes.length) {
-    pen.text(area.x, y, "Machining", { size_mm: 3, bold: true });
+    const heading = !shaped.length ? "Machining" : part.machining.length ? "Machining and shape" : "Shape";
+    pen.text(area.x, y, heading, { size_mm: 3, bold: true });
     y += 5;
     noteLines.forEach((lines, k) => {
       pen.circle(area.x + 2, y - 0.9, 2, { stroke_mm: THIN, fill: "#ffffff" });
@@ -1178,6 +1432,12 @@ export function sheetSvg(sheet: Sheet): string {
         out.push(`<line x1="${n2(m.x1_mm)}" y1="${n2(m.y1_mm)}" x2="${n2(m.x2_mm)}" y2="${n2(m.y2_mm)}"${stroke(m)}/>`);
         break;
       case "shape":
+        if (m.holes_mm?.length) {
+          // Each hole is a loop of its own, left open by the even-odd rule.
+          const d = [m.points_mm, ...m.holes_mm].map((l) => `M${l.map((p) => `${n2(p[0])},${n2(p[1])}`).join("L")}Z`).join("");
+          out.push(`<path d="${d}" fill-rule="evenodd" fill="${m.fill ?? "none"}"${stroke(m)}/>`);
+          break;
+        }
         out.push(`<polygon points="${m.points_mm.map((p) => `${n2(p[0])},${n2(p[1])}`).join(" ")}" fill="${m.fill ?? "none"}"${stroke(m)}/>`);
         break;
       case "circle":

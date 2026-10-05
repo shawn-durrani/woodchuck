@@ -40,9 +40,10 @@ function pageContent(sheet: Sheet): string {
   const ops: string[] = ["1 J 1 j 0 0 0 RG"];
   const pen = (m: { stroke_mm: number; dashed?: boolean }) =>
     `${n(m.stroke_mm * PT)} w ${m.dashed ? `[${n(2 * PT)} ${n(1 * PT)}] 0 d` : "[] 0 d"}`;
-  // Colour is set before a path starts, since a path can't change it.
-  const paint = (m: { stroke_mm: number; fill?: string }, path: string) => {
-    if (m.fill) return `${rgb(m.fill)} rg ${path} ${m.stroke_mm > 0 ? "B" : "f"}`;
+  // Colour is set before a path starts, since a path can't change it. A
+  // shape with holes fills by the even-odd rule, so its holes stay open.
+  const paint = (m: { stroke_mm: number; fill?: string }, path: string, evenOdd = false) => {
+    if (m.fill) return `${rgb(m.fill)} rg ${path} ${m.stroke_mm > 0 ? "B" : "f"}${evenOdd ? "*" : ""}`;
     return `${path} S`;
   };
   for (const m of sheet.marks as Mark[]) {
@@ -51,10 +52,13 @@ function pageContent(sheet: Sheet): string {
         ops.push(`${pen(m)} ${X(m.x1_mm)} ${Y(m.y1_mm)} m ${X(m.x2_mm)} ${Y(m.y2_mm)} l S`);
         break;
       case "shape": {
-        const [first, ...rest] = m.points_mm;
-        if (!first) break;
-        const path = [`${X(first[0])} ${Y(first[1])} m`, ...rest.map((p) => `${X(p[0])} ${Y(p[1])} l`), "h"].join(" ");
-        ops.push(`${pen(m)} ${paint(m, path)}`);
+        // The outline, then each hole as a loop of its own.
+        const loops = [m.points_mm, ...(m.holes_mm ?? [])].filter((l) => l.length);
+        if (!loops.length) break;
+        const path = loops
+          .map(([first, ...rest]) => [`${X(first![0])} ${Y(first![1])} m`, ...rest.map((p) => `${X(p[0])} ${Y(p[1])} l`), "h"].join(" "))
+          .join(" ");
+        ops.push(`${pen(m)} ${paint(m, path, loops.length > 1)}`);
         break;
       }
       case "circle": {

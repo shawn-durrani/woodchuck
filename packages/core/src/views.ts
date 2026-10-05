@@ -2,12 +2,15 @@
 // and an isometric view. Claude gets these as pictures to check its work,
 // and the app shows them as 2D views. Each part can carry its id.
 //
-// Parts are drawn as their visible boxes. Joinery tongues sit inside their
-// hosts, so they'd never show, and leaving them out keeps the drawing order
-// exact.
+// Parts are drawn as their visible boxes, and a part its cuts shape is drawn
+// as its true solid, with its holes left open. Joinery tongues sit inside
+// their hosts, so they'd never show, and leaving them out keeps the drawing
+// order exact.
 
 import { AXIS_INDEX, type Box, type DeriveResult, type DerivedPart, type Vec3 } from "./derive.js";
 import { fmt } from "./expr.js";
+import { solidOf, type Solid, type SolidWall } from "./outline.js";
+import { sliceIntervals, type Pt } from "./shape.js";
 
 export type ViewName = "front" | "back" | "top" | "left" | "right" | "iso";
 export const VIEW_NAMES: readonly ViewName[] = ["front", "back", "top", "left", "right", "iso"];
@@ -219,6 +222,14 @@ function corners(b: Box): [number, number, number][] {
   return out;
 }
 
+/** A face as the drawing sees it: its outline, any holes through it, and how much light it catches. */
+export interface ViewFace {
+  pts: P2[];
+  /** Holes in the face, drawn open with the even-odd rule. Only a shaped part's broad face has them. */
+  holes?: P2[][];
+  light: number;
+}
+
 /** Visible faces of a box as polygons, nearest-facing first. */
 function faces(view: ViewName, b: Box): { pts: P2[]; light: number }[] {
   const v = VIEWER[view];
@@ -233,6 +244,67 @@ function faces(view: ViewName, b: Box): { pts: P2[]; light: number }[] {
   if (v[2] > 0) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 1);
   if (v[2] < 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], 0.95);
   return out;
+}
+
+/** How much light a face catches, by the way it points: the box's faces' values, mixed for a slope. */
+const LIGHT: [[number, number], [number, number], [number, number]] = [
+  [0.9, 0.82],
+  [0.75, 1.08],
+  [0.95, 1],
+];
+
+function lightOf(n: Vec3): number {
+  return n.reduce((s, c, i) => s + c * c * LIGHT[i]![c > 0 ? 1 : 0]!, 0);
+}
+
+/**
+ * The faces of a part that the view sees, back to front. A part with no
+ * cuts is its box. A shaped part shows the walls round its outline and its
+ * holes that face the camera, farthest first, then the broad face towards
+ * the camera with its holes open. Nothing on the far side of the broad face
+ * can hide it, so it always goes last.
+ */
+export function partFaces(view: ViewName, p: Pick<DerivedPart, "nominal" | "profile">): ViewFace[] {
+  const solid = solidOf(p);
+  if (!solid) return faces(view, p.nominal);
+  const v = VIEWER[view];
+  const facing = (n: Vec3) => n[0] * v[0] + n[1] * v[1] + n[2] * v[2] > 1e-9;
+  const flat = (q: Vec3) => project(view, q[0], q[1], q[2]);
+  const depth = (qs: Vec3[]) => qs.reduce((s, q) => s + depthOf(view, q[0], q[1], q[2]), 0) / qs.length;
+  const hidden = behindWood(solid, v);
+  const walls = solid.walls
+    .filter((w) => facing(w.normal) && !hidden(w))
+    .map((w) => ({ at: depth(w.corners), face: { pts: w.corners.map(flat), light: lightOf(w.normal) } }))
+    .sort((a, b) => a.at - b.at)
+    .map((w) => w.face);
+  const cap = solid.caps.find((c) => facing(c.normal));
+  if (!cap) return walls;
+  const [outline, ...holes] = cap.loops.map((l) => l.map(flat));
+  return [...walls, { pts: outline!, ...(holes.length ? { holes } : {}), light: lightOf(cap.normal) }];
+}
+
+/**
+ * In a view that looks along the broad face, the walls can hide one
+ * another. A wall is left out when wood stands between the camera and it,
+ * at its middle and near each end, so a wall that's only partly hidden
+ * still draws, under the wood in front of it.
+ */
+function behindWood(solid: Solid, v: [number, number, number]): (w: SolidWall) => boolean {
+  const d: Pt = [v[AXIS_INDEX[solid.u]], v[AXIS_INDEX[solid.v]]];
+  if (v[AXIS_INDEX[solid.t]] !== 0 || (d[0] !== 0 && d[1] !== 0)) return () => false;
+  const k: 0 | 1 = d[0] !== 0 ? 0 : 1;
+  const sign = d[k];
+  const blocked = (q: Pt) =>
+    sliceIntervals(solid.loops, k === 0 ? 1 : 0, q[1 - k]!).some(([lo, hi]) => (sign > 0 ? lo > q[k] + 1e-6 : hi < q[k] - 1e-6));
+  return (w) => {
+    const [a, b] = w.edge_mm;
+    return [0.02, 0.5, 0.98].every((s) => blocked([a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s]));
+  };
+}
+
+/** An SVG path for a face with holes, filled by the even-odd rule so the holes stay open. */
+export function evenOddPath(loops: P2[][]): string {
+  return loops.map((l) => `M${l.map((q) => q.map((c) => c.toFixed(1)).join(",")).join("L")}Z`).join("");
 }
 
 /** Back-to-front order. Boxes separated along a viewed axis sort exactly. */
@@ -337,7 +409,10 @@ function viewBody(view: ViewName, d: DeriveResult, opts: ViewOptions, w: number,
 
   const out: string[] = [];
   const order = paintOrder(view, parts);
-  const drawn = order.map((p) => ({ p, faces: faces(view, p.nominal).map((f) => ({ ...f, pts: f.pts.map(tx) })) }));
+  const drawn = order.map((p) => ({
+    p,
+    faces: partFaces(view, p).map((f): ViewFace => ({ ...f, pts: f.pts.map(tx), ...(f.holes ? { holes: f.holes.map((h) => h.map(tx)) } : {}) })),
+  }));
   for (const { p, faces: fs } of drawn) {
     const base = colourFor(p);
     const hl = highlight.has(p.id) || highlight.has(p.source);
@@ -347,6 +422,10 @@ function viewBody(view: ViewName, d: DeriveResult, opts: ViewOptions, w: number,
     const opacity = opts.xray ? ' fill-opacity="0.12"' : "";
     for (const f of fs) {
       const fill = p.unverified ? "url(#unverified)" : shade(base, f.light);
+      if (f.holes) {
+        out.push(`<path d="${evenOddPath([f.pts, ...f.holes])}" fill-rule="evenodd" fill="${fill}"${opacity} stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`);
+        continue;
+      }
       const pts = f.pts.map((q) => q.map((v) => v.toFixed(1)).join(",")).join(" ");
       out.push(`<polygon points="${pts}" fill="${fill}"${opacity} stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`);
     }
