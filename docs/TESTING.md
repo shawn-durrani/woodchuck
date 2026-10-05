@@ -32,6 +32,15 @@ workshop drawings and the sheet the 2D views are drawn on.
 [The acceptance test](#the-acceptance-test-the-record-console) has the
 console's numbers.
 
+Cuts have tests of their own. The flat geometry is held to exact numbers
+on small invented shapes, such as a notch flush with an edge, a circle that
+touches one and a slot that splits a part. An invented drawer whose sides
+slope from a tall back to a low front checks a slope that follows its
+neighbours, its words on the cut list and its area for the finish. The cut
+operations are held to what they refuse and to a panel keeping its cuts
+through any other change. Every example with no cuts has to derive to a
+fixed digest, so cuts can't change a design that has none.
+
 The finish tests hold every tinted Linolie colour to its photo on Douglas fir,
 to within a shade the eye can barely tell. They check that no tint leans away
 from its oil's own colour, and that a dark oil gains no colour on pale

@@ -16,6 +16,7 @@
 import { SPECIES, type Species } from "./species.js";
 import { FACES, type Design, type Face } from "./types.js";
 import type { DerivedPart } from "./derive.js";
+import { faceAreas } from "./profile.js";
 
 export interface FinishColour {
   id: string;
@@ -410,11 +411,23 @@ export interface FinishUse {
   litres: number;
 }
 
-/** How much of each finish the design needs, counting every face it's on. */
+/**
+ * How much of each finish the design needs, counting every face it's on. A
+ * part with cuts counts the faces its cuts leave, and a box counts its six
+ * rectangles.
+ */
 export function finishSchedule(design: Design, parts: DerivedPart[]): FinishUse[] {
   const area = new Map<string, number>();
   for (const p of parts) {
     if (p.broken || p.decor || p.unverified) continue;
+    if (p.profile) {
+      const faces = faceAreas(p);
+      for (const face of FACES) {
+        const f = finishOn(design, p, face);
+        if (f) area.set(f, (area.get(f) ?? 0) + faces[face] / 1e6);
+      }
+      continue;
+    }
     const size = p.nominal.max.map((v, i) => v - p.nominal.min[i]!);
     FACES.forEach((face, k) => {
       const f = finishOn(design, p, face);

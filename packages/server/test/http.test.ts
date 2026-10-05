@@ -52,7 +52,7 @@ describe("the local server", () => {
     expect(state.report.errors).toBe(1);
     expect(state.cutlist.rows).toHaveLength(12);
     const csv = await (await fetch(`${base}/api/cutlist.csv`)).text();
-    expect(csv.split("\n")[0]).toBe("Row,Name,Qty,Material,Length mm,Width mm,Thickness mm,Grain along length,Machining,Parts");
+    expect(csv.split("\n")[0]).toBe("Row,Name,Qty,Material,Length mm,Width mm,Thickness mm,Grain along length,Machining,Shape,Parts");
   });
 
   it("serves the workshop drawings as a PDF on A4, a page for each sheet", async () => {
@@ -80,6 +80,24 @@ describe("the local server", () => {
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { error: string }).error).toMatch(/still used by/);
     expect((await postJson("/api/undo", {})).status).toBe(200);
+  });
+
+  it("makes, refuses and undoes a cut through the same route, the one way in so far", async () => {
+    const slope = { op: "set_edge_cut", id: "drawer_side_l", cut: "slope", edge: "top", start: { face: "drawer_side_l.top" }, end: { face: "drawer_side_l.top", offset: "-60" } };
+    expect((await postJson("/api/ops", { ops: [slope] })).status).toBe(200);
+    type State = {
+      derived: { parts: { id: string; profile?: { cuts: { kind: string }[] } }[] };
+      cutlist: { rows: { parts: string[]; shape?: string[] }[] };
+    };
+    const state = (await (await fetch(`${base}/api/state`)).json()) as State;
+    expect(state.derived.parts.find((p) => p.id === "drawer_side_l#3")?.profile?.cuts.map((c) => c.kind)).toEqual(["slope"]);
+    expect(state.cutlist.rows.find((r) => r.parts.includes("drawer_side_l"))?.shape?.[0]).toMatch(/^top edge sloped from /);
+    const bad = await postJson("/api/ops", { ops: [{ ...slope, edge: "left" }] });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/broad face of drawer_side_l/);
+    expect((await postJson("/api/undo", {})).status).toBe(200);
+    const after = (await (await fetch(`${base}/api/state`)).json()) as State;
+    expect(after.derived.parts.some((p) => p.profile)).toBe(false);
   });
 
   it("switches the chat's model for this design, from the allowed list only", async () => {

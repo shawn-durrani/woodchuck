@@ -11,6 +11,7 @@ import { SPECIES, SPECIES_IDS } from "./species.js";
 import { DEFAULT_TRIM_MM } from "./layout.js";
 import {
   AXES,
+  AXIS_FACES,
   FACE_AXIS,
   FACES,
   ID_PATTERN,
@@ -20,7 +21,9 @@ import {
   type Axis,
   type AxisSpec,
   type Bound,
+  type Cutout,
   type Design,
+  type EdgeCut,
   type Face,
   type Hardware,
   type Joint,
@@ -28,6 +31,7 @@ import {
   type Material,
   type MaterialStock,
   type Panel,
+  type PanelCut,
   type Param,
   type ParamUnit,
   type Plan,
@@ -53,6 +57,11 @@ export type Op =
   | ({ op: "add_panel" } & Panel)
   | ({ op: "update_panel"; id: string } & Partial<Omit<Panel, "id">>)
   | { op: "delete_part"; id: string }
+  /** Adds or replaces a straight cut along one edge of a panel. `id` is the panel and `cut` names the cut. */
+  | ({ op: "set_edge_cut"; id: string; cut: string } & Omit<EdgeCut, "id" | "kind">)
+  /** Adds or replaces a rectangle or circle cut right through a panel. */
+  | ({ op: "set_cutout"; id: string; cut: string } & Omit<Cutout, "id" | "kind">)
+  | { op: "delete_cut"; id: string; cut: string }
   | ({ op: "add_joint" } & Joint)
   | { op: "delete_joint"; id: string }
   | ({ op: "set_array" } & ArrayPattern)
@@ -144,7 +153,8 @@ function checkRefs(d: Design, src: string, what: string, extraParts: string[] = 
   }
 }
 
-function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: string): Bound {
+/** A bound on an axis. A part's own faces are allowed only for its cuts, which nothing reads back. */
+function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: string, ownFaces = false): Bound {
   if (typeof b !== "object" || b === null) throw new OpError(`${what} must be {"at": expr} or {"face": "part.face", "offset": expr}`);
   const o = b as Record<string, unknown>;
   if ("at" in o) {
@@ -166,8 +176,8 @@ function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: str
       throw new OpError(`${what} is on the ${axis} axis, so its face must be ${allowed.join(" or ")}, not ${f}`);
     }
     const { source } = partRefParts(ref);
-    if (source === partId) throw new OpError(`${what} can't refer to the part's own face`);
-    if (!d.parts.some((p) => p.id === source) && !d.unverified.some((u) => u.id === source)) {
+    if (source === partId && !ownFaces) throw new OpError(`${what} can't refer to the part's own face`);
+    if (source !== partId && !d.parts.some((p) => p.id === source) && !d.unverified.some((u) => u.id === source)) {
       throw new OpError(`There's no part called "${source}" for ${what}, which sits against ${face}. Check the name, or add the part first.`);
     }
     const out: Bound = { face };
@@ -181,7 +191,113 @@ function checkBound(d: Design, partId: string, axis: Axis, b: unknown, what: str
   throw new OpError(`${what} must have "at" or "face"`);
 }
 
-function checkPanel(d: Design, p: Panel): Panel {
+const CUT_FIELDS = {
+  edge: ["id", "kind", "edge", "start", "end", "start_along", "end_along", "note"],
+  rect: ["id", "kind", "shape", "x", "y", "z", "radius", "note"],
+  circle: ["id", "kind", "shape", "centre", "diameter", "note"],
+};
+
+const given = (v: unknown) => v !== undefined && v !== null && !(typeof v === "string" && v.trim() === "");
+
+/** An expression in a cut. It may use its own part's sizes. */
+function checkCutExpr(d: Design, partId: string, src: unknown, what: string): string {
+  const expr = checkExpr(String(src ?? ""), what);
+  checkRefs(d, expr, what, [partId]);
+  return expr;
+}
+
+/** A cutout's span on one axis: two of start, end and size, like a part's own. */
+function checkCutSpan(d: Design, partId: string, a: Axis, raw: unknown, what: string): AxisSpec {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new OpError(`${what} needs two of start, end and size`);
+  const spec = raw as AxisSpec;
+  const clean: AxisSpec = {};
+  if (given(spec.start)) clean.start = checkBound(d, partId, a, spec.start, `${what}.start`, true);
+  if (given(spec.end)) clean.end = checkBound(d, partId, a, spec.end, `${what}.end`, true);
+  if (given(spec.size)) clean.size = checkCutExpr(d, partId, spec.size, `${what}.size`);
+  const count = [clean.start, clean.end, clean.size].filter((x) => x !== undefined).length;
+  if (count !== 2) throw new OpError(`${what} needs two of start, end and size, but it has ${count}. ${count > 2 ? "Clear one of them" : "Fill in one more"}.`);
+  return clean;
+}
+
+/**
+ * One cut on a panel, checked against the panel's axes. Every position is a
+ * bound and every size an expression, held to the same rules as a part's.
+ */
+function checkCut(d: Design, p: Pick<Panel, "id" | "thickness_axis">, raw: unknown): PanelCut {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new OpError(`Each cut on ${p.id} must be an object`);
+  const c = raw as Record<string, unknown>;
+  const id = checkId(c.id, "Cut id");
+  const what = `${p.id} cut ${id}`;
+  const faceAxes = AXES.filter((a) => a !== p.thickness_axis);
+  const only = (fields: string[], kind: string) => {
+    const extra = Object.keys(c).filter((k) => !fields.includes(k) && c[k] !== undefined);
+    if (extra.length) throw new OpError(`${extra.join(", ")} ${extra.length === 1 ? "isn't a field" : "aren't fields"} of ${kind}. Its fields: ${fields.filter((f) => f !== "kind" && f !== "id").join(", ")}`);
+  };
+  if (c.kind === "edge") {
+    only(CUT_FIELDS.edge, "an edge cut");
+    const edge = oneOf(c.edge, FACES, `${what} edge`);
+    const axis = FACE_AXIS[edge];
+    if (axis === p.thickness_axis) {
+      const edges = faceAxes.flatMap((a) => AXIS_FACES[a]);
+      throw new OpError(`${what} can't take wood from the ${edge} face, which is a broad face of ${p.id}. Pick one of its edges: ${edges.join(", ")}`);
+    }
+    const run = faceAxes.find((a) => a !== axis)!;
+    if (!given(c.start) || !given(c.end)) throw new OpError(`${what} needs start and end: where its new edge sits on ${axis} at each end of its run`);
+    const cut: EdgeCut = {
+      id,
+      kind: "edge",
+      edge,
+      start: checkBound(d, p.id, axis, c.start, `${what} start`, true),
+      end: checkBound(d, p.id, axis, c.end, `${what} end`, true),
+    };
+    if (given(c.start_along)) cut.start_along = checkBound(d, p.id, run, c.start_along, `${what} start_along`, true);
+    if (given(c.end_along)) cut.end_along = checkBound(d, p.id, run, c.end_along, `${what} end_along`, true);
+    if (given(c.note)) cut.note = String(c.note);
+    return cut;
+  }
+  if (c.kind !== "cutout") throw new OpError(`${what} kind must be "edge" or "cutout"`);
+  const shape = oneOf(c.shape, ["rect", "circle"] as const, `${what} shape`);
+  if (given(c[p.thickness_axis]) || (typeof c.centre === "object" && c.centre !== null && given((c.centre as Record<string, unknown>)[p.thickness_axis]))) {
+    throw new OpError(`${what} goes right through ${p.id}, and ${p.thickness_axis} is its thickness axis. Give it only ${faceAxes.join(" and ")}`);
+  }
+  const cut: Cutout = { id, kind: "cutout", shape };
+  if (shape === "rect") {
+    only(CUT_FIELDS.rect, "a rect cutout");
+    for (const a of faceAxes) cut[a] = checkCutSpan(d, p.id, a, c[a], `${what}.${a}`);
+    if (given(c.radius)) cut.radius = checkCutExpr(d, p.id, c.radius, `${what} radius`);
+  } else {
+    only(CUT_FIELDS.circle, "a circle cutout");
+    const centre = c.centre;
+    if (typeof centre !== "object" || centre === null || Array.isArray(centre)) {
+      throw new OpError(`${what} needs a centre, such as {"${faceAxes[0]}": {"at": "100"}, "${faceAxes[1]}": {"face": "${p.id}.${AXIS_FACES[faceAxes[1]!][0]}", "offset": "80"}}`);
+    }
+    const extra = Object.keys(centre).filter((k) => !faceAxes.includes(k as Axis));
+    if (extra.length) throw new OpError(`${what} centre takes only ${faceAxes.join(" and ")}, not ${extra.join(", ")}`);
+    cut.centre = {};
+    for (const a of faceAxes) {
+      const b = (centre as Record<string, unknown>)[a];
+      if (!given(b)) throw new OpError(`${what} centre needs ${a}`);
+      cut.centre[a] = checkBound(d, p.id, a, b, `${what} centre.${a}`, true);
+    }
+    if (!given(c.diameter)) throw new OpError(`${what} needs a diameter`);
+    cut.diameter = checkCutExpr(d, p.id, c.diameter, `${what} diameter`);
+  }
+  if (given(c.note)) cut.note = String(c.note);
+  return cut;
+}
+
+/** The axes a cut is drawn on, which have to be the panel's face axes. */
+function cutStranded(c: PanelCut, thickness: Axis): string | null {
+  if (c.kind === "edge") {
+    if (FACE_AXIS[c.edge] === thickness) return `takes wood from its ${c.edge} face`;
+    if (c.start_along || c.end_along) return "is placed along its old run";
+    return null;
+  }
+  const axes = c.shape === "rect" ? AXES.filter((a) => c[a] !== undefined) : (Object.keys(c.centre ?? {}) as Axis[]);
+  return axes.includes(thickness) ? `is drawn on ${axes.join(" and ")}` : null;
+}
+
+function checkPanel(d: Design, p: Panel, before?: Panel): Panel {
   checkId(p.id, "Part id");
   need(p.name, "name");
   if (!d.materials.some((m) => m.id === p.material)) {
@@ -220,7 +336,42 @@ function checkPanel(d: Design, p: Panel): Panel {
   }
   if (p.decor) out.decor = true;
   if (p.note) out.note = p.note;
+  if (p.cuts !== undefined && p.cuts !== null) {
+    if (!Array.isArray(p.cuts)) throw new OpError("cuts must be a list");
+    if (before && before.thickness_axis !== thickness_axis) {
+      for (const c of p.cuts) {
+        const why = typeof c === "object" && c !== null ? cutStranded(c, thickness_axis) : null;
+        if (why) {
+          throw new OpError(
+            `Turning ${p.id} so its thickness runs along ${thickness_axis} would strand cut ${c.id}, which ${why}. Delete the cut first, or set it again once the part is turned`,
+          );
+        }
+      }
+    }
+    const cuts = p.cuts.map((c) => checkCut(d, out, c));
+    const ids = cuts.map((c) => c.id);
+    const twice = ids.find((id, i) => ids.indexOf(id) !== i);
+    if (twice) throw new OpError(`${p.id} has two cuts called ${twice}. Give each its own id`);
+    if (cuts.length) out.cuts = cuts;
+  }
   return out;
+}
+
+function panelFor(d: Design, id: unknown): Panel {
+  const p = d.parts.find((x) => x.id === id);
+  if (p) return p;
+  if (d.unverified.some((u) => u.id === id)) throw new OpError(`${String(id)} is a stand-in box, which can't be cut. Replace it with a panel first`);
+  throw new OpError(`There's no panel "${String(id)}"${typeof id === "string" && id.includes("#") ? ". Name the original part: its copies repeat its cuts" : ""}`);
+}
+
+/** Every position and size a cut uses, for finding what it depends on. */
+function cutRefs(c: PanelCut): { bounds: Bound[]; exprs: string[] } {
+  if (c.kind === "edge") return { bounds: [c.start, c.end, c.start_along, c.end_along].filter((b): b is Bound => !!b), exprs: [] };
+  const spans = AXES.map((a) => c[a]).filter((s): s is AxisSpec => !!s);
+  return {
+    bounds: [...spans.flatMap((s) => [s.start, s.end]), ...Object.values(c.centre ?? {})].filter((b): b is Bound => !!b),
+    exprs: [...spans.map((s) => s.size), c.radius, c.diameter].filter((e): e is string => !!e),
+  };
 }
 
 function usedBy(d: Design, name: string, isPart: boolean): string[] {
@@ -239,6 +390,10 @@ function usedBy(d: Design, name: string, isPart: boolean): string[] {
   for (const p of d.parts) {
     if (p.id === name) continue;
     if (AXES.some((a) => boundUses(p[a].start) || boundUses(p[a].end) || uses(p[a].size))) hits.push(`part ${p.id}`);
+    for (const c of p.cuts ?? []) {
+      const { bounds, exprs } = cutRefs(c);
+      if (bounds.some(boundUses) || exprs.some(uses)) hits.push(`cut ${c.id} on ${p.id}`);
+    }
   }
   for (const r of d.rules) if (uses(r.expr)) hits.push(`rule ${r.id}`);
   for (const a of d.arrays) if (uses(a.count) || uses(a.pitch)) hits.push(`array ${a.id}`);
@@ -417,8 +572,32 @@ export function applyOp(d: Design, op: Op): Design {
       if (!cur) throw new OpError(`There's no panel "${op.id}"`);
       const { op: _op, ...patch } = op;
       const merged = { ...cur, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as Panel;
-      const p = checkPanel(d, merged);
+      const p = checkPanel(d, merged, cur);
       return { ...d, parts: d.parts.map((x) => (x.id === op.id ? p : x)) };
+    }
+    case "set_edge_cut":
+    case "set_cutout": {
+      const panel = panelFor(d, op.id);
+      const kind = op.op === "set_edge_cut" ? "edge" : "cutout";
+      const { op: _op, id: _id, cut: cutId, ...fields } = op as Record<string, unknown>;
+      const cut = checkCut(d, panel, { ...fields, id: cutId, kind });
+      const old = panel.cuts?.find((c) => c.id === cut.id);
+      if (old && old.kind !== cut.kind) {
+        const [name, tool] = old.kind === "edge" ? ["an edge cut", "set_edge_cut"] : ["a cutout", "set_cutout"];
+        throw new OpError(`${panel.id} already has ${name} called ${cut.id}. Change it with ${tool}, or delete_cut it first`);
+      }
+      const next = checkPanel(d, { ...panel, cuts: upsert(panel.cuts ?? [], cut, (c) => c.id === cut.id) });
+      return { ...d, parts: d.parts.map((x) => (x.id === panel.id ? next : x)) };
+    }
+    case "delete_cut": {
+      const panel = panelFor(d, op.id);
+      if (!panel.cuts?.some((c) => c.id === op.cut)) {
+        const ids = (panel.cuts ?? []).map((c) => c.id);
+        throw new OpError(`${panel.id} has no cut "${String(op.cut)}". ${ids.length ? `Its cuts: ${ids.join(", ")}` : "It has no cuts"}`);
+      }
+      const next: Panel = { ...panel, cuts: panel.cuts.filter((c) => c.id !== op.cut) };
+      if (!next.cuts!.length) delete next.cuts;
+      return { ...d, parts: d.parts.map((x) => (x.id === panel.id ? next : x)) };
     }
     case "delete_part": {
       if (!partExists(d, op.id)) throw new OpError(`There's no part "${op.id}"`);
