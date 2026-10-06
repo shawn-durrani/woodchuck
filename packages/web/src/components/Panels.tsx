@@ -126,7 +126,7 @@ export function ParamsPanel({ state }: { state: ServerState }) {
 }
 
 export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect: (ids: string[]) => void }) {
-  const { rows, hardware, excluded } = state.cutlist;
+  const { rows, hardware, excluded, notes } = state.cutlist;
   if (!rows.length) return <div className="empty">Nothing to cut yet.</div>;
   return (
     <div className="panel-body">
@@ -181,6 +181,11 @@ export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect
         </>
       )}
       {excluded.length > 0 && <p className="muted small">Left off: {excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}</p>}
+      {notes?.map((n) => (
+        <p key={n} className="muted small">
+          {n}
+        </p>
+      ))}
     </div>
   );
 }

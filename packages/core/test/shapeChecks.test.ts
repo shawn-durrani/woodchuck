@@ -85,6 +85,7 @@ describe("overlaps and contact on the shape you cut", () => {
       name: "Floor glide",
       connects: ["side_r"],
       qty: 1,
+      spec: { load_kg: 50 },
       shape: [{ name: "body", min_mm: [0, 0, 0], max_mm: [18, 50, 40] }],
       place: { x: "482", y, z: "260" },
     });

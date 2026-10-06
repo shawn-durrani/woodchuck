@@ -135,6 +135,7 @@ const looseBoards = (): Design => {
       name: "Shelf bracket",
       connects: ["floor_board"],
       qty: 1,
+      spec: { length_mm: 50 },
       shape: [{ name: "plate", min_mm: [0, 0, 0], max_mm: [50, 30, 20] }],
       place: { x: "100", y: "5", z: "100" },
     },

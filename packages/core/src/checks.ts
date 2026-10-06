@@ -13,8 +13,9 @@ import { fitsLengths, fitsSheet, materialStock, stockSettings } from "./layout.j
 import { JOINT_LIBRARY } from "./joints.js";
 import { partPrism } from "./profile.js";
 import { prismGap, prismsOverlap, rectLoop, uncutStretches, type Prism } from "./shape.js";
-import { AXES, FACE_AXIS, FACE_IS_MAX, FACES, type Design, type Face } from "./types.js";
+import { AXES, FACE_AXIS, FACE_IS_MAX, FACES, hasPartToBuy, type Design, type Face } from "./types.js";
 import { parseFinishTarget } from "./finishes.js";
+import { RUNNER_TAG, runnerChecks } from "./runners.js";
 
 export interface Issue extends DeriveIssue {
   /** Stable key, so a change can report which problems it fixed or caused. */
@@ -61,7 +62,7 @@ function intersect(a: Box, b: Box): Box {
 }
 
 /** Problems that can come more than once for the same parts, so their words tell them apart. */
-const KEYED_BY_MESSAGE = new Set(["rule_failed", "rule_error", "rule_reads_cut_face"]);
+const KEYED_BY_MESSAGE = new Set(["rule_failed", "rule_error", "rule_reads_cut_face", "hardware_nothing_to_buy"]);
 
 function keyOf(i: DeriveIssue): string {
   return `${i.code}:${[...i.parts].sort().join(",")}:${KEYED_BY_MESSAGE.has(i.code) ? i.message : ""}`;
@@ -159,6 +160,20 @@ export function runChecks(design: Design, d: DeriveResult): CheckReport {
       }
     }
   }
+
+  // The hardware list is what you buy. set_hardware refuses a placeholder, and one made before it did is flagged here.
+  for (const h of design.hardware) {
+    if (hasPartToBuy(h)) continue;
+    out.push({
+      severity: "warning",
+      code: "hardware_nothing_to_buy",
+      message: `${h.name} (${h.id}) is on the hardware list with nothing to buy: no library part and no maker's figures. Give it library_part or spec. Wooden runners and glides are timber, so delete it and add each runner as a part tagged ${RUNNER_TAG}`,
+      parts: h.connects,
+    });
+  }
+
+  // A drawer on wooden runners has to be free to slide.
+  out.push(...runnerChecks(d, solidOf));
 
   // Every part must be held up by something that reaches the floor.
   const parent = new Map<string, string>();

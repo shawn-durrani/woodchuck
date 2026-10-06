@@ -96,6 +96,7 @@ const cabinet: Op[] = [
     name: "Bar handle",
     connects: ["bottom"],
     qty: 1,
+    spec: { length_mm: 120 },
     shape: [{ name: "bar", min_mm: [0, 0, 0], max_mm: [120, 12, 30] }],
     place: { x: "240", y: "650", z: "300" },
   },

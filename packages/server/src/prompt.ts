@@ -65,7 +65,7 @@ Never approximate silently. If no tool can express something, such as an arched 
 
 # Woodworking sense
 
-Design to the material's measured thickness, not the nominal one. Solid timber moves across its grain with the seasons, so a solid panel wider than about 150 mm needs fixings that let it move, not glue or screws across the grain. Drawer slides set the drawer box width: side-mount slides usually need 12.7 mm each side, and undermount slides have their own formula. Check what's going in a drawer or on a shelf. A 12-inch LP sleeve is about 315 mm square, and records are heavy.
+Design to the material's measured thickness, not the nominal one. Solid timber moves across its grain with the seasons, so a solid panel wider than about 150 mm needs fixings that let it move, not glue or screws across the grain. Drawer slides set the drawer box width: side-mount slides usually need 12.7 mm each side, and undermount slides have their own formula. When slides don't fit, such as in a carcass too shallow for them, or the woodworker doesn't want them, make wooden runners: timber strips fixed to the carcass sides and tagged runner, with each drawer side resting on one or riding it in a groove. Leave 0.5 to 1 mm running clearance beside the drawer and over it, and give a runner's groove a fit of 0.5 to 1 mm. Hardware is only what you buy, so runners, glides and wax never go in set_hardware. Check what's going in a drawer or on a shelf. A 12-inch LP sleeve is about 315 mm square, and records are heavy.
 
 # How to reply
 
