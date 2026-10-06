@@ -109,6 +109,28 @@ keep the copy's number, so a tenon into `shelf#2` says so.
 Joints aren't edited by hand yet, so Claude makes a joint on one copy. Pick
 the copy, and the Edit tab lists its joints with the rest of its machining.
 
+## A drawer goes together the way a woodworker builds one
+
+A housing lengthens its guest into one host, so a panel held on several
+sides gets a joint for each part round it. A drawer bottom in grooves in
+its sides and front grows by the groove's depth into all three. Its back
+can stop on top of it instead. The bottom then slides in from behind,
+along grooves that run out of the sides' back ends.
+
+A groove is as wide as its panel plus any fit, or as wide as the cutter
+you name. A panel thicker than the cutter's groove is an error, since it
+won't go in, and one more than 1 mm thinner is a warning, since it
+rattles. A groove can go half the host's thickness deep. A strip under
+6 mm beside it is a warning, and a groove run out of the host's edge has
+no strip, since it's cut the way a rabbet is.
+
+A rabbet is open on one side, and it can go two thirds of the host's
+thickness deep. One with wood on both sides is a warning, since it's a
+dado or a groove. A dado and rabbet puts a tongue on the guest's end that
+hooks into a dado near the host's end, so a drawer front holds when it's
+pulled. The tongue sits on the face away from that end, which leaves the
+most short grain beyond the dado, and under 6 mm of it is a warning.
+
 ## A part is the blank you cut, and cuts shape it
 
 Every part is a box, and the box is the blank you cut it from. Cuts then

@@ -149,6 +149,29 @@ hole's wall names its cut, and another chat reads each part's shape. A
 scripted Claude slopes the sides and measures the room under a rail with
 `gap_y`, and the checks find nothing wrong.
 
+### Drawer joints
+
+The core tests build an invented drawer box in 12 mm ply with a 6 mm ply
+bottom. Its bottom sits in grooves in the sides and front and slides in
+under a back that stops on top of it, and its corners are rabbeted. Every cut size
+and every line of machining is pinned, and so is a bottom that grows on
+all four edges when the back has a groove too. The workshop drawings are
+held to each groove and rabbet in their chains and notes, and the finish
+areas to what the parts give with no joints at all.
+
+Each check has a pass and a fail with its words pinned. A groove can be
+too deep, too near the edge, too narrow for its panel or loose on it. A
+rabbet can leave no lip or have wood on both sides. The dado and rabbet's
+worked example pins its tongue to the face away from the side's end, and a
+thick tongue leaves too little short grain.
+
+A scripted Claude reads the joint library, opens the dado and rabbet's
+worked example and builds the same box in two lists of edits. The library
+is held to saying where a drawer bottom and a drawer's corners go, and the
+joints to leaving no problem at all. A groove narrower than the bottom
+comes back with its error, and a groove given both a width and a fit is
+refused.
+
 ### A plan's key sizes
 
 The plan tests run a scripted Claude on an invented bookcase, with a shelf

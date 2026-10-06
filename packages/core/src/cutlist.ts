@@ -77,7 +77,7 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
       return `${counted(m.count, "box joint slot")}, ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep, for ${m.with}`;
     case "tenon":
     case "tongue":
-      return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end, into ${m.with}`;
+      return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end${m.flush ? `, flush with the ${m.flush} face` : ""}, into ${m.with}`;
     default:
       return `${m.label} ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep × ${n(m.length_mm)} long in the ${m.face} face for ${m.with}${where}`;
   }

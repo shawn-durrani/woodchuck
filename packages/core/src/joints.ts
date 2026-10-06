@@ -6,7 +6,7 @@
 import { fmt } from "./expr.js";
 import { JOINT_FAMILY, type JointFamily, type JointType, type Severity } from "./types.js";
 
-export type JointParam = "depth" | "fit" | "thickness" | "shoulder" | "count" | "diameter" | "length" | "finger";
+export type JointParam = "depth" | "fit" | "thickness" | "shoulder" | "count" | "diameter" | "length" | "finger" | "width";
 
 /** Sizes a joint's defaults and checks work from, in mm. */
 export interface JointContext {
@@ -22,6 +22,12 @@ export interface JointContext {
   hostAcross: number;
   /** Through slots: the host left on each side of the slot, one entry per axis across it. */
   slotWalls?: SlotWall[];
+  /**
+   * Housings and insets: the host left on each side of the guest, across the
+   * guest's thickness, before any fit. A side at 0 is the host's own end or
+   * edge, so a housing there is open on that side.
+   */
+  housingWalls?: [number, number];
 }
 
 /** The host left on each side of a through slot along one axis, in mm. */
@@ -97,6 +103,99 @@ function housingDepthChecks(depth: number | undefined, c: JointContext, what: st
     ];
   }
   return [];
+}
+
+/** Below this, wood beside a housing breaks off. The checks on cut shapes use the same line. */
+const THIN_WALL_MM = 6;
+
+/** The host left beside a housing on each side, once a fit or a wider cut takes its share from each. */
+function wallsBeside(c: JointContext, extra: number): [number, number] | null {
+  return c.housingWalls ? [c.housingWalls[0] - extra / 2, c.housingWalls[1] - extra / 2] : null;
+}
+
+/**
+ * A groove runs with the host's grain, so it can go to half the host's
+ * thickness. It's checked for depth, for a set width that doesn't suit the
+ * panel, and for a thin strip of host beside it. A groove run out of the
+ * host's edge is cut the way a rabbet is, so it has no strip to check.
+ */
+function grooveChecks(p: Partial<Record<JointParam, number>>, c: JointContext): JointCheck[] {
+  const out: JointCheck[] = [];
+  const d = p.depth;
+  const behind = (depth: number) => `The groove is ${fmt(depth)} mm deep in ${fmt(c.hostDepth)} mm of material, which leaves ${fmt(c.hostDepth - depth)} mm behind it.`;
+  if (d !== undefined && d <= 0) out.push({ severity: "error", message: "A groove needs a depth above 0" });
+  else if (d !== undefined && d > (c.hostDepth * 2) / 3 + 1e-9) out.push({ severity: "error", message: `${behind(d)} Keep it to half the thickness or less` });
+  else if (d !== undefined && d > c.hostDepth / 2 + 1e-9) {
+    out.push({ severity: "warning", message: `${behind(d)} Half the thickness (${fmt(c.hostDepth / 2)} mm) is the usual limit` });
+  }
+  const w = p.width;
+  const t = c.guestThickness;
+  if (w !== undefined && w < t - 1e-9) {
+    out.push({
+      severity: "error",
+      message: `The groove is ${fmt(w)} mm wide and the panel ${fmt(t)} mm thick, so the panel won't go in. Cut the groove ${fmt(t)} mm wide, or thin the panel's edge to fit with a tongue joint`,
+    });
+  } else if (w !== undefined && w > t + 1 + 1e-9) {
+    out.push({ severity: "warning", message: `The groove is ${fmt(w)} mm wide for a ${fmt(t)} mm panel, so the panel rattles in it. Keep the groove within 1 mm of the panel's thickness` });
+  }
+  for (const wall of wallsBeside(c, w !== undefined ? w - t : (p.fit ?? 0)) ?? []) {
+    if (wall > 0.01 && wall < THIN_WALL_MM - 1e-9) {
+      out.push({
+        severity: "warning",
+        message: `The groove is ${fmt(wall)} mm from the host's edge, and a strip that thin breaks off. Set the panel at least ${THIN_WALL_MM} mm in, or about 10 mm for a drawer bottom`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * A rabbet is open on one side, and it's usually half to two thirds of the
+ * host's thickness deep, which leaves a lip over the guest's end.
+ */
+function rabbetChecks(p: Partial<Record<JointParam, number>>, c: JointContext): JointCheck[] {
+  const out: JointCheck[] = [];
+  const d = p.depth;
+  if (d !== undefined && d <= 0) out.push({ severity: "error", message: "A rabbet needs a depth above 0" });
+  else if (d !== undefined && d >= c.hostDepth - 1e-9) {
+    out.push({ severity: "error", message: `The rabbet is ${fmt(d)} mm deep in ${fmt(c.hostDepth)} mm of material, so it leaves no lip. Make it shallower, or use a butt joint` });
+  } else if (d !== undefined && d > (c.hostDepth * 2) / 3 + 1e-9) {
+    out.push({
+      severity: "warning",
+      message: `The rabbet is ${fmt(d)} mm deep in ${fmt(c.hostDepth)} mm of material and leaves a ${fmt(c.hostDepth - d)} mm lip. Two thirds of the thickness (${fmt((c.hostDepth * 2) / 3)} mm) is the usual limit`,
+    });
+  }
+  const walls = wallsBeside(c, p.fit ?? 0);
+  if (walls && walls.every((w) => w > 0.01)) {
+    out.push({
+      severity: "warning",
+      message: `The rabbet has ${fmt(walls[0])} mm of the host on one side and ${fmt(walls[1])} mm on the other, so it's a dado or a groove. Set the guest flush with the host's end or edge, or use a dado or a groove`,
+    });
+  }
+  return out;
+}
+
+/**
+ * A dado and rabbet's tongue sits on the guest's face away from the host's
+ * nearer end, so the short grain left beyond the dado is the guest's
+ * thickness less the tongue, plus any gap to that end.
+ */
+function dadoRabbetChecks(p: Partial<Record<JointParam, number>>, c: JointContext): JointCheck[] {
+  const out: JointCheck[] = [];
+  if (p.thickness !== undefined && p.thickness >= c.guestThickness) {
+    out.push({ severity: "error", message: `The tongue (${fmt(p.thickness)} mm) must be thinner than the guest (${fmt(c.guestThickness)} mm)` });
+  }
+  out.push(...housingDepthChecks(p.depth, c, "dado"));
+  if (p.thickness !== undefined && c.housingWalls) {
+    const grain = Math.min(...c.housingWalls) + c.guestThickness - p.thickness - (p.fit ?? 0) / 2;
+    if (grain < THIN_WALL_MM - 1e-9) {
+      out.push({
+        severity: "warning",
+        message: `Only ${fmt(grain)} mm of the host is left beyond the dado, and short grain that thin breaks off. Leave ${THIN_WALL_MM} mm or more with a thinner tongue, or set the guest in from the host's end`,
+      });
+    }
+  }
+  return out;
 }
 
 const ENTRIES: JointEntry[] = [
@@ -204,37 +303,41 @@ const ENTRIES: JointEntry[] = [
     type: "groove",
     name: "Groove",
     family: "housing",
-    summary: "A trench running with the host's grain, usually holding a panel edge such as a drawer bottom or back.",
-    use_when: "Drawer bottoms, backs and panels that sit in a frame.",
-    avoid_when: "For a part that carries load across the groove.",
+    summary: "A trench running with the host's grain that holds a panel's edge, such as a drawer bottom or a back. A panel can sit in a groove in every part round it.",
+    use_when:
+      "Drawer bottoms, held in grooves in the sides, the front and the back about 10 mm up from their bottom edges, never screwed on underneath. A 6 mm ply bottom takes a 6 mm wide groove, 6 mm deep in 12 to 15 mm sides. Backs and panels that sit in a frame.",
+    avoid_when: "For a part that carries load across the groove, or a panel thicker than the groove; give a thick panel a tongue joint, which thins its edge to fit.",
     strength: "low",
     tools: ["router", "table saw"],
     home_workshop: true,
-    changes_sizes: "The guest is larger by the depth on each housed edge.",
+    changes_sizes:
+      "The panel is larger by the depth on each housed edge, so give it one groove joint for each part it sits in. A drawer back can stop on top of the bottom instead, so the bottom slides in from behind along the sides' grooves and screws up into the back.",
     params: [
-      { name: "depth", meaning: "How far the panel goes into the host", default: "a third of the host's thickness" },
+      { name: "depth", meaning: "How far the panel goes into the host, up to half the host's thickness", default: "a third of the host's thickness" },
       { name: "fit", meaning: "Extra groove width for an easy fit", default: "0" },
+      { name: "width", meaning: "The groove's width, when the cutter sets it, such as a 6 mm bit. Give it or fit, not both", default: "the panel's thickness plus the fit" },
     ],
     defaults: (c) => ({ depth: half(c.hostDepth / 3), fit: 0 }),
-    check: (p, c) => housingDepthChecks(p.depth, c, "groove"),
+    check: grooveChecks,
   },
   {
     type: "rabbet",
     name: "Rabbet",
     family: "housing",
-    summary: "A step cut along the host's edge or end that the guest sits in.",
-    use_when: "Carcass corners, tops and bottoms at the ends of sides, and backs set into the sides.",
-    avoid_when: "As the only joint for a heavily loaded corner; add screws or dowels.",
+    summary: "A step cut along the host's edge or end that the guest sits in, open on one side.",
+    use_when:
+      "Drawer-box corners, with each side in a rabbet across the end of the front and of the back, as wide as the side is thick and about half the front's thickness deep. Carcass corners, tops and bottoms at the ends of sides, and backs set into the sides.",
+    avoid_when: "As the only joint for a heavily loaded corner; add screws or dowels. Away from the host's end or edge, where it's a dado or a groove.",
     strength: "medium",
     tools: ["router", "table saw"],
     home_workshop: true,
     changes_sizes: "The guest is longer by the depth at each housed end.",
     params: [
-      { name: "depth", meaning: "How far the guest goes into the host", default: "a third of the host's thickness" },
+      { name: "depth", meaning: "How far the guest goes into the host, up to two thirds of the host's thickness", default: "a third of the host's thickness" },
       { name: "fit", meaning: "Extra width for an easy fit", default: "0" },
     ],
     defaults: (c) => ({ depth: half(c.hostDepth / 3), fit: 0 }),
-    check: (p, c) => housingDepthChecks(p.depth, c, "rabbet"),
+    check: rabbetChecks,
   },
   {
     type: "tongue",
@@ -267,6 +370,27 @@ const ENTRIES: JointEntry[] = [
       }
       return out;
     },
+  },
+  {
+    type: "dado_rabbet",
+    name: "Dado and rabbet",
+    family: "inset",
+    summary:
+      "A rabbet across the guest's end leaves a tongue on one face, which fits a dado in the host near its end. The tongue hooks into the dado, so the corner holds when it's pulled.",
+    use_when: "Drawer-box corners that take a pull, such as a front or back between the sides, and carcass corners where a plain rabbet would need fixings.",
+    avoid_when: "Where the dado would leave under 6 mm of short grain beyond it, in solid timber above all; set the guest in from the host's end, or use a rabbet.",
+    strength: "medium",
+    tools: ["table saw", "router"],
+    home_workshop: true,
+    changes_sizes:
+      "The guest is longer by the tongue's length at each end. The tongue sits on the guest's face away from the host's nearer end, which leaves the most wood beyond the dado.",
+    params: [
+      { name: "thickness", meaning: "Tongue thickness, which is the dado's width", default: "half the guest's thickness" },
+      { name: "depth", meaning: "Tongue length, which is the dado's depth", default: "a third of the host's thickness" },
+      { name: "fit", meaning: "Extra dado width for an easy fit", default: "0" },
+    ],
+    defaults: (c) => ({ thickness: half(c.guestThickness / 2), depth: half(c.hostDepth / 3), fit: 0 }),
+    check: dadoRabbetChecks,
   },
   {
     type: "mortise_tenon",
