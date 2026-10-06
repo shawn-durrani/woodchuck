@@ -80,6 +80,8 @@ export interface Machining {
   count?: number;
   diameter_mm?: number;
   region: Box;
+  /** Its joint names one array copy, so the cut list keeps the other part's copy number. */
+  on_copy?: true;
 }
 
 /** Joint detail for the see-through view and Claude's drawings. */
@@ -145,6 +147,8 @@ export interface DerivedJoint {
   /** The overlap this joint explains, if any. */
   allowed?: Box;
   problems: JointCheck[];
+  /** It names one array copy, such as shelf#2, so it's placed once and never repeats. */
+  on_copy?: true;
 }
 
 export interface DerivedHardware {
@@ -213,6 +217,21 @@ export function partRefParts(ref: string): { source: string; copy: number } {
   const at = ref.indexOf("#");
   if (at < 0) return { source: ref, copy: 1 };
   return { source: ref.slice(0, at), copy: Number(ref.slice(at + 1)) };
+}
+
+/**
+ * Whether a joint's host or guest names one item of an array, such as
+ * shelf#2, or shelf#1 for the original alone. A joint that does joins the
+ * two parts it names, once, while one on an original repeats on every copy.
+ */
+export function namesCopy(ref: string): boolean {
+  return ref.includes("#");
+}
+
+/** The derived part a joint's end names. shelf#1 is the original, which is called shelf. */
+export function jointPartId(ref: string): string {
+  const { source, copy } = partRefParts(ref);
+  return copy === 1 ? source : ref;
 }
 
 export function faceOf(axis: Axis, max: boolean): Face {
@@ -1049,11 +1068,27 @@ export function derive(design: Design): DeriveResult {
     return out;
   };
 
+  /** Why a copy a joint names isn't there, such as a count turned down below it. */
+  const copyGone = (ref: string): string => {
+    const { source } = partRefParts(ref);
+    const arr = r.arrayOf(source);
+    if (!byId.has(source)) return `there's no part ${source}`;
+    if (!arr) return `${source} isn't in an array, so there's no ${ref}`;
+    try {
+      const { count } = r.arrayInfo(arr);
+      return `array ${arr.id} has ${count} ${count === 1 ? "item" : "items"}, so there's no ${ref}`;
+    } catch {
+      return `array ${arr.id}'s count can't be worked out, so there's no ${ref}`;
+    }
+  };
+
   const joints: DerivedJoint[] = [];
   const placed: { dj: DerivedJoint; host: DerivedPart; guest: DerivedPart; sh: JointShape | null }[] = [];
   for (const j of design.joints) {
     const family = JOINT_FAMILY[j.type];
-    for (const { k, map } of copiesFor([j.host, j.guest])) {
+    // A joint that names one copy, such as shelf#2, joins the two parts it names, once.
+    const onCopy = namesCopy(j.host) || namesCopy(j.guest);
+    for (const { k, map } of onCopy ? [{ k: 1, map: jointPartId }] : copiesFor([j.host, j.guest])) {
       const dj: DerivedJoint = {
         id: k === 1 ? j.id : `${j.id}#${k}`,
         source: j.id,
@@ -1067,9 +1102,20 @@ export function derive(design: Design): DeriveResult {
         problems: [],
       };
       if (j.count !== undefined) dj.count = j.count;
+      if (onCopy) dj.on_copy = true;
       joints.push(dj);
       const host = byId.get(dj.host);
       const guest = byId.get(dj.guest);
+      if (onCopy && (!host || !guest)) {
+        const ref = host ? j.guest : j.host;
+        issues.push({
+          severity: "error",
+          code: "joint_copy_missing",
+          message: `Joint ${j.id} names ${ref}, but ${copyGone(ref)}. It joins that one copy, so it can't be placed. Delete it, or add it again on a copy that's there`,
+          parts: [host, guest].filter((p): p is DerivedPart => !!p).map((p) => p.id),
+        });
+        continue;
+      }
       if (!host || !guest || host.broken || guest.broken) continue;
       const name = JOINT_LIBRARY[j.type].name.toLowerCase();
 
@@ -1198,7 +1244,19 @@ export function derive(design: Design): DeriveResult {
 
   // Joint detail is worked out once every guest has its final size, so each
   // housing matches the tongue that goes into it.
-  for (const { dj, host, guest, sh } of placed) jointDetail(dj, host, guest, sh, issues);
+  for (const { dj, host, guest, sh } of placed) {
+    jointDetail(dj, host, guest, sh, issues);
+    if (!dj.on_copy) continue;
+    // Machining from a joint on one copy names the other part as the joint does, so the
+    // cut list keeps its copy's number. An array's original alone reads as shelf#1.
+    const named = (p: DerivedPart) => (p.copy === 1 && r.arrayOf(p.source) ? `${p.id}#1` : p.id);
+    for (const [part, other] of [
+      [host, guest],
+      [guest, host],
+    ] as const) {
+      for (const m of part.machining) if (m.joint === dj.id) Object.assign(m, { with: named(other), on_copy: true });
+    }
+  }
 
   for (const p of parts) {
     p.cut = dimsOf(p.box, p.grain_axis, p.width_axis, p.thickness_axis);

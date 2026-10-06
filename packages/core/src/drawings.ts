@@ -18,7 +18,7 @@
 
 import { runChecks } from "./checks.js";
 import { AXIS_INDEX, type Box, type DeriveResult, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
-import { cutList, machiningText, roundCut, type CutList, type CutRow } from "./cutlist.js";
+import { cutList, machiningText, machiningWith, roundCut, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
 import { cutOutline } from "./profile.js";
 import { signedArea, sliceIntervals, type Loop, type Pt } from "./shape.js";
@@ -851,7 +851,7 @@ function seenLines(s: FrameShape, look: 0 | 1): number[] {
 
 /** What to cut, in the cut list's words, and where on this drawing. */
 function noteText(f: Frame, m: Machining, d: DeriveResult): string {
-  const what = machiningText({ ...m, with: m.with.replace(/#\d+$/, "") });
+  const what = machiningText({ ...m, with: machiningWith(m) });
   if (FASTENER_LABELS.has(m.label)) {
     const drill = frameAxis(f, FACE_AXIS[m.face]);
     const centres = centresInFrame(f, m, d).map((c) => centreText(f, drill, c));
@@ -1232,7 +1232,7 @@ export function drillingList(design: Design, d: DeriveResult, list: CutList = cu
       const drill = frameAxis(f, drillAxis);
       const extent = [f.size.L, f.size.W, f.size.T][drill]!;
       const face = faceName(f, m.face);
-      const other = m.with.replace(/#\d+$/, "");
+      const other = machiningWith(m);
       const diameter_mm = roundCut(m.diameter_mm ?? 4);
       const depth_mm = roundCut(m.depth_mm);
       const key = [m.label, other, diameter_mm, depth_mm, face].join("|");

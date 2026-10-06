@@ -80,9 +80,35 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
   }
 }
 
+/**
+ * The other part in a piece of machining, as the workshop reads it. Copies
+ * in an array get the same machining, so a copy reads as its original. A
+ * joint that names one copy keeps its number, since it's on that copy alone.
+ */
+export function machiningWith(m: Machining): string {
+  return m.on_copy ? m.with : m.with.replace(/#\d+$/, "");
+}
+
 function machiningLines(p: DerivedPart): string[] {
-  // Copies in an array get the same machining, so name the original part.
-  return p.machining.map((m) => machiningText({ ...m, with: m.with.replace(/#\d+$/, "") }, p)).sort();
+  return p.machining.map((m) => machiningText({ ...m, with: machiningWith(m) }, p)).sort();
+}
+
+/**
+ * Names the rows of copies a joint names alone, such as "Shelf (shelf#2)",
+ * where that joint sets them apart from the rest of their array.
+ */
+function nameCopyRows(rows: CutRow[], design: Design, d: DeriveResult) {
+  const named = new Set(d.joints.filter((j) => j.on_copy).flatMap((j) => [j.host, j.guest]));
+  if (!named.size) return;
+  const sourceOf = (id: string) => d.byId.get(id)!.source;
+  const rowsOf = new Map<string, number>();
+  for (const row of rows) for (const s of new Set(row.parts.map(sourceOf))) rowsOf.set(s, (rowsOf.get(s) ?? 0) + 1);
+  for (const row of rows) {
+    if (!row.parts.every((id) => named.has(id)) || (rowsOf.get(sourceOf(row.parts[0]!)) ?? 0) < 2) continue;
+    // The original reads as shelf#1, the way a joint names it alone.
+    const refs = row.parts.map((id) => (design.arrays.some((a) => a.parts.includes(id)) ? `${id}#1` : id));
+    row.name = `${row.name} (${refs.join(", ")})`;
+  }
 }
 
 export function cutList(design: Design, d: DeriveResult): CutList {
@@ -137,6 +163,7 @@ export function cutList(design: Design, d: DeriveResult): CutList {
     (a, b) => a.material.localeCompare(b.material) || b.length_mm - a.length_mm || b.width_mm - a.width_mm,
   );
   rows.forEach((row, i) => (row.row = i + 1));
+  nameCopyRows(rows, design, d);
 
   const hw = new Map<string, HardwareRow>();
   for (const h of d.hardware) {

@@ -77,6 +77,38 @@ Joints change cut sizes where they should. A dado lengthens the shelf it
 holds, and the cut list says by how much and why. Every length is in
 millimetres, and field names say so.
 
+## An array repeats its parts, and a joint can pick one copy
+
+An array repeats parts along an axis at a pitch, such as evenly spaced
+shelves. The original is item one, and its copies are `shelf#2`, `shelf#3`
+and so on. A joint on the original repeats on every copy, so every shelf gets
+the dados the first one has.
+
+A joint can also name one item as its host or guest, such as `shelf#2`, or
+`shelf#1` for the original alone. It then joins those two parts once and
+never repeats. A drawer divider housed into the underside of the second
+shelf is a dado with host `shelf#2` and the divider as guest. The array's own
+joints still repeat on that copy, so `shelf#2` keeps its dados into the
+sides and gains the divider's. A joint on one item only ever adds to what
+the array repeats. At the other end, an array's original means item one
+alone too.
+
+The joint follows the copy's number. A new pitch moves `shelf#2`, and the
+divider's housing goes with it. A count that rises leaves the joint where
+it was. A count that drops under its number, or a deleted array, leaves the
+joint with nothing to join. The joint stays in the design, and the checks
+name it as an error until it's deleted or added again on a copy that's
+there. Deleting a part takes every joint on it or its copies with it.
+
+The machining lands on that copy alone, in the checks, the see-through view
+and every picture. Copies that come out the same share a cut list row. A
+copy a joint sets apart gets a row of its own, named for it, such as
+"Shelf (shelf#2)", and its own sheet in the workshop drawings. Its notes
+keep the copy's number, so a tenon into `shelf#2` says so.
+
+Joints aren't edited by hand yet, so Claude makes a joint on one copy. Pick
+the copy, and the Edit tab lists its joints with the rest of its machining.
+
 ## A part is the blank you cut, and cuts shape it
 
 Every part is a box, and the box is the blank you cut it from. Cuts then

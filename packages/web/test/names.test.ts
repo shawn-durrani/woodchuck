@@ -22,6 +22,10 @@ describe("part names", () => {
     expect(name("seat_slat#3")).toBe("Seat slat 3 of 3");
   });
 
+  it("reads the original alone, as a joint names it, by its number", () => {
+    expect(name("seat_slat#1")).toBe("Seat slat 1 of 3");
+  });
+
   it("names a face by its part", () => {
     expect(name("seat_slat#2.top")).toBe("Seat slat 2 of 3, top face");
   });

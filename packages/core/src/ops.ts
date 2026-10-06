@@ -4,7 +4,7 @@
 // fix the call.
 
 import { gapPartsOf, parse, refsOf, ExprError } from "./expr.js";
-import { OVERALL, OVERALL_NAMES, partRefParts } from "./derive.js";
+import { derive, jointPartId, OVERALL, OVERALL_NAMES, partRefParts } from "./derive.js";
 import { validateLibraryPart } from "./library.js";
 import { finishesInside, normaliseFinish, parseFinishTarget, PALETTES } from "./finishes.js";
 import { SPECIES, SPECIES_IDS } from "./species.js";
@@ -563,6 +563,27 @@ function checkPartRef(d: Design, ref: unknown, what: string): string {
   return ref;
 }
 
+/**
+ * A joint's host or guest: a part, or one item of an array, such as shelf#2,
+ * or shelf#1 for the original alone. A joint on the original repeats on every
+ * copy, and one that names an item joins that item alone.
+ */
+function checkJointEnd(d: Design, ref: unknown, what: string): string {
+  if (typeof ref !== "string" || !ref.includes("#")) return checkPartRef(d, ref, what);
+  const m = /^([a-z][a-z0-9_]*)#([1-9]\d*)$/.exec(ref);
+  if (!m) throw new OpError(`${what} "${ref}" isn't a part. Name a part, or one copy of an array, such as shelf#2`);
+  const source = m[1]!;
+  if (!partExists(d, source)) throw new OpError(`${what} "${ref}" isn't a part: there's no part "${source}"`);
+  const arr = d.arrays.find((a) => a.parts.includes(source));
+  if (!arr) throw new OpError(`${what} "${ref}" names a copy, but ${source} isn't in an array. Name ${source} itself`);
+  if (m[2] === "1") return ref;
+  const r = derive(d);
+  if (r.byId.has(ref)) return ref;
+  const count = r.parts.filter((p) => p.source === source).length;
+  const copies = count > 1 ? `its copies run from ${source}#2 to ${source}#${count}` : "it has no copies";
+  throw new OpError(`${what} "${ref}" doesn't exist: array ${arr.id} has ${count} ${count === 1 ? "item" : "items"}, so ${copies}. Name ${source}#1 for the original alone`);
+}
+
 /** Drops finishes whose target matches, so nothing points at a deleted part or material. */
 function withoutFinishes(d: Design, drop: (target: string) => boolean): Design {
   if (!d.finishes) return d;
@@ -674,9 +695,9 @@ function readd<T extends { id: string }>(d: Design, kind: string, existing: T, c
 function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   const id = checkId(op.id, "Joint id");
   const type = oneOf(op.type, JOINT_TYPES, "Joint type");
-  const host = checkPartRef(d, op.host, "host");
-  const guest = checkPartRef(d, op.guest, "guest");
-  if (host === guest) throw new OpError("host and guest must be different parts");
+  const host = checkJointEnd(d, op.host, "host");
+  const guest = checkJointEnd(d, op.guest, "guest");
+  if (jointPartId(host) === jointPartId(guest)) throw new OpError("host and guest must be different parts");
   const j: Joint = { id, type, host, guest };
   for (const f of ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger"] as const) {
     const v: unknown = op[f];
@@ -827,7 +848,8 @@ function change(d: Design, op: Op): Design {
         ...d,
         parts: d.parts.filter((p) => p.id !== op.id),
         unverified: d.unverified.filter((u) => u.id !== op.id),
-        joints: d.joints.filter((j) => j.host !== op.id && j.guest !== op.id),
+        // A joint on one of its copies, such as shelf#2, goes with it.
+        joints: d.joints.filter((j) => partRefParts(j.host).source !== op.id && partRefParts(j.guest).source !== op.id),
         arrays: d.arrays
           .map((a) => ({ ...a, parts: a.parts.filter((p) => p !== op.id) }))
           .filter((a) => a.parts.length > 0),
