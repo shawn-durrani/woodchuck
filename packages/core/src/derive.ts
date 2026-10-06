@@ -9,7 +9,7 @@
 // on the wood its cuts leave, and its profile follows its housings.
 
 import { evaluate, evaluateNumber, ExprError, fmt, refsOf, type GapResolver, type Traced } from "./expr.js";
-import { JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
+import { canStop, housingWord, JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
 import { contactWood, cutsInBox, fastenerStretches, slotWallsOnShape, spreadOver, type CutInBox } from "./jointShape.js";
 import { placeBox } from "./library.js";
 import { partPrism, profileFor, solveFace, type CutValues, type PartProfile, type SolvedFace } from "./profile.js";
@@ -61,6 +61,11 @@ export interface Extension {
   axis: Axis;
   side: "start" | "end";
   depth_mm: number;
+  /**
+   * A stopped housing: how much of the end it leaves out, from the start
+   * and from the end of the end's run. The guest is notched away there.
+   */
+  notch_mm?: [number, number];
 }
 
 export interface Machining {
@@ -76,6 +81,10 @@ export interface Machining {
   open_end?: Face;
   /** A tongue a rabbet leaves: the face of this part it's flush with. */
   flush?: Face;
+  /** A stopped housing: how far short of each edge of this part it stops. */
+  stop_mm?: Partial<Record<Face, number>>;
+  /** A notch for a stopped housing: the edge whose corner it comes out of, such as front. */
+  corner?: Face;
   depth_mm: number;
   width_mm: number;
   length_mm: number;
@@ -143,6 +152,8 @@ export interface DerivedJoint {
   count?: number;
   /** Every parameter, with library defaults filled in. */
   params: Partial<Record<JointParam, number>>;
+  /** A stopped housing's stops as given, worked out: how far short of each edge of the host. */
+  stop_mm?: Partial<Record<Face, number>>;
   /** Which parameters came from the library rather than the design. */
   defaulted: JointParam[];
   features: JointFeature[];
@@ -561,6 +572,140 @@ function resolveJointParams(j: Joint, dj: DerivedJoint, ctx: JointContext, r: Re
   return true;
 }
 
+/** The way a housing runs along each axis, in words. */
+const RUNS: Record<Axis, string> = { x: "left to right", y: "bottom to top", z: "back to front" };
+
+/**
+ * Works out a housing's stops: how far short of each edge of its host it
+ * stops. Only the two edges the housing runs between can take one, and a
+ * stop of 0 is no stop. A stop that can't be used is an error, and the
+ * housing runs on to that edge.
+ */
+function resolveStops(j: Joint, dj: DerivedJoint, lAxis: Axis, r: Resolver, issues: DeriveIssue[]) {
+  const given = FACES.filter((f) => j.stop?.[f] !== undefined);
+  if (!given.length) return;
+  const fail = (message: string) => issues.push({ severity: "error", code: "stop_error", message: `Joint ${dj.id}: ${message}`, parts: [dj.host, dj.guest] });
+  if (!canStop(j.type)) {
+    fail(`only a dado, groove, rabbet or dado and rabbet can stop short of an edge, so the stop on this ${JOINT_LIBRARY[j.type].name.toLowerCase()} is left out`);
+    return;
+  }
+  const word = housingWord(j.type);
+  const out: Partial<Record<Face, number>> = {};
+  for (const f of given) {
+    if (FACE_AXIS[f] !== lAxis) {
+      fail(`the ${word} for ${dj.guest} in ${dj.host} runs ${RUNS[lAxis]}, so it can stop short of the ${AXIS_FACES[lAxis].join(" or the ")}, not the ${f}`);
+      continue;
+    }
+    let v: number;
+    try {
+      v = evaluateNumber(String(j.stop![f]), r.value).value;
+    } catch (e) {
+      fail(`its ${f} stop can't be worked out: ${(e as Error).message}`);
+      continue;
+    }
+    if (v < -EPS) fail(`its ${f} stop works out to ${fmt(v)} mm. A stop is how far short of the edge the ${word} ends, so it can't be below 0`);
+    else if (v > EPS) out[f] = v;
+  }
+  if (Object.keys(out).length) dj.stop_mm = out;
+}
+
+/** The least wood worth leaving between a stopped housing's end and the edge, the same 6 mm a cut leaves at least. */
+const MIN_STOP_MM = 6;
+
+/** A housing's stops in words, such as "10 mm from the front and 5 mm from the back". */
+export function stopWords(stop: Partial<Record<Face, number>>): string {
+  return FACES.filter((f) => stop[f] !== undefined)
+    .map((f) => `${fmt(Math.round(stop[f]! * 10) / 10)} mm from the ${f}`)
+    .join(" and ");
+}
+
+/**
+ * Stops a housing short of its host's edges. It runs along the tongue no
+ * nearer each stopped edge than its stop, and the guest's end is notched
+ * away beyond that, so the guest keeps its place and its size. The notch
+ * reaches the guest's own edge, so a guest set back past the stop needs
+ * none. Each notch is machining on the guest. Problems go on the issues,
+ * and stops that leave nothing are refused, so the housing runs whole.
+ */
+function stopHousing(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, tongue: Box, axis: Axis, tAxis: Axis, lAxis: Axis, issues: DeriveIssue[]): { tongue: Box; stop_mm: Partial<Record<Face, number>> } | null {
+  const stops = dj.stop_mm;
+  if (!stops) return null;
+  const li = AXIS_INDEX[lAxis];
+  const [loFace, hiFace] = AXIS_FACES[lAxis];
+  const t0 = tongue.min[li]!;
+  const t1 = tongue.max[li]!;
+  const from = stops[loFace] !== undefined ? Math.max(t0, host.nominal.min[li]! + stops[loFace]!) : t0;
+  const to = stops[hiFace] !== undefined ? Math.min(t1, host.nominal.max[li]! - stops[hiFace]!) : t1;
+  const run = t1 - t0;
+  const word = housingWord(dj.type);
+  const what = `the ${word} for ${guest.id} in ${host.id}`;
+  const parts = [dj.host, dj.guest];
+  const given = FACES.filter((f) => stops[f] !== undefined);
+  if (to - from <= EPS) {
+    issues.push({
+      severity: "error",
+      code: "stop_too_long",
+      message: `Joint ${dj.id}: stopped ${stopWords(stops)}, ${what} has none of its ${fmt(run)} mm left, so nothing would hold ${guest.id}. Make the stop${given.length === 1 ? "" : "s"} shorter`,
+      parts,
+    });
+    return null;
+  }
+  // How far short of each stopped edge the housing ends, which a guest set back past its stop makes further.
+  const actual: Partial<Record<Face, number>> = {};
+  if (stops[loFace] !== undefined) actual[loFace] = from - host.nominal.min[li]!;
+  if (stops[hiFace] !== undefined) actual[hiFace] = host.nominal.max[li]! - to;
+  const left = to - from;
+  if (left < run / 2 - EPS) {
+    issues.push({
+      severity: "warning",
+      code: "stop_short_housing",
+      message: `Joint ${dj.id}: the stop${given.length === 1 ? " leaves" : "s leave"} ${fmt(left)} mm of the ${fmt(run)} mm ${word} for ${guest.id} in ${host.id}, less than half, so ${guest.id} has little holding it. Keep at least ${fmt(run / 2)} mm`,
+      parts,
+    });
+  }
+  const thin = given.filter((f) => actual[f]! < MIN_STOP_MM - EPS);
+  if (thin.length) {
+    const near = Object.fromEntries(thin.map((f) => [f, actual[f]!]));
+    issues.push({
+      severity: "warning",
+      code: "stop_thin",
+      message: `Joint ${dj.id}: ${what} stops only ${stopWords(near)}, and wood that thin can break out when you square the end. Leave at least ${MIN_STOP_MM} mm`,
+      parts,
+    });
+  }
+  // The guest's end beyond the housing comes off as a notch at each stopped corner.
+  const span = (b: Box, a: Axis) => b.max[AXIS_INDEX[a]]! - b.min[AXIS_INDEX[a]]!;
+  const notchLo = Math.max(0, from - guest.nominal.min[li]!);
+  const notchHi = Math.max(0, guest.nominal.max[li]! - to);
+  const ext = guest.extensions.find((e) => e.joint === dj.id);
+  if (ext && (notchLo > EPS || notchHi > EPS)) ext.notch_mm = [notchLo > EPS ? notchLo : 0, notchHi > EPS ? notchHi : 0];
+  // Each notch goes right through the guest, and is sized on its length and width like a cut's notch.
+  const face = faceOf(axis, dj.side === "end");
+  const t = guest.thickness_axis;
+  for (const [corner, lo, hi, n] of [
+    [loFace, guest.nominal.min[li]!, from, notchLo],
+    [hiFace, to, guest.nominal.max[li]!, notchHi],
+  ] as const) {
+    if (n <= EPS) continue;
+    // A housing takes the guest's whole end, so its notch goes right through. A dado and rabbet's takes only the tongue.
+    let region = setRange(tongue, lAxis, lo, hi);
+    if (t === tAxis && dj.family === "housing") region = setRange(region, t, guest.box.min[AXIS_INDEX[t]]!, guest.box.max[AXIS_INDEX[t]]!);
+    guest.machining.push({
+      joint: dj.id,
+      type: dj.type,
+      label: "notch",
+      with: host.id,
+      face,
+      corner,
+      depth_mm: span(region, t),
+      width_mm: span(region, guest.width_axis),
+      length_mm: span(region, guest.grain_axis),
+      region,
+    });
+  }
+  return { tongue: setRange(tongue, lAxis, from, to), stop_mm: actual };
+}
+
 function setRange(b: Box, a: Axis, lo: number, hi: number): Box {
   const out = cloneBox(b);
   out.min[AXIS_INDEX[a]] = lo;
@@ -775,6 +920,9 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
         tongue = setRange(tongue, lAxis, prism.min[AXIS_INDEX[lAxis]]! + s, prism.max[AXIS_INDEX[lAxis]]! - s);
       }
     }
+    // A stopped housing runs only to its stop, and the guest is notched beyond it.
+    const stopped = canStop(dj.type) ? stopHousing(dj, host, guest, tongue, axis, tAxis, lAxis, issues) : null;
+    if (stopped) tongue = stopped.tongue;
     // A groove cut to a set width is that wide, centred on the panel, and the fit is the rest.
     const extra = dj.type === "groove" && p.width !== undefined ? p.width - span(tongue, tAxis) : fit;
     const housing = setRange(tongue, tAxis, tongue.min[ti]! - extra / 2, tongue.max[ti]! + extra / 2);
@@ -816,6 +964,7 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
       width_mm: span(tongue, tAxis) + extra,
       length_mm: span(tongue, lAxis),
       region: housing,
+      ...(stopped ? { stop_mm: stopped.stop_mm } : {}),
     });
     if (dj.family === "inset") {
       guest.machining.push({
@@ -1246,6 +1395,7 @@ export function derive(design: Design): DeriveResult {
         ],
       };
       if (!resolveJointParams(j, dj, ctx, r, issues)) continue;
+      resolveStops(j, dj, lAxis, r, issues);
       if (family === "housing" || family === "inset") {
         const depth = dj.params.depth ?? 0;
         dj.depth_mm = depth;

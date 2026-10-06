@@ -3,8 +3,8 @@
 // as any design, so every size and cut in it is real.
 
 import { applyOps, type Op } from "./ops.js";
-import { JOINT_LIBRARY } from "./joints.js";
-import { emptyDesign, type AxisSpec, type Design, type JointType } from "./types.js";
+import { canStop, JOINT_LIBRARY } from "./joints.js";
+import { emptyDesign, type AxisSpec, type Design, type Face, type JointType } from "./types.js";
 
 const solid = (id: string, t: number): Op => ({
   op: "define_material",
@@ -278,7 +278,27 @@ function fastened(type: JointType): Op[] {
   ];
 }
 
-/** Two sample boards joined with this joint, as a design of their own. */
-export function jointExample(type: JointType): Design {
-  return applyOps(emptyDesign(`${JOINT_LIBRARY[type].name}, worked example`), LAYOUTS[type]());
+/** How far a stopped example's housing stops short of its host's edge. */
+export const EXAMPLE_STOP_MM = 10;
+
+/**
+ * The edge a stopped example stops short of: the side's front for a dado,
+ * groove or rabbet, and the drawer side's top for a dado and rabbet, whose
+ * dado runs up the side.
+ */
+export function exampleStopEdge(type: JointType): Face {
+  return type === "dado_rabbet" ? "top" : "front";
+}
+
+/**
+ * Two sample boards joined with this joint, as a design of their own. A
+ * stopped one stops its housing 10 mm short of the host's edge, and
+ * notches the guest's corner there to match.
+ */
+export function jointExample(type: JointType, opts: { stopped?: boolean } = {}): Design {
+  if (!opts.stopped) return applyOps(emptyDesign(`${JOINT_LIBRARY[type].name}, worked example`), LAYOUTS[type]());
+  if (!canStop(type)) throw new Error(`A ${type} can't stop short of an edge. Only a dado, groove, rabbet or dado_rabbet can`);
+  const stop = { [exampleStopEdge(type)]: String(EXAMPLE_STOP_MM) };
+  const ops = LAYOUTS[type]().map((o): Op => (o.op === "add_joint" ? { ...o, stop } : o));
+  return applyOps(emptyDesign(`Stopped ${JOINT_LIBRARY[type].name.toLowerCase()}, worked example`), ops);
 }

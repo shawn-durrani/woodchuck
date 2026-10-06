@@ -69,6 +69,8 @@ export interface ProfileExtension {
   depth_mm: number;
   /** The stretches of that end no cut has touched, along its other face axis, from nominal.min. Only these go into the host. */
   along_mm: [number, number][];
+  /** A stopped housing: how much of the end is notched away, from the start and from the end of its run. along_mm leaves it out. */
+  notch_mm?: [number, number];
 }
 
 export interface PartProfile {
@@ -135,7 +137,7 @@ export function faceAxes(thickness: Axis): [Axis, Axis] {
 }
 
 /** Names a corner the way a woodworker says it: top or bottom first, then back or front, then left or right. */
-function cornerName(faces: Face[]): string {
+export function cornerName(faces: Face[]): string {
   const order: Record<Axis, number> = { y: 0, z: 1, x: 2 };
   return [...faces].sort((a, b) => order[FACE_AXIS[a]] - order[FACE_AXIS[b]]).join(" ");
 }
@@ -566,8 +568,16 @@ export function profileFor(face: SolvedFace, extensions: Extension[]): PartProfi
   for (const e of extensions) {
     if (e.axis !== face.u && e.axis !== face.v) continue;
     const i: 0 | 1 = e.axis === face.u ? 0 : 1;
-    const along = uncutStretches([face.outline], i, e.side === "end" ? face.size[i] : 0, 0, face.size[1 - i]!);
-    ext.push({ joint: e.joint, face: faceOf(e.axis, e.side === "end"), depth_mm: e.depth_mm, along_mm: along });
+    const uncut = uncutStretches([face.outline], i, e.side === "end" ? face.size[i] : 0, 0, face.size[1 - i]!);
+    if (!e.notch_mm) {
+      ext.push({ joint: e.joint, face: faceOf(e.axis, e.side === "end"), depth_mm: e.depth_mm, along_mm: uncut });
+      continue;
+    }
+    // A stopped housing's notches leave the corners of the end out of it.
+    const lo = e.notch_mm[0];
+    const hi = face.size[1 - i]! - e.notch_mm[1];
+    const along = uncut.flatMap(([a, b]): [number, number][] => (Math.min(b, hi) - Math.max(a, lo) > EPS ? [[Math.max(a, lo), Math.min(b, hi)]] : []));
+    ext.push({ joint: e.joint, face: faceOf(e.axis, e.side === "end"), depth_mm: e.depth_mm, along_mm: along, notch_mm: e.notch_mm });
   }
   return { u: face.u, v: face.v, outline_mm: face.outline, edge_faces: face.edge_faces, holes: face.holes, extensions: ext, cuts: face.cuts };
 }

@@ -4,7 +4,7 @@
 // The change Claude is waiting on is drawn on the model itself instead.
 
 import { useMemo, useRef, useState } from "react";
-import { JOINT_LIBRARY, JOINT_TYPES, cutList, derive, jointExample, type Box, type Derived, type Design, type JointType } from "@woodchuck/core";
+import { EXAMPLE_STOP_MM, JOINT_LIBRARY, JOINT_TYPES, canStop, cutList, derive, exampleStopEdge, jointExample, type Box, type Derived, type Design, type JointType } from "@woodchuck/core";
 import { post, type ServerState } from "../api";
 import { WAIT_FOR_CLAUDE } from "../toolbar";
 import { partNamer } from "../names";
@@ -153,10 +153,13 @@ function ChangePreview({ state, id, onClose, look: mainLook, lighting }: { state
   );
 }
 
-function JointExample({ joint, note, onPick }: { joint: JointType; note?: string; onPick: (t: JointType) => void }) {
+function JointExample({ joint, note, stopped: asked, onPick }: { joint: JointType; note?: string; stopped?: boolean; onPick: (t: JointType) => void }) {
   const [xray, setXray] = useState(true);
+  // A housing that can stop is shown stopped short of an edge of its host.
+  const [stopOn, setStopOn] = useState(!!asked);
+  const stopped = stopOn && canStop(joint);
   const { design, r, cuts, focus } = useMemo(() => {
-    const design = jointExample(joint);
+    const design = jointExample(joint, { stopped });
     const r = derive(design);
     const cuts = cutList(design, r).rows.flatMap((row) => row.machining.map((m) => `${row.name}: ${m}`));
     // Frame the joint itself, with a little of each board around it.
@@ -164,7 +167,7 @@ function JointExample({ joint, note, onPick }: { joint: JointType; note?: string
     const min = [0, 1, 2].map((i) => Math.min(...boxes.flatMap((b) => [b.min[i]!, b.max[i]!])) - 90) as [number, number, number];
     const max = [0, 1, 2].map((i) => Math.max(...boxes.flatMap((b) => [b.min[i]!, b.max[i]!])) + 90) as [number, number, number];
     return { design, r, cuts, focus: boxes.length ? { min, max } : undefined };
-  }, [joint]);
+  }, [joint, stopped]);
   const e = JOINT_LIBRARY[joint];
   return (
     <>
@@ -179,9 +182,19 @@ function JointExample({ joint, note, onPick }: { joint: JointType; note?: string
         <button className={xray ? "on toggle" : "toggle"} onClick={() => setXray(!xray)}>
           See-through
         </button>
+        {canStop(joint) && (
+          <button className={stopped ? "on toggle" : "toggle"} onClick={() => setStopOn(!stopped)} title="Stop it short of an edge, so its end doesn't show there">
+            Stopped
+          </button>
+        )}
       </div>
       {note && <p>{note}</p>}
-      <MiniView r={r} design={design} highlight={[]} xray={xray} fitKey={`joint:${joint}`} {...(focus ? { focus } : {})} />
+      <MiniView r={r} design={design} highlight={[]} xray={xray} fitKey={`joint:${joint}${stopped ? ":stopped" : ""}`} {...(focus ? { focus } : {})} />
+      {stopped && (
+        <p className="small">
+          Stopped {EXAMPLE_STOP_MM} mm short of the {exampleStopEdge(joint)}, so that edge shows no slot. The other board keeps its size, and its corner there is notched to match.
+        </p>
+      )}
       <p className="muted small">Two sample boards, built with the same tools as your design. Tongues show in the board's colour, cut-outs in red, fixings as rods.</p>
       <p>{e.summary}</p>
       <dl className="small joint-facts">
@@ -247,7 +260,13 @@ export function PreviewDrawer({
         {drawer.kind === "preview" ? (
           <ChangePreview state={state} id={drawer.id} onClose={onClose} look={look} lighting={lighting} />
         ) : (
-          <JointExample joint={drawer.joint} {...(drawer.note ? { note: drawer.note } : {})} onPick={(t) => onOpen({ kind: "example", joint: t })} />
+          <JointExample
+            key={drawer.stopped ? "stopped" : "plain"}
+            joint={drawer.joint}
+            {...(drawer.note ? { note: drawer.note } : {})}
+            {...(drawer.stopped ? { stopped: true } : {})}
+            onPick={(t) => onOpen({ kind: "example", joint: t })}
+          />
         )}
       </div>
     </aside>

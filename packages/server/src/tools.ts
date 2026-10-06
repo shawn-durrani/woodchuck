@@ -8,6 +8,7 @@ import { recallChat } from "./recall.js";
 import type { RenderOptions } from "./render.js";
 import type { ChatItem } from "./store.js";
 import {
+  canStop,
   cutList,
   derive,
   describeJoints,
@@ -300,7 +301,10 @@ export const TOOLS: Tool[] = [
     name: "add_joint",
     description:
       "Join two parts with a joint from the library (call list_joints to see them, with when each suits). Housings and insets need the guest against a face of the host and lengthen it. Interlocks (half_lap, box_joint) need the parts overlapping where they join. Fasteners change no sizes. Leave sizes out to get the library's usual proportions. A joint on an array's original repeats on every copy. To join one copy alone, name it as host or guest, such as shelf#2, or shelf#1 for the original alone. A drawer divider housed into the underside of the second shelf only is a dado with host shelf#2 and guest divider. The array's own joints, such as the shelves' dados into the sides, still repeat on shelf#2, and the cut list gives it a row of its own. " +
-      "A drawer bottom is the guest of one groove in each part round it, so it grows into each. At a drawer's corners, each side is the guest of a rabbet in the front and in the back, or the front and back are guests of a dado_rabbet in each side.",
+      "A drawer bottom is the guest of one groove in each part round it, so it grows into each. At a drawer's corners, each side is the guest of a rabbet in the front and in the back, or the front and back are guests of a dado_rabbet in each side. " +
+      "A dado, groove, rabbet or dado_rabbet can stop short of an edge with stop, so its end doesn't show on a visible edge; use it when the woodworker asks for a stopped housing or cares how that edge looks. " +
+      'Example, a shelf in a dado that stops 10 mm short of the side\'s front: {"id": "shelf_l", "type": "dado", "host": "side_l", "guest": "shelf", "stop": {"front": "10"}}. ' +
+      "The shelf keeps its place and size, and its front corner is notched 10 mm to match, so its front stays flush with the side's.",
     input_schema: obj(
       {
         id: { type: "string" },
@@ -316,6 +320,13 @@ export const TOOLS: Tool[] = [
         length: expr("Screw or dowel length"),
         finger: expr("Box joint finger width"),
         width: expr("A groove's width, when the cutter sets it, such as 6. Leave it out to cut the groove to the panel's thickness plus fit"),
+        stop: {
+          type: "object",
+          description:
+            "Dado, groove, rabbet or dado_rabbet only: each edge of the host it stops short of, with how far in mm. The edges are the two it runs between, such as back and front; give one or both",
+          properties: Object.fromEntries(FACES.map((f) => [f, expr(`How far short of the host's ${f} edge it stops`)])),
+          additionalProperties: false,
+        },
         note: { type: "string", description: "Why this joint, in a few words" },
       },
       ["id", "type", "host", "guest"],
@@ -588,10 +599,11 @@ export const TOOLS: Tool[] = [
   {
     name: "show_joint",
     description:
-      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. It doesn't change the design or end your turn.",
+      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. A dado, groove, rabbet or dado_rabbet can be shown stopped 10 mm short of an edge, with the guest's corner notched. It doesn't change the design or end your turn.",
     input_schema: obj(
       {
         type: { type: "string", enum: [...JOINT_TYPES] },
+        stopped: { type: "boolean", description: "Show it stopping 10 mm short of an edge. Dado, groove, rabbet or dado_rabbet only" },
         note: { type: "string", description: "Optional: one sentence on why you're showing it" },
       },
       ["type"],
@@ -694,7 +706,7 @@ export interface ToolOutcome {
     | { kind: "part"; proposal: string; part: LibraryPart }
     | { kind: "preview"; title: string; explanation: string; ops: Op[] };
   /** Set when Claude opened a worked joint example, so the chat can show its card. */
-  example?: { joint: JointType; note?: string };
+  example?: { joint: JointType; note?: string; stopped?: true };
   /** A short line for the chat when a failed result is too long to show whole. */
   chatLine?: string;
 }
@@ -1031,9 +1043,11 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         const type = String(input.type) as JointType;
         if (!JOINT_TYPES.includes(type)) throw new QueryError(`Unknown joint "${type}". Joints: ${JOINT_TYPES.join(", ")}`);
         const note = input.note ? String(input.note) : undefined;
+        const stopped = input.stopped === true;
+        if (stopped && !canStop(type)) throw new QueryError(`A ${type.replace(/_/g, " ")} can't stop short of an edge. Only a dado, groove, rabbet or dado_rabbet can, so show it without stopped`);
         return {
-          content: `The worked example of a ${JOINT_LIBRARY[type].name.toLowerCase()} is open beside the model. Say a sentence about it; the drawer shows the rest.`,
-          example: { joint: type, ...(note ? { note } : {}) },
+          content: `The worked example of a ${stopped ? "stopped " : ""}${JOINT_LIBRARY[type].name.toLowerCase()} is open beside the model. Say a sentence about it; the drawer shows the rest.`,
+          example: { joint: type, ...(note ? { note } : {}), ...(stopped ? { stopped: true as const } : {}) },
         };
       }
       case "ask_user": {

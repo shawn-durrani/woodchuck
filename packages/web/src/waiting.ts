@@ -168,15 +168,16 @@ export function buttonReply(answer: Answer, box: string): Reply | null {
 /** The drawer beside the model has two slots, an older suggested change and a worked example, so one never hides the other. */
 export interface Slots {
   preview: string | null;
-  example: { joint: JointType; note?: string } | null;
+  example: { joint: JointType; note?: string; stopped?: true } | null;
 }
 
-export type Drawer = { kind: "preview"; id: string } | { kind: "example"; joint: JointType; note?: string };
+/** A worked example can show a joint's housing stopped short of an edge of its host. */
+export type Drawer = { kind: "preview"; id: string } | { kind: "example"; joint: JointType; note?: string; stopped?: true };
 
 export const NO_SLOTS: Slots = { preview: null, example: null };
 
 /** Opens a preview or an example in its own slot, leaving the other one as it was. */
 export function openSlot(slots: Slots, d: Drawer): Slots {
   if (d.kind === "preview") return { ...slots, preview: d.id };
-  return { ...slots, example: { joint: d.joint, ...(d.note ? { note: d.note } : {}) } };
+  return { ...slots, example: { joint: d.joint, ...(d.note ? { note: d.note } : {}), ...(d.stopped ? { stopped: true as const } : {}) } };
 }

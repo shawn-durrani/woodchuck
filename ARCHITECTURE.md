@@ -198,8 +198,8 @@ stand-ins never make one.
 
 An edit's result gives each shaped part's cuts in workshop words, such as
 a slope's two ends and its angle. A pin the woodworker puts on a cut edge
-or a hole's wall names that cut. An arched edge or a pocket that stops
-short still needs a tool Claude asks for.
+or a hole's wall names that cut. An arched edge or a pocket cut into a
+face, such as a recessed pull, still needs a tool Claude asks for.
 
 ## The checks see the wood a cut leaves
 
@@ -224,6 +224,41 @@ Wood a cut leaves narrower than 6 mm is a warning, or under half the part's
 thickness when that's more. It covers a strip between an edge cut and the
 far edge, and the wood between a cutout and the outline or another cutout.
 A slope run out to a point is its shape, so it isn't counted.
+
+## A housing can stop short of an edge
+
+A dado, groove or rabbet runs along the whole of the guest's end, and so
+does the dado of a dado and rabbet. Where the guest is flush with an edge
+of the host, the housing shows on that edge. A stop says how far short of an edge the housing ends, such as
+`{"front": "10"}`, so its end doesn't show there. It can stop at one or
+both of the two edges it runs between. Each stop is an expression, like
+any size.
+
+The guest keeps its place and its size, and its corner is notched where
+the housing stops. A dado and rabbet notches only its tongue. That's the usual way to make a stopped dado, and it
+keeps a shelf's front flush with the side's. The notch runs the stop's
+length along the end and the housing's depth into it. A guest set back
+past the stop needs no notch, and the housing ends where the guest does.
+
+The housing's machining runs only to the stop. The cut list says how far
+short of each edge it ends, such as "stopped 10 mm from the front". Each
+notch is machining on the guest, sized and placed like a cut's notch. The
+see-through view and the workshop drawings draw both, and the host's sheet
+sizes the stop in its chain. A guest with cuts leaves its notches out of
+its tongue as well. A stop of 0 is no stop, and a design with no stops
+derives, checks and draws to the same bytes.
+
+A stop that leaves no housing is an error, and the housing runs whole
+until it's fixed. A stop that leaves less than half the housing is a
+warning, since the guest has little holding it. One that leaves under 6 mm
+of wood before the edge is a warning too, since that wood can break out
+when you square the end. Only the two edges the housing runs between can
+take a stop, and a stop on any other edge is an error.
+
+Claude adds a stop with `add_joint`. Its instructions say to use one when
+the woodworker asks for a stopped housing or says that edge will be seen.
+A joint's card in the Edit tab shows its stop, and the worked example of
+each joint that can stop has a Stopped switch.
 
 ## A rule can measure to the shape
 

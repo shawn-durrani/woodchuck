@@ -3,9 +3,10 @@
 // separate, because their housings are on opposite faces. Shapes match only
 // when they're the same to 0.1 mm, and a mirror image keys apart.
 
-import { AXIS_INDEX, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
+import { AXIS_INDEX, stopWords, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
 import { fmt } from "./expr.js";
-import { shapeKey } from "./profile.js";
+import { housingWord } from "./joints.js";
+import { cornerName, shapeKey } from "./profile.js";
 import { isRunner } from "./runners.js";
 import type { Design } from "./types.js";
 
@@ -78,8 +79,12 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
     case "tenon":
     case "tongue":
       return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end${m.flush ? `, flush with the ${m.flush} face` : ""}, into ${m.with}`;
-    default:
-      return `${m.label} ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep × ${n(m.length_mm)} long in the ${m.face} face for ${m.with}${where}`;
+    case "notch":
+      return `notch ${n(m.length_mm)} × ${n(m.width_mm)} out of the ${cornerName(m.corner ? [m.corner, m.face] : [m.face])} corner, to fit the stopped ${housingWord(m.type)} in ${m.with}${where}`;
+    default: {
+      const stopped = m.stop_mm ? `, stopped ${stopWords(m.stop_mm)}` : "";
+      return `${m.label} ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep × ${n(m.length_mm)} long in the ${m.face} face for ${m.with}${where}${stopped}`;
+    }
   }
 }
 

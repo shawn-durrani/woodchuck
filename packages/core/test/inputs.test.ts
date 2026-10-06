@@ -193,6 +193,7 @@ describe("a field of the wrong shape", () => {
     min_mm: { ...pot, id: "bowl", min_mm: [0, 0] },
     max_mm: { ...pot, id: "bowl", max_mm: { x: 1, y: 1, z: 1 } },
     targets: { op: "set_finish", targets: "leg", finish: "natur" },
+    stop: { op: "add_joint", id: "top_dado", type: "dado", host: "leg", guest: "top", stop: "10" },
   };
 
   it("quotes an example of the right shape for every list or object field", () => {
