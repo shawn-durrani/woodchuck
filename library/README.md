@@ -38,3 +38,10 @@ designs that use it.
 A test checks every file in CI, so a broken one fails the build. Each part
 lists the sources its numbers came from. Check them against the hardware
 in your hand before you cut.
+
+## Parts a joint buys
+
+The Festool Domino tenons are here for the `domino` joint, one file for
+each size the DF 500 takes. A Domino joint names the file for its size, so
+the hardware list counts the tenons from the joints. A test holds each
+file to the size in the joint's code, so change both together.

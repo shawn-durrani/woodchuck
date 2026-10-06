@@ -1,0 +1,50 @@
+{
+  "id": "festool-domino-beech-8x50",
+  "name": "Festool DOMINO tenon, beech, 8 × 50 mm",
+  "kind": "fixing",
+  "sources": [
+    {
+      "url": "https://www.festool.com/accessory/joining/accessories-for-joining/dominos/494941---d-8x50100-bu",
+      "title": "Festool DOMINO, beech D 8x50/100 BU (Festool)",
+      "note": "Dimensions 8 x 50 x 21.9 mm (thickness, length, width), 100 in a pack, order number 494941, for the DF 500"
+    },
+    {
+      "url": "https://www.festool.com/-/media/tts/fcp/festool/knowledge/downloads-page/download-brochures/manual_domino/versions/festool-domino-manual-april-2016-au-imp-en.pdf",
+      "title": "The DOMINO system user manual, AU edition, 2016 (Festool)",
+      "note": "Page 17: on the DF 500 the narrowest hole width matches the tenon, and the two wider settings give 6 and 10 mm of play. Page 19: routing depth is usually half the tenon's length; the depth stops are 12, 15, 20, 25 and 28 mm, only 12, 15 and 20 with the 5 mm cutter, and the 4 x 20 tenon's cutter is 10 mm short, so it cuts 10 mm on the 20 mm stop. Page 86: DF 500 cutters are 4, 5, 6, 8 and 10 mm. Pages 88 and 92: cutter and beech tenon order numbers"
+    },
+    {
+      "url": "https://www.festoolusa.com/accessories/joining/accessories-for-joining/dominos/494941---d-8x50100-bu",
+      "title": "Beech DOMINO tenons D 8x50/100 BU (Festool USA)",
+      "note": "The tenon is about 2 mm shorter than its nominal length, which leaves room for glue in the mortises"
+    }
+  ],
+  "specs": {
+    "thickness_mm": 8,
+    "width_mm": 21.9,
+    "length_mm": 50,
+    "cutter_mm": 8,
+    "mortise_depth_mm": 25,
+    "pack_qty": 100
+  },
+  "shape": [
+    {
+      "name": "tenon",
+      "min_mm": [
+        0,
+        0,
+        0
+      ],
+      "max_mm": [
+        50,
+        21.9,
+        8
+      ]
+    }
+  ],
+  "maker": "Festool",
+  "model": "DOMINO D 8x50 BU",
+  "sku": "494941",
+  "mounting": "Glued into a matching pair of mortises, one in each part, cut with a Festool DOMINO DF 500 joiner and its D 8-NL 28 HW-DF 500 cutter (493492). About half its length goes into each part.",
+  "notes": "Sold as 8 x 50: thickness by length. The width, 21.9 mm, runs along the joint, and the mortise is cut that wide on the joiner's tightest setting, or 6 or 10 mm wider for play. Each mortise is usually 25 mm deep, half the length, on one of the depth stops of 12, 15, 20, 25 and 28 mm. The model is a plain box the tenon's size, without its rounded edges and glue grooves. Festool also sells this size in larger cartons, and in Sipo mahogany for outdoor work."
+}

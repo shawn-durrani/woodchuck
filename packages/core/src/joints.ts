@@ -20,6 +20,8 @@ export interface JointContext {
   hostDepth: number;
   /** The host's size across the tongue or tenon's thickness. */
   hostAcross: number;
+  /** Joints where the parts meet face to face: how far the guest extends along the joint axis, from the face that meets the host. */
+  guestDepth?: number;
   /** Through slots: the host left on each side of the slot, one entry per axis across it. */
   slotWalls?: SlotWall[];
   /**
@@ -77,6 +79,8 @@ export interface JointEntry {
   changes_sizes: string;
   params: { name: JointParam; meaning: string; default: string }[];
   defaults(c: JointContext): Partial<Record<JointParam, number>>;
+  /** Defaults that hang on other parameters, such as a Domino's length on its thickness. They fill in once the rest are known. */
+  after?(p: Partial<Record<JointParam, number>>, c: JointContext): Partial<Record<JointParam, number>>;
   check(p: Partial<Record<JointParam, number>>, c: JointContext): JointCheck[];
 }
 
@@ -198,6 +202,187 @@ function dadoRabbetChecks(p: Partial<Record<JointParam, number>>, c: JointContex
   return out;
 }
 
+/** A Festool DOMINO tenon, with Festool's own sizes. Each is a part in library/parts, with its sources. */
+export interface DominoSize {
+  /** The cutter's diameter too. */
+  thickness_mm: number;
+  /** Across the tenon, which runs along the joint. */
+  width_mm: number;
+  length_mm: number;
+  /** The library part it's bought as. */
+  library_part: string;
+  /** Its name on the hardware list, the same as the library part's. */
+  name: string;
+}
+
+const dominoTenon = (thickness_mm: number, width_mm: number, length_mm: number): DominoSize => ({
+  thickness_mm,
+  width_mm,
+  length_mm,
+  library_part: `festool-domino-beech-${thickness_mm}x${length_mm}`,
+  name: `Festool DOMINO tenon, beech, ${thickness_mm} × ${length_mm} mm`,
+});
+
+/** The beech tenons the DF 500 takes, sold as thickness × length, with the width Festool gives for each. */
+export const DOMINO_SIZES: readonly DominoSize[] = [
+  dominoTenon(4, 16.6, 20),
+  dominoTenon(5, 18.8, 30),
+  dominoTenon(6, 19.8, 40),
+  dominoTenon(8, 21.9, 40),
+  dominoTenon(8, 21.9, 50),
+  dominoTenon(10, 23.9, 50),
+];
+
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+/** The Domino of this thickness and length, if Festool makes one. */
+export function dominoSize(thickness?: number, length?: number): DominoSize | undefined {
+  if (thickness === undefined || length === undefined) return undefined;
+  return DOMINO_SIZES.find((s) => same(s.thickness_mm, thickness) && same(s.length_mm, length));
+}
+
+/**
+ * The depths the DF 500 stops at with each cutter. The 5 mm cutter's short
+ * shaft takes only the first three. The 4 mm cutter is 10 mm short, so on
+ * the 20 mm stop it cuts 10 mm, and that's its only depth.
+ */
+export function dominoDepthStops(thickness: number): number[] {
+  if (same(thickness, 4)) return [10];
+  if (same(thickness, 5)) return [12, 15, 20];
+  return [12, 15, 20, 25, 28];
+}
+
+/** The DF 500's mortise widths: as wide as the tenon, or 6 or 10 mm wider for play along the joint. */
+export const DOMINO_PLAY_MM: readonly number[] = [0, 6, 10];
+
+/** The least wood a Domino's mortise leaves round it. */
+export const DOMINO_WALL_MM = 5;
+
+/**
+ * How deep the guest's mortise goes: the rest of the tenon past the host's
+ * mortise, at the next depth stop. Nothing when no stop goes that deep.
+ */
+export function dominoGuestDepth(p: Partial<Record<JointParam, number>>): number | undefined {
+  if (p.thickness === undefined || p.length === undefined || p.depth === undefined) return undefined;
+  const need = p.length - p.depth;
+  return dominoDepthStops(p.thickness).find((s) => s >= need - 1e-9);
+}
+
+/** The host's mortise: half the tenon, or the deepest stop that leaves 5 mm of the host behind it. */
+function dominoHostDepth(s: DominoSize, hostDepth: number): number {
+  const stops = dominoDepthStops(s.thickness_mm);
+  const most = Math.min(s.length_mm / 2, hostDepth - DOMINO_WALL_MM);
+  const fit = stops.filter((d) => d <= most + 1e-9);
+  return fit.length ? fit[fit.length - 1]! : stops[0]!;
+}
+
+/** Words in a list: "a", "a and b", "a, b and c". */
+const listWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/** Why there's no such Domino, with the sizes there are. */
+export function noDomino(thickness?: number, length?: number): string {
+  const given = [thickness !== undefined ? `${fmt(thickness)} mm thick` : "", length !== undefined ? `${fmt(length)} mm long` : ""].filter(Boolean).join(" and ");
+  const range = listWords(DOMINO_SIZES.map((s) => `${s.thickness_mm} × ${s.length_mm}`));
+  return `There's no Domino ${given} for the DF 500. Its beech tenons are ${range} mm, thickness by length`;
+}
+
+/**
+ * A Domino's size, depths and play, where the design leaves them out. The
+ * thickest tenon up to a third of the stock comes first, then the longest
+ * of that thickness. It's the first that leaves 5 mm of wood round both
+ * mortises and that the DF 500 can cut, or the thickest when none does.
+ * Three or more get play in the host, as Festool's slot principle does.
+ */
+function dominoAfter(p: Partial<Record<JointParam, number>>, c: JointContext): Partial<Record<JointParam, number>> {
+  const play = (p.count ?? 1) >= 3 ? 6 : 0;
+  let sizes = DOMINO_SIZES.filter((s) => (p.thickness === undefined || same(s.thickness_mm, p.thickness)) && (p.length === undefined || same(s.length_mm, p.length)));
+  if (!sizes.length) return { fit: play, ...(p.length !== undefined ? { depth: p.length / 2 } : {}) };
+  if (p.thickness === undefined) {
+    const thin = Math.min(c.guestThickness, c.hostAcross);
+    const third = sizes.filter((s) => s.thickness_mm <= thin / 3 + 1e-9);
+    sizes = third.length ? third : sizes.filter((s) => same(s.thickness_mm, sizes[0]!.thickness_mm));
+  }
+  const depthOf = (s: DominoSize) => p.depth ?? dominoHostDepth(s, c.hostDepth);
+  const fits = (s: DominoSize) => {
+    const depth = depthOf(s);
+    const g = dominoGuestDepth({ thickness: s.thickness_mm, length: s.length_mm, depth });
+    return (
+      g !== undefined &&
+      c.hostDepth - depth >= DOMINO_WALL_MM - 1e-9 &&
+      (c.guestDepth ?? Infinity) - g >= DOMINO_WALL_MM - 1e-9 &&
+      (c.guestThickness - s.thickness_mm) / 2 >= DOMINO_WALL_MM - 1e-9
+    );
+  };
+  const order = [...sizes].sort((a, b) => b.thickness_mm - a.thickness_mm || b.length_mm - a.length_mm);
+  const pick = order.find(fits) ?? order[0]!;
+  return { thickness: pick.thickness_mm, length: pick.length_mm, depth: depthOf(pick), fit: play };
+}
+
+/**
+ * A Domino's size has to be one Festool makes, its play one of the DF 500's
+ * settings and its depths ones the machine can cut. Each mortise needs 5 mm
+ * of wood behind it and beside it. Errors come first, since the checks show
+ * a joint's first problem.
+ */
+function dominoChecks(p: Partial<Record<JointParam, number>>, c: JointContext): JointCheck[] {
+  const errors: JointCheck[] = [];
+  const warnings: JointCheck[] = [];
+  const error = (message: string) => errors.push({ severity: "error", message });
+  const warn = (message: string) => warnings.push({ severity: "warning", message });
+  const size = dominoSize(p.thickness, p.length);
+  if (!size) {
+    error(noDomino(p.thickness, p.length));
+    return errors;
+  }
+  const T = size.thickness_mm;
+  const L = size.length_mm;
+  const fit = p.fit ?? 0;
+  if (!DOMINO_PLAY_MM.some((v) => same(v, fit))) {
+    error(`The DF 500 cuts a mortise as wide as the tenon, or 6 or 10 mm wider for play, so the fit is 0, 6 or 10, not ${fmt(fit)}`);
+  }
+  const d = p.depth ?? L / 2;
+  const stops = dominoDepthStops(T);
+  const behind = (who: "host" | "guest", extent: number | undefined, depth: number) => {
+    if (extent === undefined) return;
+    const left = extent - depth;
+    if (left <= 0.01) error(`The mortise in the ${who} is ${fmt(depth)} mm deep and the ${who} is ${fmt(extent)} mm deep there, so it comes out the far side. Use a shallower mortise or a shorter Domino`);
+    else if (left < DOMINO_WALL_MM - 1e-9) {
+      warn(`The mortise in the ${who} is ${fmt(depth)} mm deep in ${fmt(extent)} mm, which leaves ${fmt(left)} mm behind it. Leave at least ${DOMINO_WALL_MM} mm, with a shallower mortise or a smaller Domino`);
+    }
+  };
+  if (d <= 0) error("A Domino's mortise needs a depth above 0");
+  else if (d >= L - 1e-9) error(`The mortise in the host is ${fmt(d)} mm deep, which takes the whole ${fmt(L)} mm Domino. Keep it to about half, ${fmt(L / 2)} mm`);
+  else {
+    if (!stops.some((s) => same(s, d))) {
+      warn(`The DF 500 stops at ${listWords(stops.map(fmt))} mm deep with the ${fmt(T)} mm cutter, so it can't cut a ${fmt(d)} mm mortise in the host. Use one of those depths`);
+    }
+    const g = dominoGuestDepth(p);
+    if (g === undefined) {
+      error(
+        `With ${fmt(d)} mm of the ${fmt(L)} mm Domino in the host, the guest needs a mortise ${fmt(L - d)} mm deep, and the DF 500 goes ${fmt(stops[stops.length - 1]!)} mm at most with the ${fmt(T)} mm cutter. Go deeper in the host, or use a shorter Domino`,
+      );
+    }
+    behind("host", c.hostDepth, d);
+    if (g !== undefined) behind("guest", c.guestDepth, g);
+  }
+  if (T >= c.guestThickness - 1e-9) {
+    error(`A ${fmt(T)} mm Domino needs a guest thicker than ${fmt(c.guestThickness)} mm. Use a thinner one`);
+  } else {
+    const thin = Math.min(c.guestThickness, c.hostAcross);
+    const guestWall = (c.guestThickness - T) / 2;
+    const hostWall = c.housingWalls ? Math.min(...c.housingWalls) + guestWall : guestWall;
+    const third = DOMINO_SIZES.filter((s) => s.thickness_mm <= thin / 3 + 1e-9).pop()?.thickness_mm ?? DOMINO_SIZES[0]!.thickness_mm;
+    if (T > thin / 2 + 1e-9) {
+      warn(`A ${fmt(T)} mm Domino is more than half of ${fmt(thin)} mm stock. About a third of the thickness is usual, so use ${fmt(third)} mm`);
+    } else if (Math.min(guestWall, hostWall) < DOMINO_WALL_MM - 1e-9) {
+      const who = guestWall <= hostWall ? "guest" : "host";
+      const fix = T > DOMINO_SIZES[0]!.thickness_mm ? "a thinner Domino or thicker stock" : "thicker stock, or dowels";
+      warn(`A ${fmt(T)} mm Domino leaves ${fmt(Math.min(guestWall, hostWall))} mm of the ${who} beside its mortise. Leave at least ${DOMINO_WALL_MM} mm, with ${fix}`);
+    }
+  }
+  return [...errors, ...warnings];
+}
+
 const ENTRIES: JointEntry[] = [
   {
     type: "butt",
@@ -280,6 +465,43 @@ const ENTRIES: JointEntry[] = [
         ? [{ severity: "warning", message: `${fmt(p.diameter)} mm dowels are more than half of ${fmt(thin)} mm stock. Use ${fmt(half(thin / 2))} mm or less` }]
         : [];
     },
+  },
+  {
+    type: "domino",
+    name: "Domino (loose tenon)",
+    family: "fastener",
+    summary:
+      "Festool's loose tenon: a bought beech tenon glued into matching oblong mortises in both parts, cut with a Domino joiner. The tenons go on the hardware list.",
+    use_when:
+      "Carcass corners, fixed shelves, frames and lining up boards in a glue-up, when the woodworker's workshop lists a Festool Domino joiner. It lines up faster than dowels and can't twist from the first tenon. Without a Domino, use dowels.",
+    avoid_when: "When the workshop has no Domino joiner; use dowels. In stock under about 15 mm thick, where a mortise leaves under 5 mm of wood beside it.",
+    strength: "high",
+    tools: ["Festool Domino joiner (DF 500)"],
+    home_workshop: true,
+    changes_sizes: "None. Cuts matching mortises in both parts, and lists the tenons as hardware to buy.",
+    params: [
+      { name: "count", meaning: "How many Dominos, spread evenly along the joint the way dowels are", default: "one for about every 100 mm of the joint, and at least one" },
+      { name: "thickness", meaning: "Domino thickness, which is the cutter: 4, 5, 6, 8 or 10", default: "the thickest up to a third of the stock that leaves 5 mm of wood round each mortise" },
+      {
+        name: "length",
+        meaning: "Domino length. The DF 500's beech tenons are 4 × 20, 5 × 30, 6 × 40, 8 × 40, 8 × 50 and 10 × 50 mm, thickness by length",
+        default: "the longest of its thickness that fits",
+      },
+      {
+        name: "depth",
+        meaning:
+          "How deep the mortise goes into the host, on one of the DF 500's depth stops: 12, 15, 20, 25 or 28, only 12 to 20 with the 5 mm cutter, and 10 with the 4 mm. The guest's mortise takes the rest of the tenon, at the next stop",
+        default: "half the length, or the deepest stop that leaves 5 mm of the host behind it",
+      },
+      {
+        name: "fit",
+        meaning: "Play along the joint in the host's mortises: 0 cuts them tight, and 6 or 10 is the DF 500's wider setting. The one nearest the front, top or right stays tight to line the joint up",
+        default: "6 for three or more Dominos, else 0",
+      },
+    ],
+    defaults: (c) => ({ count: Math.max(1, Math.round(c.guestWidth / 100)) }),
+    after: dominoAfter,
+    check: dominoChecks,
   },
   {
     type: "dado",

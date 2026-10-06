@@ -163,6 +163,7 @@ export type JointType =
   | "screws"
   | "pocket_screws"
   | "dowels"
+  | "domino"
   | "dado"
   | "groove"
   | "rabbet"
@@ -178,6 +179,7 @@ export const JOINT_TYPES: readonly JointType[] = [
   "screws",
   "pocket_screws",
   "dowels",
+  "domino",
   "dado",
   "groove",
   "rabbet",
@@ -203,6 +205,7 @@ export const JOINT_FAMILY: Record<JointType, JointFamily> = {
   screws: "fastener",
   pocket_screws: "fastener",
   dowels: "fastener",
+  domino: "fastener",
   dado: "housing",
   groove: "housing",
   rabbet: "housing",
@@ -228,15 +231,15 @@ export interface Joint {
   depth?: string;
   /** Extra width on the host's housing for an easy fit. */
   fit?: string;
-  /** Thickness of a tongue or tenon. */
+  /** Thickness of a tongue, a tenon or a Domino. */
   thickness?: string;
   /** How much a tenon is set in from each edge of the rail. */
   shoulder?: string;
-  /** Number of screws, pocket screws or dowels. */
+  /** Number of screws, pocket screws, dowels or Dominos. */
   count?: number;
   /** Screw or dowel diameter. */
   diameter?: string;
-  /** Screw or dowel length. */
+  /** Screw, dowel or Domino length. */
   length?: string;
   /** Box joint finger width. */
   finger?: string;

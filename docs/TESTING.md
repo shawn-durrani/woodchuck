@@ -278,6 +278,34 @@ the cabinet, builds the carcass and tries wax glides. The refusal sends it
 to runners, the checks pass, and the cut list has the runners and nothing
 to buy.
 
+### Dominos
+
+The core tests join an invented bedside carcass in 18 mm ply with Dominos,
+and a face frame's rail to its stile. The size, count, depths and play the
+joint picks for itself are pinned, and so is every mortise's place in both
+parts. Each pair is held to lining up, the front one to being tight and the
+others to their 6 mm of play. No part changes size, and the carcass has no
+problem. The cut list places every mortise, and the hardware list buys each
+size as its library part, counted from the joints and from an array's
+copies.
+
+Each check has its words pinned. A mortise can leave too little wood behind
+it or come out the far side, sit too near an edge or too near the next, or
+break out of the part. Thin stock leaves thin walls, and a Domino over half
+the stock is too thick. A depth the DF 500 has no stop for, a guest mortise
+it can't reach, a size or a fit from a parameter that it can't cut, a cut
+into a mortise and a mortise into a dado each have theirs too. The edit
+refuses a size Festool doesn't make and a fit that isn't a joiner setting.
+The worked example builds with no problem, and its drawings are held to
+each mortise in their chains and notes.
+
+The server tests pin `add_joint`'s words about when to use a Domino. A
+scripted Claude reads the joint library, opens the Domino's worked example
+and builds the carcass in two lists of edits with no problem and one undo.
+Its cut list has the tenons to buy, and a Domino Festool doesn't make is
+refused. A test holds the library's Domino files to the joint's sizes and
+their sources to Festool's own sites.
+
 ### Edits Claude nearly got right
 
 The core tests hold an invented plant stand to how an edit reads what it's
