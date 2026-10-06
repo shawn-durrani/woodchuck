@@ -103,6 +103,8 @@ const BEFORE_SHAPES: Record<string, string> = {
   groove: "f1f5ce2d1cb076a2a949509cb355f4c95af0aae5ff614113632b80d40c96648b",
   rabbet: "4f3d853234c6f3e3e3b1ebd7df7abf11e18d692b4022b183d307170550861b29",
   tongue: "152c43fbe011bbfd93a1c734b2ae553c8cbcf796bbc7d2b32cd94c35a4dbe4da",
+  // Added with the joint, after shapes were drawn.
+  dado_rabbet: "1c2699a521b36bd7f7e23aa20400a23cf2012f2b2adb7dc0502c1b4e26930736",
   mortise_tenon: "ec57d93f73afe2af11f91d981111dc6dca5ebbdc981608d0625eb25c617cd641",
   half_lap: "f1489b86cde32e44d5457b486de6405fe4b427e7a20d36d71d02b6c1c2c766f7",
   box_joint: "911218f4bd54b5bca2cf0dc8587dde1d6d5ee7d812891aaa20d16004774f0219",

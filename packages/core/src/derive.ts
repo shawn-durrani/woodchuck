@@ -74,6 +74,8 @@ export interface Machining {
   face: Face;
   /** Open slots: the end of this part the slot opens out of. */
   open_end?: Face;
+  /** A tongue a rabbet leaves: the face of this part it's flush with. */
+  flush?: Face;
   depth_mm: number;
   width_mm: number;
   length_mm: number;
@@ -529,7 +531,7 @@ function jointAxes(guest: DerivedPart, axis: Axis): { tAxis: Axis; lAxis: Axis }
   return { tAxis, lAxis: otherAxis(axis, tAxis) };
 }
 
-const PARAM_FIELDS: JointParam[] = ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger"];
+const PARAM_FIELDS: JointParam[] = ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger", "width"];
 
 /** Fills a joint's parameters from the design, then the library's defaults. */
 function resolveJointParams(j: Joint, dj: DerivedJoint, ctx: JointContext, r: Resolver, issues: DeriveIssue[]): boolean {
@@ -758,19 +760,27 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
     const prism = intersect(guest.box, host.box);
     dj.allowed = prism;
     let tongue = prism;
+    const ti = AXIS_INDEX[tAxis];
     if (dj.family === "inset") {
       const t = Math.min(p.thickness ?? span(prism, tAxis), span(prism, tAxis));
       const c = mid(prism, tAxis);
       tongue = setRange(tongue, tAxis, c - t / 2, c + t / 2);
+      if (dj.type === "dado_rabbet") {
+        // The tongue sits on the face away from the host's nearer end, so the dado leaves the most wood beyond it.
+        const nearMax = host.nominal.max[ti]! - prism.max[ti]! < prism.min[ti]! - host.nominal.min[ti]!;
+        tongue = nearMax ? setRange(tongue, tAxis, prism.min[ti]!, prism.min[ti]! + t) : setRange(tongue, tAxis, prism.max[ti]! - t, prism.max[ti]!);
+      }
       if (dj.type === "mortise_tenon") {
         const s = p.shoulder ?? 0;
         tongue = setRange(tongue, lAxis, prism.min[AXIS_INDEX[lAxis]]! + s, prism.max[AXIS_INDEX[lAxis]]! - s);
       }
     }
-    const housing = setRange(tongue, tAxis, tongue.min[AXIS_INDEX[tAxis]]! - fit / 2, tongue.max[AXIS_INDEX[tAxis]]! + fit / 2);
+    // A groove cut to a set width is that wide, centred on the panel, and the fit is the rest.
+    const extra = dj.type === "groove" && p.width !== undefined ? p.width - span(tongue, tAxis) : fit;
+    const housing = setRange(tongue, tAxis, tongue.min[ti]! - extra / 2, tongue.max[ti]! + extra / 2);
     dj.features.push({ kind: "tongue", part: guest.id, box: tongue });
     dj.features.push({ kind: "removed", part: host.id, box: housing });
-    const hostLabel = dj.type === "mortise_tenon" ? "mortise" : dj.type === "tongue" ? "groove for tongue" : dj.type;
+    const hostLabel = dj.type === "mortise_tenon" ? "mortise" : dj.type === "tongue" ? "groove for tongue" : dj.type === "dado_rabbet" ? "dado for tongue" : dj.type;
     if (sh && dj.type === "mortise_tenon") {
       // A mortise needs wood all round, and a tenon needs its whole width.
       for (const c of cutsInBox(host, sh.host, housing)) {
@@ -803,7 +813,7 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
       with: guest.id,
       face: hostFace,
       depth_mm: dj.depth_mm ?? 0,
-      width_mm: span(tongue, tAxis) + fit,
+      width_mm: span(tongue, tAxis) + extra,
       length_mm: span(tongue, lAxis),
       region: housing,
     });
@@ -818,6 +828,7 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
         width_mm: span(tongue, tAxis),
         length_mm: span(tongue, lAxis),
         region: tongue,
+        ...(dj.type === "dado_rabbet" ? { flush: faceOf(tAxis, tongue.max[ti]! >= guest.box.max[ti]! - EPS) } : {}),
       });
     }
     return;
@@ -1222,12 +1233,17 @@ export function derive(design: Design): DeriveResult {
       dj.side = touch.side;
       const { tAxis, lAxis } = jointAxes(guest, touch.axis);
       const size = (p: DerivedPart, a: Axis) => p.nominal.max[AXIS_INDEX[a]]! - p.nominal.min[AXIS_INDEX[a]]!;
+      const ti = AXIS_INDEX[tAxis];
       const ctx: JointContext = {
         guestThickness: size(guest, tAxis),
         guestWidth: size(guest, lAxis),
         hostThickness: host.finished.thickness,
         hostDepth: size(host, touch.axis),
         hostAcross: size(host, tAxis),
+        housingWalls: [
+          Math.max(guest.nominal.min[ti]!, host.nominal.min[ti]!) - host.nominal.min[ti]!,
+          host.nominal.max[ti]! - Math.min(guest.nominal.max[ti]!, host.nominal.max[ti]!),
+        ],
       };
       if (!resolveJointParams(j, dj, ctx, r, issues)) continue;
       if (family === "housing" || family === "inset") {

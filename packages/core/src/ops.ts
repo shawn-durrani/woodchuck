@@ -701,7 +701,7 @@ function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   const guest = checkJointEnd(d, op.guest, "guest");
   if (jointPartId(host) === jointPartId(guest)) throw new OpError("host and guest must be different parts");
   const j: Joint = { id, type, host, guest };
-  for (const f of ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger"] as const) {
+  for (const f of ["depth", "fit", "thickness", "shoulder", "diameter", "length", "finger", "width"] as const) {
     const v: unknown = op[f];
     if (v === undefined || v === null || (typeof v === "string" && v.trim() === "")) continue;
     j[f] = checkExpr(v, `the ${f} of joint ${id}`);
@@ -714,8 +714,10 @@ function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   }
   const family = JOINT_FAMILY[type];
   const misplaced = (["thickness", "shoulder"] as const).filter((f) => j[f] !== undefined && family !== "inset");
-  if (misplaced.length) throw new OpError(`${misplaced.join(" and ")} only apply to tongue and mortise_tenon joints`);
+  if (misplaced.length) throw new OpError(`${misplaced.join(" and ")} only apply to tongue, dado_rabbet and mortise_tenon joints`);
   if (j.finger !== undefined && type !== "box_joint") throw new OpError("finger only applies to box_joint");
+  if (j.width !== undefined && type !== "groove") throw new OpError("width only applies to groove. A housing is cut as wide as its guest, plus any fit");
+  if (j.width !== undefined && j.fit !== undefined) throw new OpError("Give a groove its width or its fit, not both. The width is what the cutter makes, and fit is the play over the panel");
   if (op.note) j.note = op.note;
   return j;
 }

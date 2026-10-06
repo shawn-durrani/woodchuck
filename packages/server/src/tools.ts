@@ -299,7 +299,8 @@ export const TOOLS: Tool[] = [
   {
     name: "add_joint",
     description:
-      "Join two parts with a joint from the library (call list_joints to see them, with when each suits). Housings and insets need the guest against a face of the host and lengthen it. Interlocks (half_lap, box_joint) need the parts overlapping where they join. Fasteners change no sizes. Leave sizes out to get the library's usual proportions. A joint on an array's original repeats on every copy. To join one copy alone, name it as host or guest, such as shelf#2, or shelf#1 for the original alone. A drawer divider housed into the underside of the second shelf only is a dado with host shelf#2 and guest divider. The array's own joints, such as the shelves' dados into the sides, still repeat on shelf#2, and the cut list gives it a row of its own.",
+      "Join two parts with a joint from the library (call list_joints to see them, with when each suits). Housings and insets need the guest against a face of the host and lengthen it. Interlocks (half_lap, box_joint) need the parts overlapping where they join. Fasteners change no sizes. Leave sizes out to get the library's usual proportions. A joint on an array's original repeats on every copy. To join one copy alone, name it as host or guest, such as shelf#2, or shelf#1 for the original alone. A drawer divider housed into the underside of the second shelf only is a dado with host shelf#2 and guest divider. The array's own joints, such as the shelves' dados into the sides, still repeat on shelf#2, and the cut list gives it a row of its own. " +
+      "A drawer bottom is the guest of one groove in each part round it, so it grows into each. At a drawer's corners, each side is the guest of a rabbet in the front and in the back, or the front and back are guests of a dado_rabbet in each side.",
     input_schema: obj(
       {
         id: { type: "string" },
@@ -314,6 +315,7 @@ export const TOOLS: Tool[] = [
         diameter: expr("Screw or dowel diameter"),
         length: expr("Screw or dowel length"),
         finger: expr("Box joint finger width"),
+        width: expr("A groove's width, when the cutter sets it, such as 6. Leave it out to cut the groove to the panel's thickness plus fit"),
         note: { type: "string", description: "Why this joint, in a few words" },
       },
       ["id", "type", "host", "guest"],

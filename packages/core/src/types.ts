@@ -167,6 +167,7 @@ export type JointType =
   | "groove"
   | "rabbet"
   | "tongue"
+  | "dado_rabbet"
   | "mortise_tenon"
   | "half_lap"
   | "box_joint"
@@ -181,6 +182,7 @@ export const JOINT_TYPES: readonly JointType[] = [
   "groove",
   "rabbet",
   "tongue",
+  "dado_rabbet",
   "mortise_tenon",
   "half_lap",
   "box_joint",
@@ -205,6 +207,7 @@ export const JOINT_FAMILY: Record<JointType, JointFamily> = {
   groove: "housing",
   rabbet: "housing",
   tongue: "inset",
+  dado_rabbet: "inset",
   mortise_tenon: "inset",
   half_lap: "interlock",
   box_joint: "interlock",
@@ -212,7 +215,7 @@ export const JOINT_FAMILY: Record<JointType, JointFamily> = {
 };
 
 /** Joints that lengthen the guest into the host. */
-export const HOUSING_JOINTS: readonly JointType[] = ["dado", "groove", "rabbet", "tongue", "mortise_tenon"];
+export const HOUSING_JOINTS: readonly JointType[] = ["dado", "groove", "rabbet", "tongue", "dado_rabbet", "mortise_tenon"];
 
 export interface Joint {
   id: string;
@@ -237,6 +240,8 @@ export interface Joint {
   length?: string;
   /** Box joint finger width. */
   finger?: string;
+  /** A groove's width, when the cutter sets it rather than the panel. */
+  width?: string;
   note?: string;
 }
 
