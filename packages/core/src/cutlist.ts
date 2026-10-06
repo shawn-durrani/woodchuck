@@ -6,6 +6,7 @@
 import { AXIS_INDEX, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
 import { fmt } from "./expr.js";
 import { shapeKey } from "./profile.js";
+import { isRunner } from "./runners.js";
 import type { Design } from "./types.js";
 
 export interface CutRow {
@@ -38,6 +39,8 @@ export interface CutList {
   hardware: HardwareRow[];
   /** Parts left off: decor, unverified and broken ones. */
   excluded: { id: string; reason: string }[];
+  /** How to finish or fit what's cut, such as waxing the runners. Only a list with something to say has it. */
+  notes?: string[];
 }
 
 /** The cut list's precision, 0.1 mm. The workshop drawings round the same way, so the two always agree. */
@@ -181,7 +184,14 @@ export function cutList(design: Design, d: DeriveResult): CutList {
       hw.set(key, row);
     }
   }
-  return { rows, hardware: [...hw.values()], excluded };
+  const list: CutList = { rows, hardware: [...hw.values()], excluded };
+  // Runners are timber like any part. Wax is what makes a drawer slide on them.
+  const runnerRows = rows.filter((r) => r.parts.some((id) => isRunner(d.byId.get(id) ?? { tags: [] }))).map((r) => r.row);
+  if (runnerRows.length) {
+    const which = runnerRows.length === 1 ? `row ${runnerRows[0]}` : `rows ${runnerRows.slice(0, -1).join(", ")} and ${runnerRows[runnerRows.length - 1]}`;
+    list.notes = [`Wax the runners in ${which}, and the drawer edges or grooves that run on them, so the drawers slide freely.`];
+  }
+  return list;
 }
 
 function csvCell(v: string | number | boolean): string {
@@ -204,6 +214,11 @@ export function cutListCsv(list: CutList): string {
     lines.push("");
     lines.push(["Hardware", "Kind", "Qty", "Spec"].join(","));
     for (const h of list.hardware) lines.push([h.name, h.kind, h.qty, h.spec].map(csvCell).join(","));
+  }
+  if (list.notes?.length) {
+    lines.push("");
+    lines.push("Notes");
+    for (const n of list.notes) lines.push(csvCell(n));
   }
   return lines.join("\n") + "\n";
 }

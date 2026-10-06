@@ -261,7 +261,7 @@ describe("hardware on the floor", () => {
     ];
     const raised = build(ops);
     expect(runChecks(raised, derive(raised)).issues.map((i) => i.code)).toEqual(["floating"]);
-    const onCastors = build([...ops, { op: "set_hardware", id: "castors", kind: "castor", name: "Braked castor, 100 mm", connects: ["bottom"], qty: 4, on_floor: true }]);
+    const onCastors = build([...ops, { op: "set_hardware", id: "castors", kind: "castor", name: "Braked castor, 100 mm", connects: ["bottom"], qty: 4, spec: { wheel_diameter_mm: 100 }, on_floor: true }]);
     expect(runChecks(onCastors, derive(onCastors)).issues).toEqual([]);
   });
 });

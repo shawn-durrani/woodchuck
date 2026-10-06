@@ -271,6 +271,15 @@ export interface Hardware {
   note?: string;
 }
 
+/**
+ * Hardware is what you buy, so it names something to buy it by: a library
+ * part, or the maker's figures in its spec. Wooden runners and glides are
+ * timber, cut from the cut list.
+ */
+export function hasPartToBuy(h: Pick<Hardware, "library_part" | "spec">): boolean {
+  return !!h.library_part || Object.keys(h.spec ?? {}).length > 0;
+}
+
 export type Severity = "error" | "warning";
 
 export interface Rule {

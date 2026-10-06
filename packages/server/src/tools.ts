@@ -91,7 +91,7 @@ const panelProps: Record<string, Schema> = {
   x: axisSpec("x (left to right)"),
   y: axisSpec("y (floor upwards)"),
   z: axisSpec("z (back to front)"),
-  tags: { type: "array", items: { type: "string" }, description: "Words for grouping, such as carcass or drawer. Plans count parts by tag. wall_mounted counts as supported" },
+  tags: { type: "array", items: { type: "string" }, description: "Words for grouping, such as carcass or drawer. Plans count parts by tag. wall_mounted counts as supported. runner marks a strip or shelf a drawer slides on, and the checks hold that drawer to running clearance" },
   decor: { type: "boolean", description: "A prop for presentation, left off the cut list" },
   note: { type: "string" },
 };
@@ -346,7 +346,8 @@ export const TOOLS: Tool[] = [
   {
     name: "set_hardware",
     description:
-      "Create or change hardware such as drawer slides, hinges, handles or legs. connects lists the parts it joins, which counts as support. For a real part, give library_part (see list_library_parts): its specs and model come from the library. Give place to put the model in the design, and the overlap check will tell you if it doesn't fit its gap.",
+      "Create or change hardware such as drawer slides, hinges, handles or legs. connects lists the parts it joins, which counts as support. For a real part, give library_part (see list_library_parts): its specs and model come from the library. Give place to put the model in the design, and the overlap check will tell you if it doesn't fit its gap. " +
+      "Hardware is only what you buy, so it needs library_part or the maker's figures in spec. Wooden runners and glides are timber: add them with add_panel, tagged runner.",
     input_schema: obj(
       {
         id: { type: "string" },

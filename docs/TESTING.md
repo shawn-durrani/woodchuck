@@ -211,6 +211,26 @@ an invented bookshelf 300 deep with its back behind the sides.
 thickness off the sides until the checks pass. The benchmark's depth check
 reads the same 300 mm.
 
+### Drawers on wooden runners
+
+The core tests hold an invented bedside cabinet, too shallow for 450 mm
+slides, with two drawers on oak runners. Each runner is a row of timber on
+the cut list with its size, the hardware list is empty, and the cut list
+says to wax the runners. A drawer that touches the carcass side is an
+error, one with 0.3 mm of room is a warning, and 0.5 mm passes. A drawer
+that touches the next drawer's runners over it is an error, and so is one
+screwed to its runner. A runner held in a groove needs a fit of 0.5 mm. A
+drawer on a shelf counts the shelf as its runner, and a partition fixed on
+the same shelf is left alone. `set_hardware` refuses wax glides with
+nothing to buy, in pinned words, and a design that already holds them gets
+a warning.
+
+The server tests pin the words in Claude's instructions and tools that
+send it to runners. A scripted Claude reads an AcmeCo slide too long for
+the cabinet, builds the carcass and tries wax glides. The refusal sends it
+to runners, the checks pass, and the cut list has the runners and nothing
+to buy.
+
 ### Edits Claude nearly got right
 
 The core tests hold an invented plant stand to how an edit reads what it's

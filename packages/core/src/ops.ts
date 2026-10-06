@@ -40,7 +40,9 @@ import {
   type StockSettings,
   type UnverifiedBox,
   emptyDesign,
+  hasPartToBuy,
 } from "./types.js";
+import { RUNNER_TAG } from "./runners.js";
 
 export class OpError extends Error {
   constructor(message: string) {
@@ -927,6 +929,13 @@ function change(d: Design, op: Op): Design {
       }
       if (op.on_floor) h.on_floor = true;
       if (op.note) h.note = op.note;
+      // A placeholder such as wax glides would read as a line to buy.
+      if (!hasPartToBuy(h)) {
+        throw new OpError(
+          `${h.name} (${id}) names nothing to buy: it has no library_part and no spec. Hardware is only what you buy, so give library_part, or the maker's figures in spec, such as {"length_mm": 450}. ` +
+            `Wooden runners and glides are timber: add each with add_panel, tagged ${RUNNER_TAG}, and the drawer slides on it with no hardware`,
+        );
+      }
       return { ...d, hardware: upsert(d.hardware, h, (x) => x.id === id) };
     }
     case "delete_hardware": {

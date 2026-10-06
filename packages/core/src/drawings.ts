@@ -1182,6 +1182,7 @@ function cutListSheets(list: CutList, d: DeriveResult, paper: Paper, sheetOf: Ma
     `${parts} ${parts === 1 ? "part" : "parts"} in ${list.rows.length} ${list.rows.length === 1 ? "row" : "rows"}. Each row has its own sheet with its machining.`,
   ];
   if (list.excluded.length) intro.push(`Left off: ${list.excluded.map((e) => `${e.id} (${e.reason})`).join(", ")}.`);
+  intro.push(...(list.notes ?? []));
   if (!list.rows.length) intro.push("Nothing to cut yet.");
   return tableSheets(
     "cut list",

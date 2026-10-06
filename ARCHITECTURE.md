@@ -241,6 +241,28 @@ a rule or a plan's key size can read it, and no part can be called
 isn't in the box, so a piece on bought legs has its height from the floor
 in `overall.top`.
 
+## Hardware is what you buy, and a runner is timber
+
+The hardware list is a shopping list. Each item on it names a part from the
+library or carries the maker's figures, such as a slide's length.
+`set_hardware` refuses anything with neither, so a placeholder such as wax
+glides can't reach the list. A design that already holds one gets a
+warning that says what to do.
+
+A drawer with no slides runs on wooden runners. A runner is an ordinary
+part tagged `runner`, such as a strip fixed to the carcass side or a shelf.
+It's on the cut list with its size like any part, and the cut list says to
+wax it. A drawer rides a runner when it rests on the runner's top with no
+joint, or when a groove in the drawer holds the runner. The parts its
+joints hold together make up the drawer.
+
+A drawer slides front to back, so the checks hold it to running clearance
+across that. Every part beside it, over it or under it needs 0.5 mm of
+clear space from it, apart from the runners it rides. Touching is an error,
+and less than 0.5 mm is a warning, since timber swells. A groove needs a
+fit of 0.5 mm or more. A drawer joined to its runner can't open, so that's
+an error too. With no part tagged `runner`, none of these checks run.
+
 ## Checks run after every change
 
 Overlaps, parts nothing holds up, joints out of proportion, parts too big
