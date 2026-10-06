@@ -54,6 +54,40 @@ function sideAndShelf(y: AxisSpec): Op[] {
   ];
 }
 
+/**
+ * A plywood carcass side under its top, 300 mm deep, so the usual count of
+ * Dominos is three. The front one is cut tight and the two behind it get
+ * the joiner's play, the way Festool lines up a long joint.
+ */
+function carcassCorner(): Op[] {
+  return [
+    ply("stock", 18),
+    {
+      op: "add_panel",
+      id: "top",
+      name: "Top",
+      material: "stock",
+      thickness_axis: "y",
+      grain_axis: "x",
+      x: { start: { at: "0" }, size: "400" },
+      y: { start: { at: "400" } },
+      z: { start: { at: "0" }, size: "300" },
+    },
+    {
+      op: "add_panel",
+      id: "side",
+      name: "Side",
+      material: "stock",
+      thickness_axis: "x",
+      grain_axis: "y",
+      x: { start: { at: "0" } },
+      y: { start: { at: "0" }, end: { face: "top.bottom" } },
+      z: { start: { at: "0" }, size: "300" },
+    },
+    { op: "add_joint", id: "joint", type: "domino", host: "top", guest: "side" },
+  ];
+}
+
 const LAYOUTS: Record<JointType, () => Op[]> = {
   dado: () => [...sideAndShelf({ start: { at: "180" } }), { op: "add_joint", id: "joint", type: "dado", host: "side", guest: "shelf" }],
   rabbet: () => [...sideAndShelf({ end: { face: "side.top" } }), { op: "add_joint", id: "joint", type: "rabbet", host: "side", guest: "shelf" }],
@@ -246,6 +280,7 @@ const LAYOUTS: Record<JointType, () => Op[]> = {
   screws: () => fastened("screws"),
   pocket_screws: () => fastened("pocket_screws"),
   dowels: () => fastened("dowels"),
+  domino: carcassCorner,
 };
 
 /** A top sitting on a side, held by a fastener. */

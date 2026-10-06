@@ -9,7 +9,7 @@
 // on the wood its cuts leave, and its profile follows its housings.
 
 import { evaluate, evaluateNumber, ExprError, fmt, refsOf, type GapResolver, type Traced } from "./expr.js";
-import { canStop, housingWord, JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
+import { canStop, DOMINO_WALL_MM, dominoGuestDepth, dominoSize, housingWord, JOINT_LIBRARY, slotShape, type JointCheck, type JointContext, type JointParam, type SlotWall } from "./joints.js";
 import { contactWood, cutsInBox, fastenerStretches, slotWallsOnShape, spreadOver, type CutInBox } from "./jointShape.js";
 import { placeBox } from "./library.js";
 import { partPrism, profileFor, solveFace, type CutValues, type PartProfile, type SolvedFace } from "./profile.js";
@@ -90,6 +90,8 @@ export interface Machining {
   length_mm: number;
   count?: number;
   diameter_mm?: number;
+  /** A Domino mortise cut wider than its tenon, on the joiner's wider setting: how much longer it is along the joint. */
+  play_mm?: number;
   region: Box;
   /** Its joint names one array copy, so the cut list keeps the other part's copy number. */
   on_copy?: true;
@@ -568,6 +570,12 @@ function resolveJointParams(j: Joint, dj: DerivedJoint, ctx: JointContext, r: Re
     dj.defaulted.push("count");
   }
   if (dj.params.count !== undefined) dj.count = dj.params.count;
+  // Defaults that hang on others, such as a Domino's length on its thickness, once those are known.
+  for (const [f, v] of Object.entries(entry.after?.(dj.params, ctx) ?? {}) as [JointParam, number][]) {
+    if (dj.params[f] !== undefined) continue;
+    dj.params[f] = v;
+    dj.defaulted.push(f);
+  }
   dj.problems = entry.check(dj.params, ctx);
   return true;
 }
@@ -1000,6 +1008,11 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
     v[i] = along;
     return v;
   };
+  if (dj.type === "domino") {
+    const centres = Array.from({ length: n }, (_, k) => at(k, contact)[AXIS_INDEX[lAxis]]!);
+    dominoDetail(dj, host, guest, sh, issues, { axis, tAxis, lAxis, contact, intoGuest, hostFace, guestFace, across: cT, centres });
+    return;
+  }
   const dia = p.diameter ?? 4;
   const hostDepth = span(host.nominal, axis);
   for (let k = 0; k < n; k++) {
@@ -1031,6 +1044,143 @@ function jointDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh
     guest.machining.push({ ...base, label: "dowel holes", with: host.id, face: guestFace, depth_mm: L / 2 + 1 });
   } else if (dj.type === "pocket_screws") {
     guest.machining.push({ ...base, label: "pocket holes", with: host.id, face: faceOf(tAxis, false), depth_mm: 0 });
+  }
+}
+
+/** A Domino's mortise, as machining reads it. */
+export const DOMINO_MORTISE = "domino mortise";
+
+/** Where a Domino joint sits, worked out the way any fastener's is. */
+interface DominoPlace {
+  axis: Axis;
+  tAxis: Axis;
+  lAxis: Axis;
+  /** Where the parts meet on the joint axis, and which way is into the guest. */
+  contact: number;
+  intoGuest: number;
+  hostFace: Face;
+  guestFace: Face;
+  /** The middle of the joint across the guest's thickness. */
+  across: number;
+  /** Each Domino's centre along the joint, in order. */
+  centres: number[];
+}
+
+/**
+ * A Domino joint: a pair of matching mortises for each tenon, one in each
+ * part, centred on the guest's thickness. The guest's are cut tight, and so
+ * is the host's nearest the front, top or right, which lines the joint up.
+ * The host's others are longer by the fit, the play Festool's slot
+ * principle leaves. Each mortise is machining of its own, so the cut list
+ * and the drawings place every one. The tenon sits at the bottom of the
+ * guest's mortise, where it's glued first.
+ */
+function dominoDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh: JointShape | null, issues: DeriveIssue[], at: DominoPlace) {
+  const p = dj.params;
+  const size = dominoSize(p.thickness, p.length);
+  const dh = p.depth ?? 0;
+  const dg = dominoGuestDepth(p);
+  // The joint's own checks say what's wrong with a size or a depth the DF 500 can't cut.
+  if (!size || dg === undefined || dh <= 0 || dh >= size.length_mm) return;
+  const { axis, tAxis, lAxis, contact, intoGuest, across, centres } = at;
+  const T = size.thickness_mm;
+  const W = size.width_mm;
+  const play = Math.max(0, p.fit ?? 0);
+  const along = (a: number, b: number): [number, number] => [Math.min(a, b), Math.max(a, b)];
+  const boxOf = (c: number, long: number, [a, b]: [number, number]): Box => {
+    const box = zeroBox();
+    box.min[AXIS_INDEX[lAxis]] = c - long / 2;
+    box.max[AXIS_INDEX[lAxis]] = c + long / 2;
+    box.min[AXIS_INDEX[tAxis]] = across - T / 2;
+    box.max[AXIS_INDEX[tAxis]] = across + T / 2;
+    box.min[AXIS_INDEX[axis]] = a;
+    box.max[AXIS_INDEX[axis]] = b;
+    return box;
+  };
+  const tight = centres.length - 1;
+  const inHost: Box[] = [];
+  const inGuest: Box[] = [];
+  centres.forEach((c, k) => {
+    const slack = k === tight ? 0 : play;
+    const h = boxOf(c, W + slack, along(contact, contact - intoGuest * dh));
+    const g = boxOf(c, W, along(contact, contact + intoGuest * dg));
+    inHost.push(h);
+    inGuest.push(g);
+    dj.features.push(
+      { kind: "removed", part: host.id, box: h },
+      { kind: "removed", part: guest.id, box: g },
+      { kind: "tongue", part: guest.id, box: boxOf(c, W, along(contact + intoGuest * dg, contact + intoGuest * (dg - size.length_mm))) },
+    );
+    const base = { joint: dj.id, type: dj.type, label: DOMINO_MORTISE };
+    host.machining.push({ ...base, with: guest.id, face: at.hostFace, depth_mm: dh, width_mm: T, length_mm: W + slack, ...(slack > 0 ? { play_mm: slack } : {}), region: h });
+    guest.machining.push({ ...base, with: host.id, face: at.guestFace, depth_mm: dg, width_mm: T, length_mm: W, region: g });
+  });
+
+  // Each mortise needs wood beside it along the joint, and none may run into the next.
+  const li = AXIS_INDEX[lAxis];
+  const [loEdge, hiEdge] = AXIS_FACES[lAxis];
+  const problem = (severity: Severity, message: string) => issues.push({ severity, code: "domino_mortise", message: `Joint ${dj.id}: ${message}`, parts: [dj.host, dj.guest] });
+  for (const [part, boxes] of [
+    [host, inHost],
+    [guest, inGuest],
+  ] as const) {
+    const lo = boxes[0]!.min[li]! - part.nominal.min[li]!;
+    const hi = part.nominal.max[li]! - boxes[boxes.length - 1]!.max[li]!;
+    const [wall, edge] = lo <= hi ? [lo, loEdge] : [hi, hiEdge];
+    if (wall <= EPS) problem("error", `a Domino mortise breaks out of ${part.id}'s ${edge} edge. Use fewer Dominos or a smaller size`);
+    else if (wall < DOMINO_WALL_MM - 1e-9) {
+      problem("warning", `a Domino mortise is ${fmt(wall)} mm from ${part.id}'s ${edge} edge, and wood that thin breaks out. Leave at least ${DOMINO_WALL_MM} mm, with fewer Dominos or a smaller size`);
+    }
+    let gap = Infinity;
+    for (let k = 1; k < boxes.length; k++) gap = Math.min(gap, boxes[k]!.min[li]! - boxes[k - 1]!.max[li]!);
+    if (gap <= EPS) problem("error", `${boxes.length} Dominos don't fit along the joint, since their mortises in ${part.id} run into each other. Use fewer`);
+    else if (gap < DOMINO_WALL_MM - 1e-9) {
+      problem("warning", `${fmt(gap)} mm of ${part.id} is left between two Domino mortises, and wood that thin breaks out. Leave at least ${DOMINO_WALL_MM} mm, with fewer Dominos`);
+    }
+  }
+  // A mortise needs wood all round, so a cut into one takes what holds the tenon.
+  for (const [part, face, boxes, other] of sh
+    ? ([
+        [host, sh.host, inHost, guest],
+        [guest, sh.guest, inGuest, host],
+      ] as const)
+    : []) {
+    const hit = new Map<string, CutInBox>();
+    for (const b of boxes) for (const c of cutsInBox(part, face, b)) if (!hit.has(c.id)) hit.set(c.id, c);
+    for (const c of hit.values()) {
+      issues.push({
+        severity: "error",
+        code: "cut_joint",
+        message: `Joint ${dj.id}: ${cutWords([c])} on ${part.id} breaks into a Domino mortise for ${other.id}. A mortise needs wood all round, so move the cut clear of it`,
+        parts: [dj.host, dj.guest],
+      });
+    }
+  }
+}
+
+/**
+ * A Domino's mortise that runs into other machining in its part, such as a
+ * dado or another joint's mortise, is an error. Each pair is named once.
+ */
+function dominoCollisions(parts: DerivedPart[], issues: DeriveIssue[]) {
+  const named = new Set<string>();
+  for (const p of parts) {
+    for (const m of p.machining) {
+      if (m.label !== DOMINO_MORTISE) continue;
+      for (const o of p.machining) {
+        if (o.joint === m.joint || !boxesOverlap(m.region, o.region)) continue;
+        const key = `${p.id}|${[m.joint, o.joint].sort().join("|")}`;
+        if (named.has(key)) continue;
+        named.add(key);
+        const what = o.label === DOMINO_MORTISE ? `a Domino mortise for ${o.with}` : `the ${o.label} for ${o.with}`;
+        issues.push({
+          severity: "error",
+          code: "domino_mortise",
+          message: `Joint ${m.joint}: a Domino mortise in ${p.id} runs into ${what}, from joint ${o.joint}. Move the Dominos clear of it, or use fewer`,
+          parts: [p.id],
+        });
+      }
+    }
   }
 }
 
@@ -1389,6 +1539,7 @@ export function derive(design: Design): DeriveResult {
         hostThickness: host.finished.thickness,
         hostDepth: size(host, touch.axis),
         hostAcross: size(host, tAxis),
+        guestDepth: size(guest, touch.axis),
         housingWalls: [
           Math.max(guest.nominal.min[ti]!, host.nominal.min[ti]!) - host.nominal.min[ti]!,
           host.nominal.max[ti]! - Math.min(guest.nominal.max[ti]!, host.nominal.max[ti]!),
@@ -1423,6 +1574,7 @@ export function derive(design: Design): DeriveResult {
       for (const m of part.machining) if (m.joint === dj.id) Object.assign(m, { with: named(other), on_copy: true });
     }
   }
+  dominoCollisions(parts, issues);
 
   for (const p of parts) {
     p.cut = dimsOf(p.box, p.grain_axis, p.width_axis, p.thickness_axis);

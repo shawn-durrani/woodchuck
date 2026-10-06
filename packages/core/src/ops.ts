@@ -9,6 +9,7 @@ import { validateLibraryPart } from "./library.js";
 import { finishesInside, normaliseFinish, parseFinishTarget, PALETTES } from "./finishes.js";
 import { SPECIES, SPECIES_IDS } from "./species.js";
 import { DEFAULT_TRIM_MM } from "./layout.js";
+import { DOMINO_PLAY_MM, DOMINO_SIZES, noDomino } from "./joints.js";
 import {
   AXES,
   AXIS_FACES,
@@ -695,6 +696,23 @@ function readd<T extends { id: string }>(d: Design, kind: string, existing: T, c
   throw new OpError(`${kind} "${existing.id}" already exists${differs.length ? `, and this one differs in ${differs.join(", ")}` : ""}. It's ${showJson(shown)}. ${instead}`);
 }
 
+/**
+ * A Domino's thickness and length, when they're plain numbers, have to be a
+ * tenon Festool makes, and its fit one of the DF 500's widths. One given as
+ * an expression is checked once it's worked out, with the joint's other
+ * checks.
+ */
+function checkDomino(j: Joint) {
+  const plain = (v: string | undefined) => (v !== undefined && /^\s*\d+(\.\d+)?\s*$/.test(v) ? Number(v) : undefined);
+  const t = plain(j.thickness);
+  const l = plain(j.length);
+  if (!DOMINO_SIZES.some((s) => (t === undefined || s.thickness_mm === t) && (l === undefined || s.length_mm === l))) throw new OpError(noDomino(t, l));
+  const fit = plain(j.fit);
+  if (fit !== undefined && !DOMINO_PLAY_MM.includes(fit)) {
+    throw new OpError(`A Domino's fit is the joiner's width setting: 0 for a tight mortise, or 6 or 10 for play along the joint, not ${fit}`);
+  }
+}
+
 /** A joint, checked. Its sizes are optional: the joint library fills in usual proportions. */
 function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   const id = checkId(op.id, "Joint id");
@@ -715,8 +733,12 @@ function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
     j.count = count;
   }
   const family = JOINT_FAMILY[type];
-  const misplaced = (["thickness", "shoulder"] as const).filter((f) => j[f] !== undefined && family !== "inset");
-  if (misplaced.length) throw new OpError(`${misplaced.join(" and ")} only apply to tongue, dado_rabbet and mortise_tenon joints`);
+  if (type === "domino") checkDomino(j);
+  const misplaced = (["thickness", "shoulder"] as const).filter((f) => j[f] !== undefined && family !== "inset" && !(f === "thickness" && type === "domino"));
+  if (misplaced.length) {
+    const where = misplaced.includes("shoulder") ? "tongue, dado_rabbet and mortise_tenon" : "tongue, dado_rabbet, mortise_tenon and domino";
+    throw new OpError(`${misplaced.join(" and ")} only ${misplaced.length === 1 ? "applies" : "apply"} to ${where} joints`);
+  }
   if (j.finger !== undefined && type !== "box_joint") throw new OpError("finger only applies to box_joint");
   if (j.width !== undefined && type !== "groove") throw new OpError("width only applies to groove. A housing is cut as wide as its guest, plus any fit");
   if (j.width !== undefined && j.fit !== undefined) throw new OpError("Give a groove its width or its fit, not both. The width is what the cutter makes, and fit is the play over the panel");

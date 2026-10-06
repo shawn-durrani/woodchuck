@@ -62,7 +62,7 @@ function intersect(a: Box, b: Box): Box {
 }
 
 /** Problems that can come more than once for the same parts, so their words tell them apart. */
-const KEYED_BY_MESSAGE = new Set(["rule_failed", "rule_error", "rule_reads_cut_face", "hardware_nothing_to_buy"]);
+const KEYED_BY_MESSAGE = new Set(["rule_failed", "rule_error", "rule_reads_cut_face", "hardware_nothing_to_buy", "domino_mortise"]);
 
 function keyOf(i: DeriveIssue): string {
   return `${i.code}:${[...i.parts].sort().join(",")}:${KEYED_BY_MESSAGE.has(i.code) ? i.message : ""}`;

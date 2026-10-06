@@ -99,6 +99,8 @@ const BEFORE_SHAPES: Record<string, string> = {
   screws: "803d2a16259953f7b9d262efccdc427f25ab6f4251c829ed00d4eee04b10618e",
   pocket_screws: "c52d7783874fd4deeb5a6a501f97bd2449e455b4ec083077b65dbedacf2eb543",
   dowels: "1dcd13588e9c21e47f040f571eadca47de6e1febc4f9509dac10723fcc5805fd",
+  // Added with the joint, after shapes were drawn.
+  domino: "c97e58f39f091433bfb77f25f1bc7249f2eb8caf5f87211c7bc7bf431ceee9d1",
   dado: "108ebad37c7e5af5ba3a0f1338f22778ac5a59bfda8228023f05fb076d0ab50e",
   groove: "f1f5ce2d1cb076a2a949509cb355f4c95af0aae5ff614113632b80d40c96648b",
   rabbet: "4f3d853234c6f3e3e3b1ebd7df7abf11e18d692b4022b183d307170550861b29",

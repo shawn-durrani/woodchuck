@@ -113,8 +113,9 @@ would be lost.
 - **Checks run after every change.** They catch overlaps, parts nothing
   holds up, joints out of proportion, parts too big for your stock and the
   rules you set. A design is ready to cut only when nothing is in error.
-- **Joints come from a library of thirteen,** from butt joints and pocket
-  screws to mortise and tenons, half laps, box joints and through slots.
+- **Joints come from a library of fourteen,** from butt joints and pocket
+  screws to Dominos, mortise and tenons, half laps, box joints and through
+  slots.
   A drawer's bottom sits in grooves and its corners are rabbeted.
   Each says when it suits, which tools cut it and its usual proportions,
   and a worked example on two sample boards shows how it goes together.

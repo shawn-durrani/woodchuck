@@ -320,6 +320,49 @@ and less than 0.5 mm is a warning, since timber swells. A groove needs a
 fit of 0.5 mm or more. A drawer joined to its runner can't open, so that's
 an error too. With no part tagged `runner`, none of these checks run.
 
+## A Domino is a joint, and its tenons are bought
+
+A Festool Domino is a joiner that cuts an oblong mortise, and a bought
+beech tenon is glued into a matching mortise in each part. Festool's
+[Domino manual](https://www.festool.com/-/media/tts/fcp/festool/knowledge/downloads-page/download-brochures/manual_domino/versions/festool-domino-manual-april-2016-au-imp-en.pdf)
+gives its sizes and settings. In Woodchuck it's the joint type `domino`, a
+fastener like dowels, since it changes no part's size. Claude adds one with
+`add_joint`. Its instructions say to use it only when your workshop lists a
+Domino joiner, and dowels when it doesn't.
+
+The joint takes the DF 500's tenons, which are 4 × 20, 5 × 30, 6 × 40,
+8 × 40, 8 × 50 and 10 × 50 mm, thickness by length. Each size is a part in
+the library, with Festool's pages as its sources, and a test holds the
+joint's sizes to those files. Left out, the size is the thickest up to a
+third of the stock that leaves 5 mm of wood round each mortise. One Domino
+goes in for about every 100 mm of the joint, spread the way dowels are and
+centred on the guest's thickness.
+
+The host's mortise goes half the tenon's length deep, or less to leave 5 mm
+of the host behind it. The guest's takes the rest of the tenon, at the next
+depth the DF 500 stops at. Those are 12, 15, 20, 25 and 28 mm, and only the
+first three with the 5 mm cutter. The 4 mm cutter cuts 10 mm. The guest's
+mortises are as wide as the tenon, and so is the host's nearest the front,
+top or right, which lines the parts up. The fit makes the host's others 6
+or 10 mm wider for play, the way Festool lines up a long joint. Three or
+more Dominos get 6 mm unless the joint gives a fit.
+
+Each mortise is machining of its own, so the cut list places every one and
+the workshop drawings dimension it. The see-through view draws each mortise
+in red and each tenon as a block. The tenons go on the hardware list as
+their library parts, counted from the joints, so an array's copies add
+theirs. They never go in the design's own hardware, which keeps the count
+right when a joint changes.
+
+The checks hold a Domino to what the DF 500 can cut and to the wood round
+it. A size Festool doesn't make is an error, and so is a fit that isn't one
+of the machine's settings or a guest mortise deeper than it reaches. A
+mortise that comes out of a part is an error too. The same goes for one
+that runs into the next, into another joint's machining or into a cut.
+Under 5 mm of wood behind a mortise, beside it or between two is a warning,
+and so is a depth the machine has no stop for. A Domino more than half the
+stock's thickness is a warning as well, since about a third is usual.
+
 ## Checks run after every change
 
 Overlaps, parts nothing holds up, joints out of proportion, parts too big

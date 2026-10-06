@@ -308,16 +308,21 @@ export const TOOLS: Tool[] = [
     input_schema: obj(
       {
         id: { type: "string" },
-        type: { type: "string", enum: [...JOINT_TYPES] },
+        type: {
+          type: "string",
+          enum: [...JOINT_TYPES],
+          description:
+            "domino is Festool's loose tenon: bought beech tenons in mortises cut in both parts, which go on the hardware list. Use it only when the woodworker's workshop lists a Domino joiner, and dowels when it doesn't",
+        },
         host: { type: "string", description: "The part that gets cut into. An array copy such as shelf#2 is that copy alone" },
         guest: { type: "string", description: "The part that sits in or against the host. An array copy such as shelf#2 is that copy alone" },
-        depth: expr("How far the guest, tongue or tenon goes into the host"),
-        fit: expr("Extra housing width for an easy fit"),
-        thickness: expr("Tongue or tenon thickness"),
+        depth: expr("How far the guest, tongue or tenon goes into the host. For a Domino, how deep its mortise in the host goes, and the guest's takes the rest"),
+        fit: expr("Extra housing width for an easy fit. For a Domino, the joiner's width setting: 0 cuts the host's mortises tight, and 6 or 10 leaves play along the joint in all but the one nearest the front, top or right, which lines the parts up"),
+        thickness: expr("Tongue, tenon or Domino thickness. A Domino's is its cutter: 4, 5, 6, 8 or 10"),
         shoulder: expr("How far a tenon is set in from each edge of the rail"),
-        count: { type: "integer", description: "Number of screws, pocket screws or dowels" },
+        count: { type: "integer", description: "Number of screws, pocket screws, dowels or Dominos" },
         diameter: expr("Screw or dowel diameter"),
-        length: expr("Screw or dowel length"),
+        length: expr("Screw, dowel or Domino length. Dominos are 4 × 20, 5 × 30, 6 × 40, 8 × 40, 8 × 50 and 10 × 50 mm, thickness by length. Leave a Domino's size out to get one that suits the stock"),
         finger: expr("Box joint finger width"),
         width: expr("A groove's width, when the cutter sets it, such as 6. Leave it out to cut the groove to the panel's thickness plus fit"),
         stop: {

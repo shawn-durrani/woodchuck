@@ -3,9 +3,9 @@
 // separate, because their housings are on opposite faces. Shapes match only
 // when they're the same to 0.1 mm, and a mirror image keys apart.
 
-import { AXIS_INDEX, stopWords, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
+import { AXIS_INDEX, DOMINO_MORTISE, stopWords, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
 import { fmt } from "./expr.js";
-import { housingWord } from "./joints.js";
+import { dominoSize, housingWord } from "./joints.js";
 import { cornerName, shapeKey } from "./profile.js";
 import { isRunner } from "./runners.js";
 import type { Design } from "./types.js";
@@ -76,6 +76,8 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
       return `half lap ${n(m.width_mm)} × ${n(m.length_mm)} × ${n(m.depth_mm)} deep in the ${m.face} face for ${m.with}${where}`;
     case "box joint fingers":
       return `${counted(m.count, "box joint slot")}, ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep, for ${m.with}`;
+    case DOMINO_MORTISE:
+      return `Domino mortise ${n(m.width_mm)} wide × ${n(m.length_mm)} long × ${n(m.depth_mm)} deep, ${m.play_mm ? `${n(m.play_mm)} mm play` : "tight"}, in the ${m.face} face for ${m.with}${where}`;
     case "tenon":
     case "tongue":
       return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end${m.flush ? `, flush with the ${m.flush} face` : ""}, into ${m.with}`;
@@ -187,6 +189,20 @@ export function cutList(design: Design, d: DeriveResult): CutList {
       const row: HardwareRow = { name: h.name, kind: h.kind, qty: h.qty, spec, ids: [h.id] };
       if (h.library_part) row.library_part = h.library_part;
       hw.set(key, row);
+    }
+  }
+  // Dominos are bought, so each size is a library part on the list, counted from the tenons the joints place.
+  for (const j of d.joints) {
+    const size = j.type === "domino" ? dominoSize(j.params.thickness, j.params.length) : undefined;
+    const qty = j.features.filter((f) => f.kind === "tongue").length;
+    if (!size || !qty) continue;
+    const row = hw.get(`domino|${size.library_part}`);
+    if (row) {
+      row.qty += qty;
+      row.ids.push(j.id);
+    } else {
+      const spec = `thickness_mm ${size.thickness_mm}, width_mm ${size.width_mm}, length_mm ${size.length_mm}`;
+      hw.set(`domino|${size.library_part}`, { name: size.name, kind: "fixing", qty, spec, ids: [j.id], library_part: size.library_part });
     }
   }
   const list: CutList = { rows, hardware: [...hw.values()], excluded };
