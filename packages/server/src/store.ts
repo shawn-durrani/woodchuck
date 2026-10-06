@@ -74,7 +74,8 @@ export type ChatItem =
       error?: string;
       at: string;
     }
-  | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
+  /** stopped shows the joint's housing stopping 10 mm short of an edge of its host. */
+  | { id: string; kind: "example"; joint: JointType; note?: string; stopped?: true; at: string }
   /** retry marks a dropped connection that Claude's turn is trying again after, rather than one that ended it. */
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
   /**

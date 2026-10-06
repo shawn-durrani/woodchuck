@@ -515,6 +515,24 @@ for (const e of ENTRIES) {
   if (JOINT_FAMILY[e.type] !== e.family) throw new Error(`Joint library family mismatch for ${e.type}`);
 }
 
+/** The joints whose housing can stop short of an edge of its host: a dado, groove, rabbet, or the dado of a dado and rabbet. */
+export const STOPPABLE_JOINTS: readonly JointType[] = ["dado", "groove", "rabbet", "dado_rabbet"];
+
+/** Whether a joint's housing can stop short of an edge of its host. */
+export function canStop(type: JointType): boolean {
+  return STOPPABLE_JOINTS.includes(type);
+}
+
+/** The housing a stop shortens, in workshop words: a dado and rabbet's is its dado. */
+export function housingWord(type: JointType): string {
+  return type === "dado_rabbet" ? "dado" : type;
+}
+
+/** What a housing's stop does, as Claude reads it in the library. */
+export const STOP_HELP =
+  'It can stop short of one or both edges it runs between, so its end doesn\'t show on a visible edge: give stop, such as {"front": "10"}. ' +
+  "The guest keeps its place and size, and its corner is notched to match. Cut it with a router and square the end with a chisel.";
+
 /** The library as Claude reads it. */
 export function describeJoints(homeWorkshopOnly = true) {
   return ENTRIES.filter((e) => !homeWorkshopOnly || e.home_workshop).map((e) => ({
@@ -528,5 +546,6 @@ export function describeJoints(homeWorkshopOnly = true) {
     tools: e.tools,
     changes_sizes: e.changes_sizes,
     params: e.params,
+    ...(canStop(e.type) ? { stop: STOP_HELP } : {}),
   }));
 }

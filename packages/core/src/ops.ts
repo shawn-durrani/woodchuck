@@ -43,6 +43,7 @@ import {
   hasPartToBuy,
 } from "./types.js";
 import { RUNNER_TAG } from "./runners.js";
+import { canStop } from "./joints.js";
 
 export class OpError extends Error {
   constructor(message: string) {
@@ -175,6 +176,7 @@ export const SHAPES = {
   min_mm: { rule: "must be [x, y, z] in mm", example: "[0, 0, 0]" },
   max_mm: { rule: "must be [x, y, z] in mm", example: "[600, 720, 560]" },
   targets: { rule: 'must list what to finish: "material:<id>", "<part>" or "<part>.<face>"', example: '["material:ply18", "shelf", "shelf.front"]' },
+  stop: { rule: "must be an object of the edges the housing stops short of, each with how far in mm", example: '{"front": "10"}' },
 } as const;
 
 export type ShapeField = keyof typeof SHAPES;
@@ -536,7 +538,7 @@ function usedBy(d: Design, name: string, isPart: boolean): string[] {
   }
   for (const r of d.rules) if (uses(r.expr)) hits.push(`rule ${r.id}`);
   for (const a of d.arrays) if (uses(a.count) || uses(a.pitch)) hits.push(`array ${a.id}`);
-  for (const j of d.joints) if (uses(j.depth) || uses(j.fit)) hits.push(`joint ${j.id}`);
+  for (const j of d.joints) if (uses(j.depth) || uses(j.fit) || Object.values(j.stop ?? {}).some(uses)) hits.push(`joint ${j.id}`);
   return hits;
 }
 
@@ -718,8 +720,39 @@ function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   if (j.finger !== undefined && type !== "box_joint") throw new OpError("finger only applies to box_joint");
   if (j.width !== undefined && type !== "groove") throw new OpError("width only applies to groove. A housing is cut as wide as its guest, plus any fit");
   if (j.width !== undefined && j.fit !== undefined) throw new OpError("Give a groove its width or its fit, not both. The width is what the cutter makes, and fit is the play over the panel");
+  const stop = checkStop(d, op.stop as unknown, id, type);
+  if (stop) j.stop = stop;
   if (op.note) j.note = op.note;
   return j;
+}
+
+/**
+ * A housing's stops, checked: an edge the housing stops short of, with how
+ * far, for one or both of the two edges it runs between. Which two those
+ * are depends on where the parts sit, so derive checks that. An empty stop
+ * is no stop.
+ */
+function checkStop(d: Design, raw: unknown, id: string, type: JointType): Joint["stop"] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) throw shapeError("stop");
+  const given = Object.entries(raw as Record<string, unknown>).filter(([, v]) => v !== undefined && v !== null && !(typeof v === "string" && v.trim() === ""));
+  if (!given.length) return undefined;
+  const unknown = given.map(([k]) => k).filter((k) => !(FACES as readonly string[]).includes(k));
+  if (unknown.length) {
+    throw new OpError(`stop takes the edges a housing stops short of, from ${FACES.join(", ")}, not ${unknown.map((k) => `"${k}"`).join(" or ")}. Example: ${fieldExample("stop")}`);
+  }
+  if (!canStop(type)) throw new OpError(`stop only applies to dado, groove, rabbet and dado_rabbet joints, not ${type}`);
+  const faces = FACES.filter((f) => given.some(([k]) => k === f));
+  if (new Set(faces.map((f) => FACE_AXIS[f])).size > 1) {
+    throw new OpError(`A housing runs between two edges, so it stops short of the back and the front, the bottom and the top, or the left and the right, not the ${faces.join(" and the ")}`);
+  }
+  const out: Partial<Record<Face, string>> = {};
+  for (const f of faces) {
+    const what = `the ${f} stop of joint ${id}`;
+    out[f] = checkExpr((raw as Record<string, unknown>)[f], what);
+    checkRefs(d, out[f]!, what);
+  }
+  return out;
 }
 
 /** A stand-in box, checked. */

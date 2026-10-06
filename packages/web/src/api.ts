@@ -42,7 +42,8 @@ export type ChatItem =
       error?: string;
       at: string;
     }
-  | { id: string; kind: "example"; joint: JointType; note?: string; at: string }
+  /** stopped shows the joint's housing stopping 10 mm short of an edge of its host. */
+  | { id: string; kind: "example"; joint: JointType; note?: string; stopped?: true; at: string }
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
   | {
       id: string;

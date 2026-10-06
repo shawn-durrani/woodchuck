@@ -139,6 +139,11 @@ describe("a worked example never hides a waiting preview", () => {
     const both = openSlot({ preview: "v1", example: { joint: "mortise_tenon" } }, { kind: "example", joint: "half_lap" });
     expect(both).toEqual({ preview: "v1", example: { joint: "half_lap" } });
   });
+
+  it("keeps a stopped housing stopped, and a plain one plain (issue #44)", () => {
+    expect(openSlot(NO_SLOTS, { kind: "example", joint: "dado", stopped: true })).toEqual({ preview: null, example: { joint: "dado", stopped: true } });
+    expect(openSlot({ preview: null, example: { joint: "dado", stopped: true } }, { kind: "example", joint: "groove" })).toEqual({ preview: null, example: { joint: "groove" } });
+  });
 });
 
 describe("a plan's card", () => {

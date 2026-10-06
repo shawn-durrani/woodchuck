@@ -1,7 +1,7 @@
 // Read-only questions about a design: explain a number, measure between
 // faces, describe a part, and check the model against its plan.
 
-import { AXIS_INDEX, overallWorking, partRefParts, type DeriveResult, type DerivedPart } from "./derive.js";
+import { AXIS_INDEX, overallWorking, partRefParts, stopWords, type DeriveResult, type DerivedPart } from "./derive.js";
 import { fmt } from "./expr.js";
 import { machiningText } from "./cutlist.js";
 import { JOINT_LIBRARY, type JointParam } from "./joints.js";
@@ -59,7 +59,9 @@ export function explainPart(d: DeriveResult, id: string): string[] {
     if (!end) continue;
     const whole = p.nominal.max[AXIS_INDEX[end]]! - p.nominal.min[AXIS_INDEX[end]]!;
     const covered = e.along_mm.reduce((s, [a, b]) => s + b - a, 0);
-    if (covered >= whole - 0.01) continue;
+    // A stopped housing's notches are machining, listed with the rest.
+    const notched = (e.notch_mm?.[0] ?? 0) + (e.notch_mm?.[1] ?? 0);
+    if (covered >= whole - notched - 0.01) continue;
     const spans = e.along_mm.map(([a, b]) => `${fmt(a)} to ${fmt(b)}`).join(" and ");
     lines.push(
       e.along_mm.length
@@ -72,7 +74,8 @@ export function explainPart(d: DeriveResult, id: string): string[] {
     const ps = Object.entries(j.params)
       .map(([k, v]) => `${k} ${fmt(v)}${j.defaulted.includes(k as JointParam) ? " (library default)" : ""}`)
       .join(", ");
-    lines.push(`Joint ${j.id}: ${entry.name}, ${j.guest} into ${j.host}${ps ? `. ${ps}` : ""}`);
+    const stop = j.stop_mm ? `, stopped ${stopWords(j.stop_mm)}` : "";
+    lines.push(`Joint ${j.id}: ${entry.name}, ${j.guest} into ${j.host}${ps ? `. ${ps}` : ""}${stop}`);
   }
   return lines;
 }

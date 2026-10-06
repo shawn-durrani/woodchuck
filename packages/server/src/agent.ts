@@ -1093,7 +1093,14 @@ export class Turn {
             this.events.chat(card);
           }
           if (out.example) {
-            const card: ChatItem = { id: nextId("j"), kind: "example", joint: out.example.joint, at: now(), ...(out.example.note ? { note: out.example.note } : {}) };
+            const card: ChatItem = {
+              id: nextId("j"),
+              kind: "example",
+              joint: out.example.joint,
+              at: now(),
+              ...(out.example.note ? { note: out.example.note } : {}),
+              ...(out.example.stopped ? { stopped: true as const } : {}),
+            };
             project.addChat(card);
             this.events.chat(card);
           }

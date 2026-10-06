@@ -242,6 +242,13 @@ export interface Joint {
   finger?: string;
   /** A groove's width, when the cutter sets it rather than the panel. */
   width?: string;
+  /**
+   * A dado, groove, rabbet or dado_rabbet whose housing stops short of one
+   * or both edges of its host, so its end doesn't show there: how far short of each edge, such
+   * as {"front": "10"}. The edges are the two the housing runs between, and
+   * the guest's corner is notched to match.
+   */
+  stop?: Partial<Record<Face, string>>;
   note?: string;
 }
 

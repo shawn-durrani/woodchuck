@@ -582,9 +582,11 @@ export function ChatPanel({
             case "example":
               return (
                 <div key={c.id} className="card example-card">
-                  <div className="card-title">Worked example: {JOINT_LIBRARY[c.joint].name}</div>
+                  <div className="card-title">Worked example: {c.stopped ? `Stopped ${JOINT_LIBRARY[c.joint].name.toLowerCase()}` : JOINT_LIBRARY[c.joint].name}</div>
                   {c.note && <p>{c.note}</p>}
-                  <button onClick={() => onOpen({ kind: "example", joint: c.joint, ...(c.note ? { note: c.note } : {}) })}>Show me</button>
+                  <button onClick={() => onOpen({ kind: "example", joint: c.joint, ...(c.note ? { note: c.note } : {}), ...(c.stopped ? { stopped: true as const } : {}) })}>
+                    Show me
+                  </button>
                 </div>
               );
             case "tool_request": {

@@ -537,7 +537,7 @@ export function App() {
     // A design you've just opened shows as it is, with no drawer opening by itself.
     if (before === undefined || before.slug !== now.slug) return;
     if (example?.kind === "example" && now.example !== before.example) {
-      setSlots((s) => openSlot(s, { kind: "example", joint: example.joint, ...(example.note ? { note: example.note } : {}) }));
+      setSlots((s) => openSlot(s, { kind: "example", joint: example.joint, ...(example.note ? { note: example.note } : {}), ...(example.stopped ? { stopped: true as const } : {}) }));
     }
     if (preview?.kind === "preview" && now.preview !== before.preview && preview.status === "proposed") {
       setSlots(NO_SLOTS);

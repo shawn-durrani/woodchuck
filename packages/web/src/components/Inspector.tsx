@@ -10,6 +10,7 @@ import {
   fmt,
   JOINT_LIBRARY,
   machiningText,
+  stopWords,
   type Axis,
   type AxisSpec,
   type DerivedJoint,
@@ -226,8 +227,8 @@ export function Inspector({
         <>
           <div className="card-sub">Machining on this part</div>
           <ul>
-            {d.machining.map((m) => (
-              <li key={m.joint + m.label}>{machiningText(m)}</li>
+            {d.machining.map((m, k) => (
+              <li key={`${m.joint}:${m.label}:${k}`}>{machiningText(m)}</li>
             ))}
           </ul>
         </>
@@ -256,6 +257,7 @@ export function Inspector({
                         .join(" · ")}
                     </div>
                   )}
+                  {j.stop_mm && <div className="small">Stopped {stopWords(j.stop_mm)}</div>}
                   <div className="small muted">{entry.use_when}</div>
                   {j.problems.map((p) => (
                     <div key={p.message} className={`small ${p.severity === "error" ? "bad-text" : "warn-text"}`}>

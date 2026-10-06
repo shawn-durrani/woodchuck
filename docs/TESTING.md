@@ -67,6 +67,30 @@ end, each hole's place and size, and a part turned over for its machining.
 The views, the drawings and their PDF of every example with no cuts have to
 match fixed digests.
 
+### Stopped housings
+
+A dado that stops short of an edge is tested on an invented wall shelf,
+with two sides and one shelf housed in both. The stop as an edit is held to
+the edges it takes, its expressions and each refusal's words. A stop at the
+front, at the back and at both is held to where the housing runs, to the
+notch at each of the shelf's corners and to its words on the cut list. A
+shelf set back past its stop needs no notch, and a stop of 0 derives as no
+stop. Each check has its words pinned, for a stop that leaves no housing,
+less than half of it, under 6 mm before the edge, or sits on the wrong
+edge. A shelf with a cut is held to its tongue's outline with the notch
+left out. The see-through plan has to draw the housing 10 mm short of the
+front, and the plain views can't change. The drawings are held to the stop
+in the side's chain and the notch in the shelf's. The stopped worked
+example of a dado, a groove, a rabbet and a dado and rabbet has to build
+with no errors. A stopped dado and rabbet notches only the tongue.
+
+A scripted Claude builds an invented wall shelf with its dados stopped at
+the front and shows a stopped dado, and the chat's card says it's stopped.
+`add_joint` is held to its stop's fields, and the refusals for a stop on
+screws or of the wrong shape have their words pinned. `list_joints` has to
+offer a stop on a dado, groove, rabbet or dado and rabbet only, and so
+does `show_joint`.
+
 ### Finishes
 
 The finish tests hold every tinted Linolie colour to its photo on Douglas fir,
