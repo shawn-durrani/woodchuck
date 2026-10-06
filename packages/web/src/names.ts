@@ -11,7 +11,8 @@ export function partNamer(parts: Named[]): (ref: string) => string {
   const copies = new Map<string, number>();
   for (const p of parts) copies.set(p.source, (copies.get(p.source) ?? 0) + 1);
   const name = (ref: string): string => {
-    const p = byId.get(ref);
+    // shelf#1 is the original alone, the way a joint names it.
+    const p = byId.get(ref) ?? (ref.endsWith("#1") ? byId.get(ref.slice(0, -2)) : undefined);
     if (p) {
       const n = copies.get(p.source) ?? 1;
       // A copy's own name carries its number, such as "Seat slat 9", so it reads by its original's.

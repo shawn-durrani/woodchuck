@@ -299,13 +299,13 @@ export const TOOLS: Tool[] = [
   {
     name: "add_joint",
     description:
-      "Join two parts with a joint from the library (call list_joints to see them, with when each suits). Housings and insets need the guest against a face of the host and lengthen it. Interlocks (half_lap, box_joint) need the parts overlapping where they join. Fasteners change no sizes. Leave sizes out to get the library's usual proportions. Name the original parts; array copies get the joint automatically.",
+      "Join two parts with a joint from the library (call list_joints to see them, with when each suits). Housings and insets need the guest against a face of the host and lengthen it. Interlocks (half_lap, box_joint) need the parts overlapping where they join. Fasteners change no sizes. Leave sizes out to get the library's usual proportions. A joint on an array's original repeats on every copy. To join one copy alone, name it as host or guest, such as shelf#2, or shelf#1 for the original alone. A drawer divider housed into the underside of the second shelf only is a dado with host shelf#2 and guest divider. The array's own joints, such as the shelves' dados into the sides, still repeat on shelf#2, and the cut list gives it a row of its own.",
     input_schema: obj(
       {
         id: { type: "string" },
         type: { type: "string", enum: [...JOINT_TYPES] },
-        host: { type: "string", description: "The part that gets cut into" },
-        guest: { type: "string", description: "The part that sits in or against the host" },
+        host: { type: "string", description: "The part that gets cut into. An array copy such as shelf#2 is that copy alone" },
+        guest: { type: "string", description: "The part that sits in or against the host. An array copy such as shelf#2 is that copy alone" },
         depth: expr("How far the guest, tongue or tenon goes into the host"),
         fit: expr("Extra housing width for an easy fit"),
         thickness: expr("Tongue or tenon thickness"),
@@ -326,7 +326,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "set_array",
-    description: "Create or change an array that repeats parts along an axis. Copies are named part#2, part#3 and so on. Use it for evenly spaced partitions, shelves, drawers and their parts. A part can be in one array.",
+    description: "Create or change an array that repeats parts along an axis. Copies are named part#2, part#3 and so on. Use it for evenly spaced partitions, shelves, drawers and their parts. A part can be in one array. A joint on one copy, such as shelf#2, follows the copy's number, so a new count or pitch keeps it on shelf#2. A count that drops below its number leaves the joint with nothing to join, and the checks name it as an error until you delete it or add it again.",
     input_schema: obj(
       {
         id: { type: "string" },
@@ -340,7 +340,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "delete_array",
-    description: "Delete an array. Its copies disappear; the original parts stay.",
+    description: "Delete an array. Its copies disappear; the original parts stay. A joint on one of its copies, such as shelf#2, is then an error until you delete it.",
     input_schema: obj({ id: { type: "string" } }, ["id"]),
   },
   {

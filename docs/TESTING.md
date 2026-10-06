@@ -162,6 +162,35 @@ true or false, is refused the same way. The core tests hold each key size
 to the number it works out to, or the reason it can't. The web tests hold
 a plan's card to the model's number for each size.
 
+### A joint on one copy
+
+The core tests hold a joint on one copy to an invented bookcase, with
+three shelves housed into its sides. A drawer divider's top is housed into
+`shelf#2` alone, and its foot is pocket screwed into `shelf#1`, the
+original alone. The dado lands on `shelf#2` and nowhere else, while the
+shelves' own dados repeat on all three. The checks find nothing wrong, and
+the see-through view shows the housing in `shelf#2` alone. The cut list
+gives `shelf#2` a row of its own, named for it, and the drawings give it a
+sheet. A copy named as the guest is lengthened into its host, and gets a
+row of its own too.
+
+A count that rises keeps the joint on `shelf#2`, and a new pitch moves it
+with the shelf. A count of one, or a deleted array, leaves the joint as an
+error with its words pinned, and turning the count back up derives the
+design as it was. The refusals of a copy past the count, a copy of a part
+in no array and a copy number that can't be read are pinned too. Deleting
+a part takes the joints on its copies with it. Every example keeps its
+fixed digest, since none has a joint on a copy.
+
+The server tests run a scripted Claude that builds the bookcase and houses
+the divider into `shelf#2`. The edit's result gives the divider's new
+length and no new problem, and a copy past the count is refused in words
+that name the copies there are. A `set_array` that leaves one shelf comes
+back naming the joint's problem. The tool descriptions are held to the
+divider example, and to the warning that a joint follows its copy's
+number. The web tests hold a joint on one copy to picking that copy on
+screen.
+
 ### Requirements and the whole piece
 
 The core tests hold `overall.width`, `overall.height` and `overall.depth`

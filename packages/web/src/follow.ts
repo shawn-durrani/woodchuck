@@ -6,7 +6,7 @@
 // result shows by itself, such as the ghost of a suggested change, has no
 // place to go. Kept free of React so the tests can hold it.
 
-import { finishLabel, paramShortLabel, shapeSig, type DerivedPart, type Design } from "@woodchuck/core";
+import { finishLabel, jointPartId, paramShortLabel, shapeSig, type DerivedPart, type Design } from "@woodchuck/core";
 import { partNamer } from "./names";
 import type { MakeView, Tab } from "./tabs";
 
@@ -349,8 +349,9 @@ export function describe(place: Place, look: Lookup): Described {
       verb = "joined";
       thing = both ?? "two parts";
       if (j) {
-        pick = real([j.host]);
-        frame = real([j.host, j.guest]);
+        // A joint on one copy, such as shelf#2, picks that copy.
+        pick = real([jointPartId(j.host)]);
+        frame = real([j.host, j.guest].map(jointPartId));
       }
       marks = [`joint:${id}`, ...(pick.length ? ["part"] : [])];
       break;

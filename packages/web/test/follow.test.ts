@@ -126,6 +126,15 @@ describe("where each tool shows", () => {
     expect(joined.frame.length).toBe(4);
   });
 
+  // Issue #43: a joint can name one copy, and the screen picks that copy. shelf_slat#1 is the original alone.
+  it("picks the copy a joint names, and reads the original alone by its number", () => {
+    const pinned = bench([{ op: "add_joint", id: "slat_pair", type: "butt", host: "shelf_slat#2", guest: "shelf_slat#1" }]);
+    const seen = describePlace(place("add_joint", "add joint slat_pair"), lookupOf(stateOf(pinned)));
+    expect(seen.caption).toBe("Claude joined Shelf slat 2 of 4 and Shelf slat 1 of 4 in Edit");
+    expect(seen.pick).toEqual(["shelf_slat#2"]);
+    expect(seen.frame).toEqual(["shelf_slat#2", "shelf_slat"]);
+  });
+
   // Issue #12: one call can carry a whole stage of edits. It opens Edit, and the parts it moved frame themselves.
   it("places a list of edits in Edit by its count", () => {
     expect(PLACES.apply_edits).toBe("part");
