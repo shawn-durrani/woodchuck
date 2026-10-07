@@ -287,6 +287,9 @@ export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string>
   explode: "explode",
   focusJoint: "explode",
   photo: "share.photo",
+  photoLens: "share.photo",
+  photoShadow: "share.photo",
+  blend: "share.photo",
   render: "share.render",
   fill: "share.full",
   select: "canvas",
@@ -362,7 +365,9 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
     next.explode = v.explode;
     if (v.explode === 0) next.focusJoint = null;
   }
-  if (v.photo && hasPhoto) {
+  // The blend relights the piece in its photo, so the photo shows.
+  if (v.blend && hasPhoto) next.photo = true;
+  if (next.photo && hasPhoto && (v.photo || v.blend)) {
     next.explode = 0;
     next.focusJoint = null;
   } else if (next.explode > 0 && (v.explode !== undefined || v.focusJoint)) next.photo = false;

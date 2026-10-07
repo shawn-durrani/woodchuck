@@ -82,6 +82,11 @@ export interface AppState {
   undone?: Change[];
   /** Every design, by id. */
   projects?: { slug: string; name: string; starred: boolean; changed: string | null }[];
+  /** The design's saved versions, newest first. */
+  versions?: { sha: string; author: string; at: string; message: string }[];
+  /** The room photo kept with the design, if any. */
+  backdrop?: string | null;
+  has_openai_key?: boolean;
 }
 
 /** A short account of the open design: its name, problems, timber, finishes and joints. */
@@ -588,6 +593,59 @@ async function designAction(a: DesignRequest) {
   }
 }
 
+/** A version's short id, as woodchuck_history gives it. */
+const shortSha = (sha: string) => sha.slice(0, 7);
+
+/** The design's saved versions, newest first, by short id. */
+export function versionList(s: AppState, max = 15): string {
+  const all = s.versions ?? [];
+  if (!all.length) return "There are no saved versions of this design yet.";
+  const lines = all.slice(0, max).map((v) => `- ${shortSha(v.sha)}: ${v.message}, ${v.at.slice(0, 16).replace("T", " ")}, by ${v.author === "claude" ? "Woodchuck's Claude" : "the woodworker"}`);
+  return ["Versions of the open design, newest first, by id:", ...lines, ...(all.length > max ? [`and ${all.length - max} older`] : [])].join("\n");
+}
+
+export interface PhotoRequest {
+  show?: boolean | undefined;
+  lens_degrees?: number | undefined;
+  shadow?: number | undefined;
+  blend?: boolean | undefined;
+  remove?: boolean | undefined;
+  confirmed?: boolean | undefined;
+}
+
+/**
+ * The room photo bar, for another chat. Showing it and setting its lens and
+ * shadow end the same however often they're sent. Removing the photo and
+ * the AI blend wait for the woodworker's yes, and each blend is a new one
+ * that costs money.
+ */
+async function photoAction(a: PhotoRequest) {
+  const s = await getState();
+  if (a.remove) {
+    if (!s.backdrop) return text("There's no room photo with this design, so there's nothing to remove.");
+    if (!a.confirmed) return text("Nothing changed yet. Removing the room photo takes it off this design. Ask the woodworker, then call again with confirmed true.");
+    const r = await postJson("/api/backdrop/clear", {});
+    return r.status >= 300 ? refusal(r) : text("Removed the room photo from this design.");
+  }
+  const view: Record<string, unknown> = {};
+  if (a.show !== undefined) view.photo = a.show;
+  if (a.lens_degrees !== undefined) view.photoLens = a.lens_degrees;
+  if (a.shadow !== undefined) view.photoShadow = a.shadow;
+  if (a.blend) {
+    if (!s.backdrop) return text("Nothing changed. There's no room photo to blend into. The woodworker loads one with Share, then Photo.");
+    if (!s.has_openai_key) return text("Nothing changed. The AI blend needs an OpenAI API key in Woodchuck's .env file.");
+    if (!a.confirmed) return text("Nothing changed yet. The AI blend sends the room photo to OpenAI, and each blend costs money. Ask the woodworker, then call again with confirmed true.");
+    view.blend = true;
+  }
+  if (!Object.keys(view).length) return text("Nothing changed. Say show, lens_degrees, shadow, blend or remove.");
+  if (view.photo === true && !s.backdrop) return text("Nothing changed. There's no room photo with this design. The woodworker loads one with Share, then Photo.");
+  const r = await fetch(`${BASE}/api/view`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from: CALLER, ...view }) });
+  const j = (await r.json().catch(() => ({}))) as { windows?: number; shown?: string; error?: string };
+  if (!r.ok) return refusal({ status: r.status, ...(j.error ? { error: j.error } : {}) });
+  if (!j.windows) return text(`No Woodchuck window is open, so nothing changed. Open ${BASE} in a browser on this computer, then try again.`);
+  return text(`The Woodchuck window now shows ${j.shown}.${view.blend ? " The blended picture appears over the photo when OpenAI sends it back, in about a minute." : ""}`);
+}
+
 /** Sends the open window a view change, and says how many windows took it. */
 async function showView(view: Record<string, unknown>): Promise<number> {
   const v = await fetch(`${BASE}/api/view`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from: CALLER, ...view }) });
@@ -1009,6 +1067,89 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       warmUp();
       try {
         return text(summarise(await getState()));
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_drawings",
+    {
+      title: "Woodchuck's workshop drawings",
+      description:
+        "Get links to the open design's workshop drawings as a PDF to print at 100%, with a drawing of each part and the cut, drilling and hardware lists, and to its cut list as a spreadsheet file. It only reads, so calling again is safe.",
+      inputSchema: { paper: z.enum(["A4", "A3"]).optional().describe("The paper the drawings are laid out on. A4 when left out") },
+    },
+    async ({ paper }) => {
+      warmUp();
+      try {
+        const s = await getState();
+        return text(
+          [
+            `Workshop drawings for ${s.design.name}, on ${paper ?? "A4"}: ${BASE}/api/drawings.pdf?paper=${paper ?? "A4"}`,
+            `Cut list, as a spreadsheet file: ${BASE}/api/cutlist.csv`,
+          ].join("\n"),
+        );
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_photo",
+    {
+      title: "Woodchuck's room photo",
+      description:
+        "Work the room photo bar in the open Woodchuck window, where the design sits in a photo of the woodworker's room. show puts the design in its photo or takes it out. lens_degrees matches the photo's lens and shadow sets how dark the floor shadow is; they stay set, so calling again is safe. blend asks OpenAI to relight the piece to match the room: it costs money each time, so ask the woodworker first and send confirmed true. remove takes the photo off the design, also only after a yes.",
+      inputSchema: {
+        show: z.boolean().optional().describe("true places the design in its room photo; false takes it out"),
+        lens_degrees: z.number().min(20).max(80).optional().describe("The photo's lens, as degrees up and down. Most phone photos are 50 to 60"),
+        shadow: z.number().min(0).max(0.8).optional().describe("How dark the shadow on the floor is, from 0 to 0.8"),
+        blend: z.boolean().optional().describe("Start the AI blend, once the woodworker has said yes to its cost"),
+        remove: z.boolean().optional().describe("Take the photo off the design, once the woodworker has said yes"),
+        confirmed: z.boolean().optional().describe("true once the woodworker has said yes to a blend or a removal"),
+      },
+    },
+    async (a) => {
+      warmUp();
+      try {
+        return await photoAction(a);
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_history",
+    {
+      title: "Woodchuck's saved versions",
+      description:
+        "List the open design's saved versions, newest first, or restore one by its id, as the History tab does. Restoring replaces the whole design with that version, as one change the woodworker can undo, so ask them first and send confirmed true. A design already as that version is left as it is, so calling again is safe. Woodchuck's Claude mustn't be working.",
+      inputSchema: {
+        action: z.enum(["list", "restore"]),
+        version: z.string().min(4).optional().describe("A version's id, from list. For restore"),
+        confirmed: z.boolean().optional().describe("For restore: true once the woodworker has said yes"),
+      },
+    },
+    async ({ action, version, confirmed }) => {
+      warmUp();
+      try {
+        const s = await getState();
+        if (action === "list") return text(versionList(s));
+        const found = (s.versions ?? []).filter((v) => version && v.sha.startsWith(version));
+        if (found.length !== 1) return text(`Nothing changed. ${found.length ? `More than one version starts ${version}, so give more of its id.` : `There's no version ${version ?? "named"}. Call list for the ids.`}`);
+        const v = found[0]!;
+        if (!confirmed) {
+          return text(`Nothing changed yet. Restoring ${shortSha(v.sha)}, "${v.message}", replaces the whole design with it, as one change the woodworker can undo. Ask them, then call again with confirmed true.`);
+        }
+        const r = await fetch(`${BASE}/api/versions/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sha: v.sha }) });
+        const j = (await r.json().catch(() => ({}))) as { error?: string; already?: boolean };
+        if (!r.ok) return refusal({ status: r.status, ...(j.error ? { error: j.error } : {}) });
+        if (j.already) return text(`The design is already as version ${shortSha(v.sha)}, so nothing changed.`);
+        return text(`Restored version ${shortSha(v.sha)}, "${v.message}". It's one change the woodworker can undo.`);
       } catch (e) {
         return unreachable(e);
       }

@@ -47,6 +47,9 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_undo` | Undoes the latest change, named by its number. |
 | `woodchuck_redo` | Puts back the change undone last, named by its number. |
 | `woodchuck_designs` | Lists, opens, starts, copies, renames, stars and deletes designs, as the design menu does, and links to the open one's file. |
+| `woodchuck_history` | Lists the design's saved versions by id, or restores one after the woodworker's yes. |
+| `woodchuck_drawings` | Links to the workshop drawings as a PDF, on A4 or A3, and to the cut list as a spreadsheet file. |
+| `woodchuck_photo` | Works the room photo bar: shows the design in its photo and sets the lens and shadow. The AI blend and removing the photo wait for the woodworker's yes. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
 
@@ -61,13 +64,16 @@ or back in the design is left there. `woodchuck_designs` names a design by
 its id, and new and copy count as done once a design of that name is
 open. Starring sets starred to true or false.
 
-Some steps can't be taken back. Deleting a design waits for the woodworker's
-yes, given as `confirmed`, and a second delete finds the design gone. An
+Some steps can't be taken back, or cost money. Deleting a design, removing
+the room photo, restoring a version and an AI blend each wait for the
+woodworker's yes, given as `confirmed`. A second delete or removal finds
+it gone, and a second restore finds the design already as that version.
+A blend is a new one each time it's sent, so it's an exception. An
 undo or a redo only moves the latest change, so going back further is one
 call a change, latest first. The window's own Undo and Redo name their
 change the same way, so a second click can't take another step.
 
-`turn_degrees`, `zoom` and `render` are the exceptions. They turn, zoom or
+`turn_degrees`, `zoom` and `render` are exceptions too. They turn, zoom or
 save a picture each time they're sent.
 
 ## Changing a size straight away

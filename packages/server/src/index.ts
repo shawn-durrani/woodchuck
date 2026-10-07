@@ -478,12 +478,14 @@ export function createApp(opts: {
           const before = store.versions.show(project.slug, sha, true) ?? emptyDesign(after.name);
           return json(200, { lines: diffDesigns(before, after, { names: true }) });
         }
+        // A design already as that version is left as it is, so sending it twice restores once.
         case "POST /api/versions/restore": {
           if (turn) return fail(409, "Claude is working. Wait or stop it first.");
           const sha = String((await body()).sha ?? "");
           const v = store.versions.log(project.slug).find((x) => x.sha === sha);
           const d = v && store.versions.show(project.slug, sha);
           if (!v || !d) return fail(404, "There's no such version");
+          if (JSON.stringify(d) === JSON.stringify(project.design)) return json(200, { ok: true, already: true });
           const when = plainTime(v.at);
           project.replace(d, "you", `Restore the version from ${when}`);
           broadcastState();

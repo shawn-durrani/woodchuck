@@ -36,6 +36,15 @@ describe("view commands from outside the window", () => {
     expect(readViewCommand({ explode: 0, mode: "plan" })).toEqual({ explode: 0, mode: "plan" });
   });
 
+  it("sets the room photo's lens and shadow, and starts a blend (#69)", () => {
+    expect(readViewCommand({ photoLens: 55.4, photoShadow: 0.333 })).toEqual({ photoLens: 55, photoShadow: 0.33 });
+    expect(describeView(readViewCommand({ photoLens: 55, photoShadow: 0.4 }))).toBe("a 55° lens on the photo and the shadow at 40%");
+    expect(describeView(readViewCommand({ blend: true }))).toBe("the AI blend started");
+    expect(() => readViewCommand({ photoLens: 10 })).toThrow(/photoLens must be between 20 and 80 degrees/);
+    expect(() => readViewCommand({ photoShadow: 1 })).toThrow(/photoShadow must be between 0 and 0.8/);
+    expect(() => readViewCommand({ blend: true, photo: false })).toThrow(/needs the photo showing/);
+  });
+
   it("starts a slow orbit at the default speed, or the one asked for, and stops it", () => {
     const c = readViewCommand({ orbit: "start", from: "Crossband" });
     expect(c).toEqual({ orbit: "start", orbitSpeed: ORBIT_SPEED.default, from: "Crossband" });

@@ -213,7 +213,9 @@ describe("view commands reach the toolbar", () => {
     const tab = readViewCommand({ tab: "make" });
     // Pulling the piece apart can't go with the photo either.
     const apart = readViewCommand({ explode: 0.5, focusJoint: "rail_in_leg" });
-    const routed = [...Object.keys(every), ...Object.keys(orbit), ...Object.keys(tab), ...Object.keys(apart)].filter((k) => k !== "from" && k !== "note");
+    // The photo bar's lens, shadow and blend, issue #69.
+    const photoBar = readViewCommand({ photoLens: 55, photoShadow: 0.4, blend: true });
+    const routed = [...Object.keys(every), ...Object.keys(orbit), ...Object.keys(tab), ...Object.keys(apart), ...Object.keys(photoBar)].filter((k) => k !== "from" && k !== "note");
     expect(routed.sort()).toEqual(Object.keys(ROUTES).sort());
     const ids = [...allControls(base).keys()];
     for (const [key, home] of Object.entries(ROUTES)) {
@@ -248,6 +250,13 @@ describe("view commands reach the toolbar", () => {
     expect(after({ focusJoint: "rail_in_leg" }, { ...view, photo: true }).state.photo).toBe(false);
     // A command about something else leaves it apart.
     expect(after({ seeThrough: true }, apart.state).state.explode).toBe(1);
+  });
+
+  it("puts the design in its room photo for a blend, and pulls nothing apart there (#69)", () => {
+    const blended = after({ blend: true }, { ...view, explode: 1 });
+    expect(blended.state).toMatchObject({ photo: true, explode: 0 });
+    expect(after({ blend: true }, view, false).state.photo).toBe(false);
+    expect(after({ photoLens: 60, photoShadow: 0.2 }).state.photo).toBe(false);
   });
 
   it("switches between the 3D view and the drawings in the Look menu", () => {
