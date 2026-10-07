@@ -604,7 +604,7 @@ export const TOOLS: Tool[] = [
   {
     name: "show_joint",
     description:
-      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. A dado, groove, rabbet or dado_rabbet can be shown stopped 10 mm short of an edge, with the guest's corner notched. Or give id, one of this design's own joints, to pull its two parts apart on the model itself with the rest faded, when they ask how a joint in their piece goes together. It doesn't change the design or end your turn.",
+      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. A dado, groove, rabbet or dado_rabbet can be shown stopped 10 mm short of an edge, with the guest's corner notched. Or give id, one of this design's own joints, to pull its two parts apart on the model itself with the rest faded and open its section and sizes, when they ask how a joint in their piece goes together or what size it is. It doesn't change the design or end your turn.",
     input_schema: obj(
       {
         type: { type: "string", enum: [...JOINT_TYPES], description: "The joint to show a worked example of. Leave it out when you give id" },
@@ -1052,7 +1052,7 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
           const j = d.joints.find((x) => x.id === id);
           if (!j) throw new QueryError(`There's no joint "${id}" in this design. Its joints: ${d.joints.map((x) => x.id).join(", ") || "none yet"}`);
           return {
-            content: `Joint ${id}, a ${JOINT_LIBRARY[j.type].name.toLowerCase()} with ${j.guest} into ${j.host}, is pulled apart on the model, with the rest faded. Say a sentence about it; the model shows the rest.`,
+            content: `Joint ${id}, a ${JOINT_LIBRARY[j.type].name.toLowerCase()} with ${j.guest} into ${j.host}, is pulled apart on the model, with the rest faded, and its section and sizes are open beside it. Say a sentence about it; the window shows the rest.`,
             example: { joint: j.type, of: id, ...(note ? { note } : {}) },
           };
         }

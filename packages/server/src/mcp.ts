@@ -657,7 +657,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         focus_joint: z
           .string()
           .optional()
-          .describe('Pull one of the design\'s joints apart on its own, by its id from woodchuck_status, with the rest faded, for "how does this joint go together". "" goes back to the whole piece'),
+          .describe('Pull one of the design\'s joints apart on its own, by its id from woodchuck_status, with the rest faded and its section and sizes beside it, for "how does this joint go together" or "what size is that tenon". "" goes back to the whole piece'),
         photo: z.boolean().optional().describe("Place the design in its room photo, or put the photo away"),
         render: z.boolean().optional().describe("After the other changes, save a picture of what the window shows to the woodworker's downloads"),
         fill_window: z.boolean().optional().describe("true fills the window with the 3D view; false brings the panels back"),

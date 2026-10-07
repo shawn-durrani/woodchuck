@@ -25,7 +25,7 @@ describe("view commands from outside the window", () => {
     expect(describeView(readViewCommand({ explode: 0.5 }))).toBe("the piece partly pulled apart");
     expect(describeView(readViewCommand({ explode: 0 }))).toBe("the piece back together");
     expect(readViewCommand({ focusJoint: "shelf_dado#2" })).toEqual({ focusJoint: "shelf_dado#2" });
-    expect(describeView(readViewCommand({ focusJoint: "rail_in_leg", explode: 1 }))).toBe("joint rail_in_leg pulled apart");
+    expect(describeView(readViewCommand({ focusJoint: "rail_in_leg", explode: 1 }))).toBe("joint rail_in_leg pulled apart, with its section and sizes");
     expect(describeView(readViewCommand({ focusJoint: "" }))).toBe("the whole piece back together");
     expect(describeView(readViewCommand({ focusJoint: "", explode: 1 }))).toBe("the whole piece pulled apart");
     expect(() => readViewCommand({ explode: 2 })).toThrow(/explode must be between 0, together, and 1, fully apart/);

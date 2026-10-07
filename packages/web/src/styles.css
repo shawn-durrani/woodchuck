@@ -1529,6 +1529,10 @@ input[aria-invalid="true"] {
   top: auto;
   bottom: 64px;
 }
+/* With the explode bar along the bottom, the note sits above it. */
+.centre:has(.explode-bar) .toast {
+  bottom: 170px;
+}
 .topbar button.working-button:disabled {
   opacity: 1;
   cursor: progress;
@@ -1757,6 +1761,42 @@ input[aria-invalid="true"] {
 .drawer.paired.slot-example {
   right: clamp(250px, 30%, 420px);
   box-shadow: none;
+}
+/* One of the design's own joints in section takes the same slot, a little wider for its drawing. The drawing keeps its white paper in every theme. */
+.drawer.slot-joint {
+  width: clamp(320px, 42%, 600px);
+}
+.drawer.paired.slot-joint {
+  right: clamp(250px, 30%, 420px);
+  box-shadow: none;
+}
+/* A joint's section sits beside the 3D view of the same joint, never over it. */
+.stage.beside-joint > .canvas-wrap {
+  right: clamp(320px, 42%, 600px);
+}
+.stage.beside-joint .explode-bar {
+  left: calc((100% - clamp(320px, 42%, 600px)) / 2);
+  width: min(460px, calc(100% - clamp(320px, 42%, 600px) - 20px));
+}
+.joint-section {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: auto;
+}
+.joint-section svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.joint-size {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.joint-size dt {
+  min-width: 7em;
+  margin-top: 2px;
 }
 .drawer .row {
   flex-wrap: wrap;
@@ -2922,6 +2962,10 @@ a.primary-link:hover {
     max-width: calc(100% - 24px);
     white-space: normal;
   }
+  /* Under the explode bar, which keeps the top strip. */
+  .app.phone .centre:has(.explode-bar) .toast {
+    top: 124px;
+  }
   .app.phone .centre > .error-note.at-view {
     position: absolute;
     top: 8px;
@@ -3455,8 +3499,13 @@ a.primary-link:hover {
   .app.phone .ghost-words {
     flex-basis: 100%;
   }
+  /* On a phone the section fills the screen, so the 3D view keeps its width under it. */
+  .app.phone .stage.beside-joint > .canvas-wrap {
+    right: 0;
+  }
   /* Explode keeps to the same strip at the top, clear of the sheet. */
-  .app.phone .explode-bar {
+  .app.phone .explode-bar,
+  .app.phone .stage.beside-joint .explode-bar {
     top: 8px;
     bottom: auto;
     left: 8px;
@@ -3474,7 +3523,8 @@ a.primary-link:hover {
   /* A worked example or an older suggestion fills the screen under the header. */
   .app.phone .drawer,
   .app.phone .drawer.paired,
-  .app.phone .drawer.paired.slot-example {
+  .app.phone .drawer.paired.slot-example,
+  .app.phone .drawer.paired.slot-joint {
     position: fixed;
     top: var(--phone-top);
     left: 0;

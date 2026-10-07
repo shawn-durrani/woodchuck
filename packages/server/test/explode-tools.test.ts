@@ -73,7 +73,9 @@ describe("show_joint with a joint of the design", () => {
     runTool("apply_edits", { edits: shelf }, ctx());
     const shown = runTool("show_joint", { id: "shelf_l", note: "The shelf slides out of its dado" }, ctx());
     expect(shown.example).toEqual({ joint: "dado", of: "shelf_l", note: "The shelf slides out of its dado" });
-    expect(shown.content).toBe("Joint shelf_l, a dado (housing) with shelf into side_l, is pulled apart on the model, with the rest faded. Say a sentence about it; the model shows the rest.");
+    expect(shown.content).toBe(
+      "Joint shelf_l, a dado (housing) with shelf into side_l, is pulled apart on the model, with the rest faded, and its section and sizes are open beside it. Say a sentence about it; the window shows the rest.",
+    );
     expect(runTool("show_joint", { id: "nope" }, ctx())).toMatchObject({ isError: true, content: `There's no joint "nope" in this design. Its joints: shelf_l, shelf_r` });
     expect(runTool("show_joint", {}, ctx())).toMatchObject({ isError: true });
   });

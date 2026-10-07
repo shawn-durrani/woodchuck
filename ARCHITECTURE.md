@@ -719,6 +719,17 @@ ones too. On the way it may pass through a faded part that holds it too,
 and the bar names that part. The plan views, the room photo and a
 suggested change show the piece together, so Explode waits for them.
 
+A joint on its own also opens its section and sizes beside the model,
+and the 3D view moves over to make room. `jointSection` in
+`packages/core/src/drawings.ts` cuts through the joint twice, the way the
+workshop drawings draw a part. A tongue joint is cut through its
+thickness and through its width, a half lap along each part, and a box
+joint through its fingers and across its corner. Each part's cut face is
+hatched its own way, wood cut away stays white, and a fixing crossing the
+cut is solid grey. Every real face gets a size, and each view takes the
+largest standard scale that fits. Under the drawing are the joint's
+settings and each part's cuts, in the cut list's own words.
+
 ## Other chats use the same tools
 
 Woodchuck is also an MCP server, so a chat app such as Crossband can work

@@ -17,7 +17,8 @@
 // the ends and the cutouts.
 
 import { runChecks } from "./checks.js";
-import { AXIS_INDEX, type Box, type DeriveResult, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
+import { AXIS_INDEX, type Box, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
+import { JOINT_LIBRARY } from "./joints.js";
 import { cutList, machiningText, machiningWith, roundCut, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
 import { cutOutline } from "./profile.js";
@@ -1455,4 +1456,313 @@ export function sheetSvg(sheet: Sheet): string {
   }
   out.push("</svg>");
   return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// A joint in section
+//
+// Two cuts through one joint, one above the other, each at a standard
+// scale of its own, for the drawer beside the model. A tongue joint is cut through its thickness and
+// through its width, a half lap along each of its parts, and a box joint
+// through its fingers and across its corner. Each part's cut face is
+// hatched its own way, wood cut away is left white, and fixings that cross
+// the cut are drawn solid. Every edge that's a real face gets a size, in a
+// chain along the bottom and up the side. Where the drawing stops short of
+// a part's end, the edge is dashed.
+
+/** One joint drawn in section, two views one above the other. */
+export interface JointSection {
+  title: string;
+  /** Each view's n in 1:n, in order. */
+  scales: number[];
+  width_mm: number;
+  height_mm: number;
+  marks: Mark[];
+  /** Each view's sizes, along its two world axes. The views are named as their titles are. */
+  dims: SheetDim[];
+}
+
+type SectionPart = Pick<DerivedPart, "id" | "box" | "nominal" | "broken" | "thickness_axis" | "width_axis">;
+type SectionJoint = Pick<DerivedJoint, "id" | "type" | "family" | "host" | "guest" | "axis" | "features">;
+
+/** One cut: the axes across and up the view, the axis it cuts along, and where. */
+interface Cut {
+  name: string;
+  across: Axis;
+  up: Axis;
+  normal: Axis;
+  at: number;
+}
+
+/** Room for one view on the drawing, before scaling. */
+const SECTION_VIEW = { w: 110, h: 90 };
+/** A part no thicker than this along a view's axis is drawn whole that way. */
+const THIN_ENOUGH = 100;
+/** Hatching: its spacing on paper. */
+const HATCH = 1.2;
+/** Fixings crossing a cut are drawn this grey. */
+const FIXING = "#555555";
+
+const ax = (a: Axis) => AXIS_INDEX[a];
+const lo = (b: Box, a: Axis) => b.min[ax(a)]!;
+const hi = (b: Box, a: Axis) => b.max[ax(a)]!;
+const spanOf = (b: Box, a: Axis) => hi(b, a) - lo(b, a);
+const midOf = (b: Box, a: Axis) => (lo(b, a) + hi(b, a)) / 2;
+
+function boxHull(boxes: Box[]): Box {
+  return {
+    min: [0, 1, 2].map((k) => Math.min(...boxes.map((b) => b.min[k]!))) as Vec3,
+    max: [0, 1, 2].map((k) => Math.max(...boxes.map((b) => b.max[k]!))) as Vec3,
+  };
+}
+
+/** The box a fixing's rod fills. */
+function rodBox(from: Vec3, to: Vec3, d: number): Box {
+  return { min: from.map((v, k) => Math.min(v, to[k]!) - (from[k] === to[k] ? d / 2 : 0)) as Vec3, max: from.map((v, k) => Math.max(v, to[k]!) + (from[k] === to[k] ? d / 2 : 0)) as Vec3 };
+}
+
+/** The two cuts through a joint, or none when it isn't placed. */
+function sectionCuts(j: SectionJoint, host: SectionPart, guest: SectionPart, region: Box): Cut[] {
+  const other = (a: Axis, b: Axis) => AXES.find((x) => x !== a && x !== b)!;
+  const rods = j.features.filter((f) => f.from && f.to);
+  if (j.family === "interlock") {
+    const o: Box = {
+      min: [0, 1, 2].map((k) => Math.max(guest.nominal.min[k]!, host.nominal.min[k]!)) as Vec3,
+      max: [0, 1, 2].map((k) => Math.min(guest.nominal.max[k]!, host.nominal.max[k]!)) as Vec3,
+    };
+    if (j.type === "half_lap") {
+      const s = AXES.find((a) => Math.abs(spanOf(o, a) - spanOf(host.nominal, a)) < EPS && Math.abs(spanOf(o, a) - spanOf(guest.nominal, a)) < EPS);
+      if (!s) return [];
+      // Each part runs along the axis it's longest on.
+      const along = (p: SectionPart) => AXES.filter((a) => a !== s).reduce((a, b) => (spanOf(p.nominal, b) > spanOf(p.nominal, a) ? b : a));
+      const h = along(host);
+      const g = h === along(guest) ? other(s, h) : along(guest);
+      return [
+        { name: `Along ${host.id}`, across: h, up: s, normal: g, at: midOf(o, g) },
+        { name: `Along ${guest.id}`, across: g, up: s, normal: h, at: midOf(o, h) },
+      ];
+    }
+    if (host.thickness_axis === guest.thickness_axis) return [];
+    const f = other(host.thickness_axis, guest.thickness_axis);
+    const first = j.features.find((x) => x.box)?.box ?? o;
+    return [
+      { name: "Through the fingers", across: f, up: guest.thickness_axis, normal: host.thickness_axis, at: midOf(o, host.thickness_axis) },
+      { name: "Across the corner", across: host.thickness_axis, up: guest.thickness_axis, normal: f, at: midOf(first, f) },
+    ];
+  }
+  if (!j.axis) return [];
+  const a = j.axis;
+  const t = guest.thickness_axis === a ? guest.width_axis : guest.thickness_axis;
+  const l = other(a, t);
+  // A fixing is cut through its middle, so it shows its whole length.
+  const rod = rods[0];
+  const rodAt = (k: Axis) => (rod ? (rod.from![ax(k)]! + rod.to![ax(k)]!) / 2 : undefined);
+  return [
+    { name: "Through the thickness", across: a, up: t, normal: l, at: rodAt(l) ?? midOf(region, l) },
+    { name: "Through the width", across: a, up: l, normal: t, at: rodAt(t) ?? midOf(region, t) },
+  ];
+}
+
+/** Which way a view's axes run on paper: up is up for height, and the front is at the bottom for a plan. */
+function orient(c: Cut): Cut {
+  if (c.across === "y") return { ...c, across: c.up, up: "y" };
+  if (c.up !== "y" && c.across === "z") return { ...c, across: c.up, up: "z" };
+  return c;
+}
+
+/** Draws one joint in section, or null for a joint that isn't there or isn't placed. */
+export function jointSection(d: { parts: readonly SectionPart[]; joints: readonly SectionJoint[] }, id: string): JointSection | null {
+  const j = d.joints.find((x) => x.id === id);
+  const host = j && d.parts.find((p) => p.id === j.host && !p.broken);
+  const guest = j && d.parts.find((p) => p.id === j.guest && !p.broken);
+  if (!j || !host || !guest) return null;
+  const bits = j.features.flatMap((f): Box[] => (f.box ? [f.box] : f.from && f.to ? [rodBox(f.from, f.to, f.diameter_mm ?? 4)] : []));
+  const meet: Box = {
+    min: [0, 1, 2].map((k) => Math.max(guest.box.min[k]!, host.box.min[k]!)) as Vec3,
+    max: [0, 1, 2].map((k) => Math.min(guest.box.max[k]!, host.box.max[k]!)) as Vec3,
+  };
+  const region = bits.length ? boxHull(bits) : meet;
+  const cuts = sectionCuts(j, host, guest, region).map(orient);
+  if (!cuts.length) return null;
+  const both = boxHull([host.box, guest.box]);
+  const pen = new Pen();
+  const dims: SheetDim[] = [];
+  const scales: number[] = [];
+  const left = PAD + dimMargin(1) + 4;
+  let y = 12;
+  let right = left;
+  for (const c of cuts) {
+    // A little of each part round the joint, as the view sees it, never past the parts themselves.
+    const margin = Math.min(60, Math.max(15, 0.6 * Math.max(spanOf(region, c.across), spanOf(region, c.up))));
+    const frame: Box = {
+      min: [0, 1, 2].map((k) => Math.max(region.min[k]! - margin, both.min[k]!)) as Vec3,
+      max: [0, 1, 2].map((k) => Math.min(region.max[k]! + margin, both.max[k]!)) as Vec3,
+    };
+    // A part that's thin this way, such as a leg's width or a rail's thickness, shows whole, so the wood either side of the joint gets its size.
+    for (const p of [host, guest]) {
+      for (const a of [c.across, c.up]) {
+        if (spanOf(p.box, a) > THIN_ENOUGH) continue;
+        frame.min[ax(a)] = Math.min(frame.min[ax(a)]!, lo(p.box, a));
+        frame.max[ax(a)] = Math.max(frame.max[ax(a)]!, hi(p.box, a));
+      }
+    }
+    const need = Math.max(spanOf(frame, c.across) / SECTION_VIEW.w, spanOf(frame, c.up) / SECTION_VIEW.h);
+    const scale = DRAWING_SCALES.find((n) => need <= n) ?? DRAWING_SCALES[DRAWING_SCALES.length - 1]!;
+    scales.push(scale);
+    const name = `${c.name}, 1:${scale}`;
+    pen.text(left, y + 4, name, { bold: true });
+    drawCut(pen, dims, c, j, host, guest, frame, scale, left, y + 8);
+    right = Math.max(right, left + spanOf(frame, c.across) / scale, left + textWidth_mm(name, TEXT, true));
+    y += 8 + spanOf(frame, c.up) / scale + dimMargin(1) + 6;
+  }
+  const title = `${JOINT_LIBRARY[j.type].name}: ${guest.id} into ${host.id}`;
+  pen.text(PAD, 6, title, { size_mm: 3, bold: true });
+  const width = Math.max(right, PAD + textWidth_mm(title, 3, true)) + PAD;
+  return { title, scales, width_mm: Math.ceil(width), height_mm: Math.ceil(y - 6 + PAD), marks: pen.marks, dims };
+}
+
+/** One view of a joint in section, with its top left corner at x, y on paper. */
+function drawCut(pen: Pen, dims: SheetDim[], c: Cut, j: SectionJoint, host: SectionPart, guest: SectionPart, frame: Box, scale: number, x0: number, y0: number) {
+  const inCut = (b: Box) => lo(b, c.normal) - EPS <= c.at && c.at <= hi(b, c.normal) + EPS;
+  const flat = (b: Box) => ({ a0: lo(b, c.across), a1: hi(b, c.across), u0: lo(b, c.up), u1: hi(b, c.up) });
+  const clip = (r: ReturnType<typeof flat>) => ({
+    a0: Math.max(r.a0, lo(frame, c.across)),
+    a1: Math.min(r.a1, hi(frame, c.across)),
+    u0: Math.max(r.u0, lo(frame, c.up)),
+    u1: Math.min(r.u1, hi(frame, c.up)),
+  });
+  const rects = (boxes: Box[]) => boxes.filter(inCut).map((b) => clip(flat(b))).filter((r) => r.a1 - r.a0 > EPS && r.u1 - r.u0 > EPS);
+  const mine = (p: SectionPart, kind: "tongue" | "removed") => j.features.filter((f) => f.part === p.id && f.kind === kind && f.box).map((f) => f.box!);
+  const solid = { host: rects([host.nominal, ...mine(host, "tongue")]), guest: rects([guest.nominal, ...mine(guest, "tongue")]) };
+  const gone = { host: rects(mine(host, "removed")), guest: rects(mine(guest, "removed")) };
+  // A grid on every edge, so each cell is wholly one part's or neither's.
+  const cutsAt = (key: "a" | "u") => {
+    const all = [...solid.host, ...solid.guest, ...gone.host, ...gone.guest].flatMap((r) => (key === "a" ? [r.a0, r.a1] : [r.u0, r.u1]));
+    return uniqueSorted(all);
+  };
+  const as = cutsAt("a");
+  const us = cutsAt("u");
+  const inside = (r: { a0: number; a1: number; u0: number; u1: number }, a: number, u: number) => a > r.a0 && a < r.a1 && u > r.u0 && u < r.u1;
+  const owner = (a: number, u: number): 0 | 1 | 2 => {
+    if (solid.guest.some((r) => inside(r, a, u)) && !gone.guest.some((r) => inside(r, a, u))) return 2;
+    if (solid.host.some((r) => inside(r, a, u)) && !gone.host.some((r) => inside(r, a, u))) return 1;
+    return 0;
+  };
+  const cells = as.slice(1).map((a1, i) => us.slice(1).map((u1, k) => owner((as[i]! + a1) / 2, (us[k]! + u1) / 2)));
+  // World to paper: across runs right, and up runs up the page, except a plan's front, which is at the bottom.
+  const down = c.up === "z";
+  const px = (a: number) => x0 + (a - lo(frame, c.across)) / scale;
+  const py = (u: number) => (down ? y0 + (u - lo(frame, c.up)) / scale : y0 + (hi(frame, c.up) - u) / scale);
+  // Hatching, the host's one way and the guest's the other, lined up across cells.
+  for (let i = 0; i < cells.length; i++) {
+    for (let k = 0; k < cells[i]!.length; k++) {
+      const who = cells[i]![k]!;
+      if (!who) continue;
+      const xa = px(as[i]!);
+      const xb = px(as[i + 1]!);
+      const ya = Math.min(py(us[k]!), py(us[k + 1]!));
+      const yb = Math.max(py(us[k]!), py(us[k + 1]!));
+      hatch(pen, xa, ya, xb, yb, who === 1 ? 1 : -1);
+    }
+  }
+  // Outlines where one part meets air or the other part. Where the drawing stops short of a part that carries on, the edge is dashed.
+  const partOf = (who: number) => (who === 1 ? host : guest);
+  const carriesOn = (who: number, axis: Axis, v: number) => {
+    const b = partOf(who).box;
+    return (Math.abs(v - lo(frame, axis)) < EPS && lo(b, axis) < v - EPS) || (Math.abs(v - hi(frame, axis)) < EPS && hi(b, axis) > v + EPS);
+  };
+  const at = (i: number, k: number) => (i < 0 || k < 0 || i >= cells.length || k >= cells[0]!.length ? 0 : cells[i]![k]!);
+  const realA = new Set<number>();
+  const realU = new Set<number>();
+  for (let i = 0; i <= cells.length; i++) {
+    for (let k = 0; k < (cells[0]?.length ?? 0); k++) {
+      if (at(i - 1, k) === at(i, k)) continue;
+      const a = as[i]!;
+      const cutOff = carriesOn(at(i - 1, k) || at(i, k), c.across, a);
+      pen.line(px(a), py(us[k]!), px(a), py(us[k + 1]!), cutOff ? THIN : OUTLINE, cutOff);
+      if (!cutOff) realA.add(Math.round(a * 100) / 100);
+    }
+  }
+  for (let k = 0; k <= (cells[0]?.length ?? 0); k++) {
+    for (let i = 0; i < cells.length; i++) {
+      if (at(i, k - 1) === at(i, k)) continue;
+      const u = us[k]!;
+      const cutOff = carriesOn(at(i, k - 1) || at(i, k), c.up, u);
+      pen.line(px(as[i]!), py(u), px(as[i + 1]!), py(u), cutOff ? THIN : OUTLINE, cutOff);
+      if (!cutOff) realU.add(Math.round(u * 100) / 100);
+    }
+  }
+  // Fixings that cross the cut, drawn solid: a rod lying in the cut as its length, one crossing it as its end.
+  for (const f of j.features) {
+    if (!f.from || !f.to) continue;
+    const dia = f.diameter_mm ?? 4;
+    const n = ax(c.normal);
+    if (Math.abs(f.from[n]! - f.to[n]!) < EPS) {
+      if (Math.abs(f.from[n]! - c.at) > dia / 2) continue;
+      const r = clip(flat(rodBox(f.from, f.to, dia)));
+      if (r.a1 - r.a0 <= EPS || r.u1 - r.u0 <= EPS) continue;
+      pen.rect(px(r.a0), Math.min(py(r.u0), py(r.u1)), (r.a1 - r.a0) / scale, Math.abs(py(r.u1) - py(r.u0)), { stroke_mm: THIN, fill: FIXING });
+    } else if (Math.min(f.from[n]!, f.to[n]!) <= c.at && c.at <= Math.max(f.from[n]!, f.to[n]!)) {
+      pen.circle(px(f.from[ax(c.across)]!), py(f.from[ax(c.up)]!), dia / 2 / scale, { stroke_mm: THIN, fill: FIXING });
+    }
+  }
+  // Each part's name, in the middle of its biggest cell.
+  for (const [who, p] of [
+    [1, host],
+    [2, guest],
+  ] as const) {
+    let best: { i: number; k: number; area: number } | null = null;
+    cells.forEach((col, i) =>
+      col.forEach((v, k) => {
+        const area = (as[i + 1]! - as[i]!) * (us[k + 1]! - us[k]!);
+        if (v === who && (!best || area > best.area)) best = { i, k, area };
+      }),
+    );
+    if (!best) continue;
+    const { i, k } = best as { i: number; k: number };
+    const cx = (px(as[i]!) + px(as[i + 1]!)) / 2;
+    const cy = (py(us[k]!) + py(us[k + 1]!)) / 2;
+    const label = p.id;
+    const wpx = textWidth_mm(label, TEXT);
+    pen.rect(cx - wpx / 2 - 0.8, cy - TEXT + 0.2, wpx + 1.6, TEXT + 1, { stroke_mm: 0, fill: "#ffffff" });
+    pen.text(cx, cy, label, { anchor: "middle" });
+  }
+  // Sizes: a chain of every real edge, along the bottom and up the left.
+  const along = [...realA].sort((p, q) => p - q);
+  const upward = [...realU].sort((p, q) => p - q);
+  const bottom = Math.max(py(lo(frame, c.up)), py(hi(frame, c.up)));
+  const leftEdge = px(lo(frame, c.across));
+  if (along.length >= 2) {
+    dimRow(pen, "below", bottom, bottom + DIM_FIRST, along.map(px), gapsBetween(along, along[0]!));
+    dims.push({ view: c.name, along: c.across, kind: "chain", values_mm: gapsBetween(along, along[0]!) });
+  }
+  if (upward.length >= 2) {
+    // Paper runs down the page, so the points go in that order.
+    const order = [...upward].sort((p, q) => py(p) - py(q));
+    dimRow(pen, "left", leftEdge, leftEdge - DIM_FIRST, order.map(py), gapsBetween(upward, upward[0]!)[down ? "slice" : "reverse"]());
+    dims.push({ view: c.name, along: c.up, kind: "chain", values_mm: gapsBetween(upward, upward[0]!) });
+  }
+}
+
+/** Hatches a box on paper with lines at 45°, one way or the other, lined up with every other box's. */
+function hatch(pen: Pen, x0: number, y0: number, x1: number, y1: number, way: 1 | -1) {
+  // Lines y = way * x + k, at even steps of k measured across the page.
+  const step = HATCH * Math.SQRT2;
+  const ks = way > 0 ? [y0 - x1, y1 - x0] : [y0 + x0, y1 + x1];
+  for (let k = Math.ceil(ks[0]! / step) * step; k <= ks[1]!; k += step) {
+    const pts: [number, number][] = [];
+    for (const x of [x0, x1]) {
+      const y = way * x + k;
+      if (y >= y0 - 1e-6 && y <= y1 + 1e-6) pts.push([x, y]);
+    }
+    for (const y of [y0, y1]) {
+      const x = way * (y - k);
+      if (x >= x0 - 1e-6 && x <= x1 + 1e-6) pts.push([x, y]);
+    }
+    if (pts.length < 2) continue;
+    pts.sort((p, q) => p[0] - q[0]);
+    const a = pts[0]!;
+    const b = pts[pts.length - 1]!;
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.05) pen.line(a[0], a[1], b[0], b[1], FINE);
+  }
 }

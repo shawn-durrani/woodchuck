@@ -177,7 +177,7 @@ export function describeView(c: ViewCommand): string {
   } else if (c.orbit === "stop") parts.push("the model held still");
   if (c.seeThrough !== undefined) parts.push(c.seeThrough ? "see-through on" : "see-through off");
   const apart = (x: number) => (x === 0 ? "back together" : x === 1 ? "pulled apart" : "partly pulled apart");
-  if (c.focusJoint) parts.push(`joint ${c.focusJoint} ${apart(c.explode ?? 1)}`);
+  if (c.focusJoint) parts.push(`joint ${c.focusJoint} ${apart(c.explode ?? 1)}, with its section and sizes`);
   else if (c.focusJoint === "") parts.push(`the whole piece ${apart(c.explode ?? 0)}`);
   else if (c.explode !== undefined) parts.push(`the piece ${apart(c.explode)}`);
   if (c.photo !== undefined) parts.push(c.photo ? "the room photo" : "the photo put away");

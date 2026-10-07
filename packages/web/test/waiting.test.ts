@@ -132,17 +132,21 @@ describe("a worked example never hides a waiting preview", () => {
   it("opens in its own slot, beside the preview", () => {
     const withPreview = openSlot(NO_SLOTS, { kind: "preview", id: "v1" });
     const both = openSlot(withPreview, { kind: "example", joint: "mortise_tenon", note: "The low rails use it." });
-    expect(both).toEqual({ preview: "v1", example: { joint: "mortise_tenon", note: "The low rails use it." } });
+    expect(both).toEqual({ preview: "v1", example: { joint: "mortise_tenon", note: "The low rails use it." }, section: null });
   });
 
   it("picking another joint keeps the preview too", () => {
-    const both = openSlot({ preview: "v1", example: { joint: "mortise_tenon" } }, { kind: "example", joint: "half_lap" });
-    expect(both).toEqual({ preview: "v1", example: { joint: "half_lap" } });
+    const both = openSlot({ preview: "v1", example: { joint: "mortise_tenon" }, section: null }, { kind: "example", joint: "half_lap" });
+    expect(both).toEqual({ preview: "v1", example: { joint: "half_lap" }, section: null });
   });
 
   it("keeps a stopped housing stopped, and a plain one plain (issue #44)", () => {
-    expect(openSlot(NO_SLOTS, { kind: "example", joint: "dado", stopped: true })).toEqual({ preview: null, example: { joint: "dado", stopped: true } });
-    expect(openSlot({ preview: null, example: { joint: "dado", stopped: true } }, { kind: "example", joint: "groove" })).toEqual({ preview: null, example: { joint: "groove" } });
+    expect(openSlot(NO_SLOTS, { kind: "example", joint: "dado", stopped: true })).toEqual({ preview: null, example: { joint: "dado", stopped: true }, section: null });
+    expect(openSlot({ preview: null, example: { joint: "dado", stopped: true }, section: null }, { kind: "example", joint: "groove" })).toEqual({ preview: null, example: { joint: "groove" }, section: null });
+    // Issue #66: one of the design's own joints shares the joint's slot, beside a preview.
+    const own = openSlot({ preview: "v1", example: { joint: "dado" }, section: null }, { kind: "joint", id: "shelf_l" });
+    expect(own).toEqual({ preview: "v1", example: null, section: "shelf_l" });
+    expect(openSlot(own, { kind: "example", joint: "groove" })).toEqual({ preview: "v1", example: { joint: "groove" }, section: null });
   });
 });
 

@@ -3,9 +3,9 @@
 // separate, because their housings are on opposite faces. Shapes match only
 // when they're the same to 0.1 mm, and a mirror image keys apart.
 
-import { AXIS_INDEX, DOMINO_MORTISE, stopWords, type DeriveResult, type DerivedPart, type Machining } from "./derive.js";
+import { AXIS_INDEX, DOMINO_MORTISE, stopWords, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining } from "./derive.js";
 import { fmt } from "./expr.js";
-import { dominoSize, housingWord } from "./joints.js";
+import { dominoSize, housingWord, type JointParam } from "./joints.js";
 import { cornerName, shapeKey } from "./profile.js";
 import { isRunner } from "./runners.js";
 import type { Design } from "./types.js";
@@ -97,6 +97,46 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
  */
 export function machiningWith(m: Machining): string {
   return m.on_copy ? m.with : m.with.replace(/#\d+$/, "");
+}
+
+/** One joint's sizes, as the drawer beside the model lists them under its section. */
+export interface JointSizes {
+  /** Each setting with its value in words, such as "15 mm", and whether it's the joint library's usual one. */
+  settings: { name: string; value: string; usual: boolean }[];
+  /** A stopped housing's stops, such as "10 mm from the front". */
+  stopped?: string;
+  /** What to cut on each part, in the cut list's words. */
+  cuts: { part: string; lines: string[] }[];
+}
+
+const SETTING_NAMES: [JointParam, string][] = [
+  ["depth", "Depth"],
+  ["thickness", "Thickness"],
+  ["width", "Width"],
+  ["shoulder", "Shoulder"],
+  ["fit", "Fit"],
+  ["finger", "Finger width"],
+  ["count", "Count"],
+  ["diameter", "Diameter"],
+  ["length", "Length"],
+];
+
+/** A joint's settings and the cuts it makes on each of its parts, or null for a joint that isn't there. */
+export function jointSizes(d: { parts: readonly DerivedPart[]; joints: readonly DerivedJoint[] }, id: string): JointSizes | null {
+  const j = d.joints.find((x) => x.id === id);
+  if (!j) return null;
+  const settings = SETTING_NAMES.flatMap(([k, name]) => {
+    const v = j.params[k];
+    // No fit is no setting at all.
+    if (v === undefined || (k === "fit" && !v)) return [];
+    return [{ name, value: k === "count" ? fmt(v) : `${fmt(r1(v))} mm`, usual: j.defaulted.includes(k) }];
+  });
+  const cuts = [j.host, j.guest].flatMap((pid) => {
+    const p = d.parts.find((x) => x.id === pid);
+    const lines = (p?.machining ?? []).filter((m) => m.joint === id).map((m) => machiningText({ ...m, with: machiningWith(m) }, p));
+    return lines.length ? [{ part: pid, lines }] : [];
+  });
+  return { settings, ...(j.stop_mm ? { stopped: stopWords(j.stop_mm) } : {}), cuts };
 }
 
 function machiningLines(p: DerivedPart): string[] {
