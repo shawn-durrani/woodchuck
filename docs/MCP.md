@@ -51,7 +51,8 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_drawings` | Links to the workshop drawings as a PDF, on A4 or A3, and to the cut list as a spreadsheet file. |
 | `woodchuck_photo` | Works the room photo bar: shows the design in its photo and sets the lens and shadow. The AI blend and removing the photo wait for the woodworker's yes. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
-| `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
+| `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns the picture to look at with a link to it. |
+| `woodchuck_screenshot` | Returns what the open window shows right now, as pictures to look at, with a line saying what they show. |
 
 ## Sending a call twice
 
@@ -233,3 +234,13 @@ opening its own page in a headless Chrome. The tool returns the picture
 and a markdown line that shows it. A chat app that drops images from tools
 can still show it, when its model puts that line in a reply. The link
 points at this computer, so it loads only here.
+
+`woodchuck_screenshot` shows the calling model what the woodworker sees.
+The server asks the open window over its socket, and the window answers
+within a few seconds. It sends the 3D view from the woodworker's own
+camera, with the piece or a joint pulled apart and the parts picked, or
+the plan view's drawing. A joint's section, when it's open, comes as a
+second picture. A line of words says what they show. The room photo stays
+out unless `with_photo` is true. With no window open, the tool says so,
+and `woodchuck_picture` draws the design instead. A chat app passes these
+pictures to its model only if it keeps images from a tool's result.

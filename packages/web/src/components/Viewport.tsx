@@ -214,9 +214,12 @@ function ApiBridge({ apiRef }: { apiRef: React.MutableRefObject<ViewportApi | nu
         const out = document.createElement("canvas");
         out.width = Math.round(src.width * scale);
         out.height = Math.round(src.height * scale);
-        const g = out.getContext("2d");
-        if (!g) return null;
-        g.drawImage(src, 0, 0, out.width, out.height);
+        const ctx = out.getContext("2d");
+        if (!ctx) return null;
+        // Over the room photo the canvas is see-through, so the model sits on white without it.
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(src, 0, 0, out.width, out.height);
         const url = out.toDataURL("image/jpeg", 0.85);
         return { media_type: "image/jpeg", data: url.slice(url.indexOf(",") + 1) };
       },
