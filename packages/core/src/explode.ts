@@ -18,7 +18,10 @@
 // comes off anyway, through what holds it, and the explosion says which
 // parts they are. Each move goes far enough to rest clear of what's around
 // it, now and in every later stage, plus a gap in proportion to what is
-// coming apart. Kept free of three.js so the tests can hold it.
+// coming apart. Once every part is off its joints, a last stage fans them
+// all out from the middle of the piece, up and down as well as out, so the
+// piece reads in three dimensions. Kept free of three.js so the tests can
+// hold it.
 
 import { AXIS_INDEX, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Vec3 } from "./derive.js";
 import { AXES, type Axis } from "./types.js";
@@ -26,7 +29,7 @@ import { AXES, type Axis } from "./types.js";
 export interface ExplodeMove {
   /** The parts that move together. */
   parts: string[];
-  /** How far they move, in mm. Only one axis is ever set. */
+  /** How far they move, in mm. Sliding off a joint sets one axis, and the fan-out any. */
   by_mm: Vec3;
   /** When they move, from 1. Every move in stage 1 happens first. */
   stage: number;
@@ -361,6 +364,59 @@ function flatten(level: Level, start: number, out: ExplodeMove[], locked: string
   return last;
 }
 
+/** How far the fan-out carries a part at the very edge of the piece, as a share of the piece's longest side. */
+export const FAN_OUT = 0.35;
+
+/** Whether two boxes moving in straight lines, from a to a + da and b to b + db together, ever overlap on the way. */
+function meet(a: Box, da: Vec3, b: Box, db: Vec3): boolean {
+  let lo = 0;
+  let hi = 1;
+  for (const k of [0, 1, 2] as const) {
+    const gap = (a.max[k] - a.min[k] + b.max[k] - b.min[k]) / 2 - EPS;
+    const apart = (a.max[k] + a.min[k]) / 2 - (b.max[k] + b.min[k]) / 2;
+    const v = da[k] - db[k];
+    if (Math.abs(v) < 1e-9) {
+      if (Math.abs(apart) >= gap) return false;
+      continue;
+    }
+    const t1 = (-gap - apart) / v;
+    const t2 = (gap - apart) / v;
+    lo = Math.max(lo, Math.min(t1, t2));
+    hi = Math.min(hi, Math.max(t1, t2));
+    if (hi - lo <= 1e-9) return false;
+  }
+  return true;
+}
+
+/**
+ * The fan-out, once every part is off its joints. Each part carries on
+ * away from the middle of the piece, further the nearer an edge it sits.
+ * Its way out is where it sits in the piece, each axis measured against
+ * the piece's own size along it, so a long low piece still spreads up and
+ * down. No two parts may meet on the way, so the fan-out shortens until
+ * none do, and there's none when they still would.
+ */
+function fanOut(parts: ExplodePart[], slid: Map<string, Vec3>): Map<string, Vec3> {
+  const whole = hull(parts.map((p) => p.nominal));
+  const reach = FAN_OUT * longest(whole);
+  const out = (p: ExplodePart) =>
+    AXES.map((a) => {
+      const half = Math.max(span(whole, a) / 2, 1);
+      return clamp((mid(p.nominal, a) - mid(whole, a)) / half, -1, 1) * reach;
+    }) as Vec3;
+  const ways = parts.map(out);
+  const at = parts.map((p) => shift(p.box, slid.get(p.id) ?? [0, 0, 0]));
+  for (const share of [1, 0.5, 0.25]) {
+    const by = ways.map((w) => w.map((v) => Math.round(v * share * 10) / 10) as Vec3);
+    let clear = true;
+    for (let i = 0; i < parts.length && clear; i++) {
+      for (let j = i + 1; j < parts.length && clear; j++) if (meet(at[i]!, by[i]!, at[j]!, by[j]!)) clear = false;
+    }
+    if (clear) return new Map(parts.map((p, i) => [p.id, by[i]!]));
+  }
+  return new Map();
+}
+
 /** The whole piece apart, stage by stage. Broken parts stay out of it. */
 export function explodePiece(parts: readonly ExplodePart[], joints: readonly ExplodeJoint[], hardware: readonly ExplodeHardware[] = []): Explosion {
   const live = new Map(parts.filter((p) => !p.broken).map((p) => [p.id, p]));
@@ -389,7 +445,12 @@ export function explodePiece(parts: readonly ExplodePart[], joints: readonly Exp
   const moves: ExplodeMove[] = [];
   const locked: string[][] = [];
   const stages = flatten(level, 1, moves, locked);
-  return { moves, stages: moves.length ? stages : 0, locked };
+  if (!moves.length) return { moves, stages: 0, locked };
+  // The fan-out starts where the last stage leaves every part.
+  const slid = explodeOffsets({ moves, stages, locked }, 1);
+  const fan = fanOut([...live.values()], slid);
+  for (const [id, by] of fan) if (by.some((v) => v !== 0)) moves.push({ parts: [id], by_mm: by, stage: stages + 1 });
+  return { moves, stages: fan.size ? stages + 1 : stages, locked };
 }
 
 /**

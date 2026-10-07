@@ -700,6 +700,12 @@ every way are the one exception. The part held least passes through what
 holds it, and the bar over the model names them. Each move goes far
 enough to rest clear of what's around it, now and in every later stage.
 
+Once every part is off its joints, a last stage fans them all out from
+the middle of the piece. A part goes further the nearer an edge it sits,
+up and down as well as out, so a long low piece still spreads in three
+dimensions. The fan-out is checked along its whole path, and it shortens
+until no two parts meet on the way.
+
 The slider's stages take turns, the last part on coming off first. Dragging
 it back shows the piece going together in order. The view moves each part
 every frame without drawing the page again, and a pin, a click or a box
