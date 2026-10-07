@@ -20,8 +20,9 @@
 // it, now and in every later stage, plus a gap in proportion to what is
 // coming apart. Once every part is off its joints, a last stage fans them
 // all out from the middle of the piece, up and down as well as out, so the
-// piece reads in three dimensions. Kept free of three.js so the tests can
-// hold it.
+// piece reads in three dimensions. Nothing goes through the floor: when a
+// part would dip below it, the whole piece rises by as much, together, so
+// nothing new meets. Kept free of three.js so the tests can hold it.
 
 import { AXIS_INDEX, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Vec3 } from "./derive.js";
 import { AXES, type Axis } from "./types.js";
@@ -41,6 +42,10 @@ export interface Explosion {
   stages: number;
   /** Sets of parts whose joints hold each other every way, so one comes off through the others. */
   locked: string[][];
+  /** Each part's lowest point together, in mm, so the piece can rise to keep every part off the floor. */
+  bottoms_mm?: Record<string, number>;
+  /** The floor: nothing comes apart below it. It's the grid, or the piece's own lowest point when that's lower. */
+  floor_mm?: number;
 }
 
 /** One joint pulled apart, with the region the camera frames for it. */
@@ -417,6 +422,9 @@ function fanOut(parts: ExplodePart[], slid: Map<string, Vec3>): Map<string, Vec3
   return new Map();
 }
 
+/** The floor a piece comes apart above: the grid, or its own lowest point when that's lower. */
+const floorOf = (parts: Iterable<ExplodePart>) => Math.min(0, ...[...parts].map((p) => p.box.min[1]!));
+
 /** The whole piece apart, stage by stage. Broken parts stay out of it. */
 export function explodePiece(parts: readonly ExplodePart[], joints: readonly ExplodeJoint[], hardware: readonly ExplodeHardware[] = []): Explosion {
   const live = new Map(parts.filter((p) => !p.broken).map((p) => [p.id, p]));
@@ -450,7 +458,8 @@ export function explodePiece(parts: readonly ExplodePart[], joints: readonly Exp
   const slid = explodeOffsets({ moves, stages, locked }, 1);
   const fan = fanOut([...live.values()], slid);
   for (const [id, by] of fan) if (by.some((v) => v !== 0)) moves.push({ parts: [id], by_mm: by, stage: stages + 1 });
-  return { moves, stages: fan.size ? stages + 1 : stages, locked };
+  const bottoms_mm = Object.fromEntries([...live.values()].map((p) => [p.id, p.box.min[1]!]));
+  return { moves, stages: fan.size ? stages + 1 : stages, locked, bottoms_mm, floor_mm: floorOf(live.values()) };
 }
 
 /**
@@ -479,6 +488,7 @@ export function explodeJoint(parts: readonly ExplodePart[], joints: readonly Exp
   const found = guestWays(j, host, guest) ?? WAYS.filter((w) => w.sign * (mid(guest.box, w.axis) - mid(host.box, w.axis)) > EPS);
   const ways = found.length ? found : [WAYS[2]!];
   const others = parts.filter((p) => p !== host && p !== guest && !p.broken);
+  const floor = floorOf([host, guest, ...others]);
   const choices = [
     ...ways.map((w) => ({ mover: guest, w })),
     ...ways.map((w) => ({ mover: host, w: { axis: w.axis, sign: w.sign > 0 ? -1 : 1 } as Way })),
@@ -486,11 +496,14 @@ export function explodeJoint(parts: readonly ExplodePart[], joints: readonly Exp
     const still = c.mover === guest ? host : guest;
     const t = firstFree(blocked(c.mover.box, c.w, [still.box, ...others.map((o) => o.box)], gap), gap);
     const path = hull([c.mover.box, shift(c.mover.box, along(c.w, t))]);
-    return { ...c, t, passes: others.filter((o) => overlaps(path, o.box)).map((o) => o.id) };
+    // A part that would end up through the floor comes off the other way, if the other part can.
+    const under = path.min[1]! < floor - EPS;
+    return { ...c, t, under, passes: others.filter((o) => overlaps(path, o.box)).map((o) => o.id) };
   });
   const cost = (c: (typeof choices)[number]) => c.t * (c.passes.length ? 1.25 : 1);
+  const above = choices.filter((c) => !c.under);
   // The guest wins a tie, as it comes first.
-  const best = choices.reduce((a, b) => (cost(b) < cost(a) - EPS ? b : a));
+  const best = (above.length ? above : choices).reduce((a, b) => (cost(b) < cost(a) - EPS ? b : a));
   const by = along(best.w, best.t);
   const margin = clamp(0.5 * longest(region), 40, 150);
   const near = hull([region, shift(region, by)]);
@@ -506,6 +519,8 @@ export function explodeJoint(parts: readonly ExplodePart[], joints: readonly Exp
 /**
  * Where each moving part sits at an amount from 0, together, to 1, fully
  * apart. The stages take turns along the way, each easing in and out.
+ * Wherever a part would dip below the floor, every part rises by as much,
+ * so the piece stays on the floor and nothing new meets.
  */
 export function explodeOffsets(e: Explosion, amount: number): Map<string, Vec3> {
   const out = new Map<string, Vec3>();
@@ -517,6 +532,16 @@ export function explodeOffsets(e: Explosion, amount: number): Map<string, Vec3> 
     for (const id of m.parts) {
       const o = out.get(id) ?? [0, 0, 0];
       out.set(id, [o[0] + m.by_mm[0] * s, o[1] + m.by_mm[1] * s, o[2] + m.by_mm[2] * s]);
+    }
+  }
+  const bottoms = e.bottoms_mm;
+  if (!bottoms) return out;
+  const lowest = Math.min(...Object.entries(bottoms).map(([id, y]) => y + (out.get(id)?.[1] ?? 0)));
+  const rise = (e.floor_mm ?? 0) - lowest;
+  if (rise > EPS) {
+    for (const id of Object.keys(bottoms)) {
+      const o = out.get(id) ?? [0, 0, 0];
+      out.set(id, [o[0], o[1] + rise, o[2]]);
     }
   }
   return out;

@@ -320,7 +320,9 @@ other, rest clear, and the plan names them. Every joint of the table and
 the console, pulled apart on its own, rests clear of every part. A table
 rail held at both ends stays, and its leg slides off it instead. The
 table's last stage fans it out, with the top going up, the rails up and
-out, and each leg out past its own corner.
+out, and each leg out past its own corner. Stepped through the slider,
+the table and the console never go under the floor, and the table rises
+as its base drops off its top.
 
 The core tests cut through every worked joint and check that both views
 carry sizes and stay on the paper. A tenon's chain gives its cheeks, its
