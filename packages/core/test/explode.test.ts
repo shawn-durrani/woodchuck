@@ -138,22 +138,25 @@ function table() {
 }
 
 describe("one joint apart", () => {
-  it("slides each worked example's guest off its host along the joint, clear of it", () => {
+  it("slides each worked example's guest off its host along the joint, clear of it, and never through the floor", () => {
     for (const type of JOINT_TYPES) {
       const r = derive(jointExample(type));
       const j = r.joints[0]!;
       const e = explodeJoint(r.parts, r.joints, j.id)!;
       expect(e, type).not.toBeNull();
       expect(e.moves).toHaveLength(1);
-      expect(e.moves[0]!.parts, type).toEqual([j.guest]);
+      // The guest comes off, unless that would take it through the floor, when the host lifts off it instead.
+      const mover = e.moves[0]!.parts[0]!;
+      expect(mover, type).toBe(type === "butt" || type === "screws" || type === "pocket_screws" || type === "dowels" || type === "domino" ? j.host : j.guest);
       expect(e.passes, type).toEqual([]);
       const by = e.moves[0]!.by_mm;
       // Only one axis moves.
       expect(by.filter((v) => v !== 0), type).toHaveLength(1);
       if (j.axis) expect(by[["x", "y", "z"].indexOf(j.axis)], type).not.toBe(0);
-      const guest = r.byId.get(j.guest)!;
-      const host = r.byId.get(j.host)!;
-      expect(overlap(moved(guest.box, by), host.box), type).toBe(false);
+      const still = r.byId.get(mover === j.guest ? j.host : j.guest)!;
+      const away = r.byId.get(mover)!;
+      expect(overlap(moved(away.box, by), still.box), type).toBe(false);
+      expect(away.box.min[1]! + by[1], type).toBeGreaterThanOrEqual(-0.01);
       // The camera frames the joint, apart, within the two parts.
       expect(e.focus.max.every((v, k) => v > e.focus.min[k]!), type).toBe(true);
     }
@@ -267,6 +270,23 @@ describe("the whole piece apart", () => {
     // The fan-out is the last stage, after every part is off its joints, and nothing meets on the way.
     expect(Math.max(...slides(e).map((m) => m.stage))).toBe(e.stages - 1);
     expect(passThrough(r.parts, e)).toEqual([]);
+  });
+
+  it("keeps the whole piece on the floor at every step, rising together when a part would dip below it", () => {
+    for (const r of [table(), derive(applyOps(emptyDesign("x"), recordConsoleOps()))]) {
+      const e = explodePiece(r.parts, r.joints, r.hardware);
+      let rose = false;
+      for (let s = 0; s <= 400; s++) {
+        const off = explodeOffsets(e, s / 400);
+        const lowest = Math.min(...r.parts.map((p) => p.box.min[1]! + (off.get(p.id)?.[1] ?? 0)));
+        expect(lowest).toBeGreaterThanOrEqual(-0.01);
+        // The part that stays put rises too, when the piece has to.
+        const top = r.parts.find((p) => !e.moves.some((m) => m.stage < e.stages && m.parts.includes(p.id)))!;
+        if ((off.get(top.id)?.[1] ?? 0) > 0.01) rose = true;
+      }
+      // The table's base drops off its top, so the piece rises to keep its legs on the floor.
+      expect(rose).toBe(true);
+    }
   });
 
   it("works it out the same way every time", () => {

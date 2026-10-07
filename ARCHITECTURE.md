@@ -704,7 +704,10 @@ Once every part is off its joints, a last stage fans them all out from
 the middle of the piece. A part goes further the nearer an edge it sits,
 up and down as well as out, so a long low piece still spreads in three
 dimensions. The fan-out is checked along its whole path, and it shortens
-until no two parts meet on the way.
+until no two parts meet on the way. Nothing comes apart through the floor.
+Wherever a part would dip under it, the whole piece rises together by as
+much, so nothing new meets. A joint pulled apart on its own lifts its
+upper part off instead of dropping the lower one.
 
 The slider's stages take turns, the last part on coming off first. Dragging
 it back shows the piece going together in order. The view moves each part

@@ -2,7 +2,7 @@
   together, and a slider puts it back, a stage at a time. Each part slides
   off the way its joints let it, then the whole piece fans out from its
   middle, up and down as well as out, and no part ever comes to rest
-  inside another. A tenon comes straight out of its mortise, a drawer runs
+  inside another or goes through the floor. A tenon comes straight out of its mortise, a drawer runs
   out the front, and a table's base drops off its top before its end
   frames come off. Each joint in the Edit tab can be pulled apart on its
   own too, with the rest faded and its section and sizes beside it: two
