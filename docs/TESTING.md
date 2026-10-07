@@ -306,6 +306,24 @@ Its cut list has the tenons to buy, and a Domino Festool doesn't make is
 refused. A test holds the library's Domino files to the joint's sizes and
 their sources to Festool's own sites.
 
+### The exploded view
+
+The core tests pull every worked joint apart and check that its guest
+comes off its host along the joint and stands clear of it. An invented
+table of four legs, four rails and a top comes apart in order. The base
+drops off the top as one frame, and each end frame slides off the long
+rails before its leg comes off its rail. The record console's drawers
+slide out the front. The tests step through the slider two thousand times
+and check that no two parts ever overlap more than they do together. Two
+parts whose joints hold each other every way stay together, and the plan
+names them. A joint on its own moves whichever part has a clear path, and
+names the parts in the way when neither has.
+
+The web tests hold Explode to its place in the toolbar, its key and the
+reasons it greys out, and a command from outside to the state it leaves.
+The server tests hold `show_joint` with a joint's id, the card it leaves
+in the chat and the refusal of a joint the design doesn't have.
+
 ### Edits Claude nearly got right
 
 The core tests hold an invented plant stand to how an edit reads what it's

@@ -396,6 +396,9 @@ export function createApp(opts: {
           const d = derive(store.project.design);
           const unknown = (view.select ?? []).filter((id) => !d.byId.has(id));
           if (unknown.length) return fail(400, `There's no part ${unknown.join(", ")}`);
+          if (view.focusJoint && !d.joints.some((j) => j.id === view.focusJoint)) {
+            return fail(400, `There's no joint ${view.focusJoint}. The design's joints: ${d.joints.map((j) => j.id).join(", ") || "none yet"}`);
+          }
           if (view.drawer === "preview") {
             const waiting = [...store.project.chat].reverse().find((c) => c.kind === "preview" && c.status === "proposed");
             if (!waiting) return fail(400, "There's no preview waiting to show");

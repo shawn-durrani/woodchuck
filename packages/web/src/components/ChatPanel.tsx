@@ -580,7 +580,16 @@ export function ChatPanel({
                 </div>
               );
             case "example":
-              return (
+              // One of the design's own joints pulls apart on the model; any other joint is a worked example in the drawer.
+              return c.of ? (
+                <div key={c.id} className="card example-card">
+                  <div className="card-title">
+                    {JOINT_LIBRARY[c.joint].name} <code>{c.of}</code>, pulled apart
+                  </div>
+                  {c.note && <p>{c.note}</p>}
+                  <button onClick={() => onOpen({ kind: "example", joint: c.joint, of: c.of! })}>Pull it apart again</button>
+                </div>
+              ) : (
                 <div key={c.id} className="card example-card">
                   <div className="card-title">Worked example: {c.stopped ? `Stopped ${JOINT_LIBRARY[c.joint].name.toLowerCase()}` : JOINT_LIBRARY[c.joint].name}</div>
                   {c.note && <p>{c.note}</p>}

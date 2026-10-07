@@ -1,0 +1,9 @@
+- Explode, beside See-through, pulls the piece apart the way it goes
+  together, and a slider puts it back, a stage at a time. Each part slides
+  off the way its joints let it, and no part ever passes through another.
+  A tenon comes straight out of its mortise, a drawer runs out the front,
+  and a table's base drops off its top before its end frames come off.
+  Each joint in the Edit tab can be pulled apart on its own too, with the
+  rest faded. Claude can do the same when you ask how a joint goes
+  together, and so can another chat. Parts whose joints hold each other
+  every way stay together, and the bar over the model names them.

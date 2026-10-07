@@ -19,6 +19,22 @@ describe("view commands from outside the window", () => {
     expect(() => readViewCommand({ turn: "lots" })).toThrow(/turn must be/);
   });
 
+  it("pulls the piece apart, or one of its joints, and puts it back together (#66)", () => {
+    expect(readViewCommand({ explode: 1 })).toEqual({ explode: 1 });
+    expect(describeView(readViewCommand({ explode: 1 }))).toBe("the piece pulled apart");
+    expect(describeView(readViewCommand({ explode: 0.5 }))).toBe("the piece partly pulled apart");
+    expect(describeView(readViewCommand({ explode: 0 }))).toBe("the piece back together");
+    expect(readViewCommand({ focusJoint: "shelf_dado#2" })).toEqual({ focusJoint: "shelf_dado#2" });
+    expect(describeView(readViewCommand({ focusJoint: "rail_in_leg", explode: 1 }))).toBe("joint rail_in_leg pulled apart");
+    expect(describeView(readViewCommand({ focusJoint: "" }))).toBe("the whole piece again");
+    expect(() => readViewCommand({ explode: 2 })).toThrow(/explode must be between 0, together, and 1, fully apart/);
+    expect(() => readViewCommand({ focusJoint: "Rail In Leg" })).toThrow(/focusJoint must be a joint id/);
+    // The plan views and the room photo show the piece together.
+    expect(() => readViewCommand({ explode: 1, mode: "plan" })).toThrow(/can't go with the plan views/);
+    expect(() => readViewCommand({ focusJoint: "rail_in_leg", photo: true })).toThrow(/room photo shows the piece together/);
+    expect(readViewCommand({ explode: 0, mode: "plan" })).toEqual({ explode: 0, mode: "plan" });
+  });
+
   it("starts a slow orbit at the default speed, or the one asked for, and stops it", () => {
     const c = readViewCommand({ orbit: "start", from: "Crossband" });
     expect(c).toEqual({ orbit: "start", orbitSpeed: ORBIT_SPEED.default, from: "Crossband" });

@@ -127,7 +127,7 @@ describe("list_joints and show_joint", () => {
 
   it("show a stopped example only for a housing", () => {
     const tool = TOOLS.find((t) => t.name === "show_joint")!;
-    expect(Object.keys(tool.input_schema.properties!)).toEqual(["type", "stopped", "note"]);
+    expect(Object.keys(tool.input_schema.properties!)).toEqual(["type", "id", "stopped", "note"]);
     expect(runTool("show_joint", { type: "groove", stopped: true }, ctx())).toMatchObject({ example: { joint: "groove", stopped: true } });
     expect(runTool("show_joint", { type: "groove" }, ctx()).example).toEqual({ joint: "groove" });
     expect(runTool("show_joint", { type: "mortise_tenon", stopped: true }, ctx())).toMatchObject({

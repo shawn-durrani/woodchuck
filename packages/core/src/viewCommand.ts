@@ -3,6 +3,7 @@
 // view, never the design: the 3D or plan views, the look, lighting and
 // camera, see-through, the room photo, filling the window, which parts
 // are picked, what's open in the drawer and which side panel tab is open.
+// It can pull the piece apart, or just one of its joints.
 // It can also ask the window to save a picture of what it shows, or to keep
 // turning the model slowly until it's told to stop.
 
@@ -30,6 +31,9 @@ const TAB_LABELS: Record<SideTab, string> = { edit: "Edit", finish: "Finish", ma
  */
 export const ORBIT_SPEED = { default: 12, min: 1, max: 60 } as const;
 
+/** A joint's id, or one array copy's, such as shelf_dado#2. */
+const JOINT_ID = /^[a-z][a-z0-9_]*(#[0-9]+)?$/;
+
 export interface ViewCommand {
   /** The 3D view, or the 2D plan views. */
   mode?: "3d" | "plan";
@@ -48,6 +52,10 @@ export interface ViewCommand {
   orbitSpeed?: number;
   /** See-through, to show the joints. */
   seeThrough?: boolean;
+  /** Pull the piece apart, from 0, together, to 1, fully apart. */
+  explode?: number;
+  /** Pull one of the design's joints apart on the model, by its id, or "" to go back to the whole piece. */
+  focusJoint?: string;
   /** Place the design in its room photo, or take it out. */
   photo?: boolean;
   /** Save a picture of what the window shows, as its Render button does. */
@@ -114,6 +122,18 @@ export function readViewCommand(input: unknown): ViewCommand {
     c.orbitSpeed ??= ORBIT_SPEED.default;
   } else if (orbit) c.orbit = orbit;
   if (typeof o.seeThrough === "boolean") c.seeThrough = o.seeThrough;
+  if (o.explode !== undefined && o.explode !== null) {
+    const x = Number(o.explode);
+    if (!Number.isFinite(x) || x < 0 || x > 1) throw new Error("explode must be between 0, together, and 1, fully apart");
+    c.explode = x;
+  }
+  if (o.focusJoint !== undefined && o.focusJoint !== null) {
+    if (typeof o.focusJoint !== "string" || (o.focusJoint !== "" && !JOINT_ID.test(o.focusJoint))) throw new Error('focusJoint must be a joint id from the design, such as "rail_in_leg", or "" for the whole piece');
+    c.focusJoint = o.focusJoint;
+  }
+  // The plan views and a room photo show the piece together.
+  if ((c.explode || c.focusJoint) && mode === "plan") throw new Error("explode and focusJoint pull the 3D view apart, so they can't go with the plan views");
+  if ((c.explode || c.focusJoint) && o.photo === true) throw new Error("the room photo shows the piece together, so it can't go with explode or focusJoint");
   if (typeof o.photo === "boolean") c.photo = o.photo;
   if (o.render === true) c.render = true;
   if (typeof o.fill === "boolean") c.fill = o.fill;
@@ -136,7 +156,7 @@ export function readViewCommand(input: unknown): ViewCommand {
   if (typeof o.from === "string" && o.from.trim()) c.from = o.from.trim().slice(0, 40);
   if (typeof o.note === "string" && o.note.trim()) c.note = o.note.trim().slice(0, 160);
   if (Object.keys(c).filter((k) => k !== "from").length === 0) {
-    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, photo, fill, select, drawer, tab or render");
+    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, explode, focusJoint, photo, fill, select, drawer, tab or render");
   }
   return c;
 }
@@ -156,6 +176,9 @@ export function describeView(c: ViewCommand): string {
     parts.push(`the model turning ${Math.abs(s)}° a second to the ${s > 0 ? "right" : "left"}`);
   } else if (c.orbit === "stop") parts.push("the model held still");
   if (c.seeThrough !== undefined) parts.push(c.seeThrough ? "see-through on" : "see-through off");
+  if (c.focusJoint) parts.push(`joint ${c.focusJoint} pulled apart`);
+  else if (c.focusJoint === "") parts.push("the whole piece again");
+  if (c.explode !== undefined && !c.focusJoint) parts.push(c.explode === 0 ? "the piece back together" : c.explode === 1 ? "the piece pulled apart" : "the piece partly pulled apart");
   if (c.photo !== undefined) parts.push(c.photo ? "the room photo" : "the photo put away");
   if (c.fill === true) parts.push("the 3D view filling the window");
   if (c.fill === false) parts.push("the panels back");

@@ -1100,6 +1100,7 @@ export class Turn {
               at: now(),
               ...(out.example.note ? { note: out.example.note } : {}),
               ...(out.example.stopped ? { stopped: true as const } : {}),
+              ...(out.example.of ? { of: out.example.of } : {}),
             };
             project.addChat(card);
             this.events.chat(card);

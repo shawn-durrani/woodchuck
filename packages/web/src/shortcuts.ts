@@ -12,6 +12,7 @@ export type Shortcut =
   | { do: "redo" }
   | { do: "fit" }
   | { do: "see-through" }
+  | { do: "explode" }
   | { do: "chat" }
   | { do: "camera"; view: CameraView }
   | { do: "tool"; tool: PointMode };
@@ -61,6 +62,7 @@ export function shortcutFor(e: KeyPress, target: KeyTarget | null | undefined): 
   if (e.altKey || e.shiftKey) return null;
   if (key === "f") return { do: "fit" };
   if (key === "x") return { do: "see-through" };
+  if (key === "e") return { do: "explode" };
   const camera = CAMERAS.find((c) => c.key === key);
   if (camera) return { do: "camera", view: camera.id };
   const tool = TOOLS.find((t) => t.key.toLowerCase() === key);

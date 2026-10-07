@@ -224,6 +224,10 @@ describe("the local server", () => {
     expect((await postJson("/api/view", { look: "shiny" })).status).toBe(400);
     expect((await postJson("/api/view", { select: ["nope"] })).status).toBe(400);
     expect((await postJson("/api/view", { drawer: "preview" })).status).toBe(400);
+    // Issue #66: a joint to pull apart has to be one of the design's.
+    const noJoint = await postJson("/api/view", { focusJoint: "nope" });
+    expect(noJoint.status).toBe(400);
+    expect(((await noJoint.json()) as { error: string }).error).toMatch(/^There's no joint nope/);
     win.close();
     render.close();
   });

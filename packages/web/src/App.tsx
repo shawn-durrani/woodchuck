@@ -2,7 +2,8 @@
 // on the right with five tabs for the open design: Edit, Finish, Make,
 // Check and History. A change Claude suggests is drawn on the model itself.
 // While Claude works, the screen follows it through the same tabs and
-// controls, until you touch anything.
+// controls, until you touch anything. Explode pulls the piece apart, or
+// one of its joints, with a slider over the model.
 // On a phone the same pieces rearrange: the model fills the screen, and the
 // chat and the tabs share one bottom sheet (PhoneShell and BottomSheet).
 
@@ -18,8 +19,9 @@ import { ChangeLists } from "./components/ChangeLists";
 import { DesignMenu } from "./components/DesignMenu";
 import { Toolbar, type ToolbarMenu } from "./components/Toolbar";
 import type { Lighting } from "./lighting";
-import { Viewport, type CameraView, type Look, type Pin, type PointMode, type ViewportApi } from "./components/Viewport";
-import { describeView, FACES, type Box, type Face, type ViewCommand } from "@woodchuck/core";
+import { Viewport, type CameraView, type ExplodeView, type Look, type Pin, type PointMode, type ViewportApi } from "./components/Viewport";
+import { ExplodeBar } from "./components/ExplodeBar";
+import { describeView, explodeJoint, explodeOffsets, explodePiece, FACES, JOINT_LIBRARY, type Box, type Face, type ViewCommand } from "@woodchuck/core";
 import { allControls, applyView, TIPS, toolbarState, WAIT_FOR_CLAUDE, type Mode, type Paper, type PlanView, type ViewState } from "./toolbar";
 import { shortcutFor, type Shortcut } from "./shortcuts";
 import { isFace } from "./select";
@@ -242,6 +244,16 @@ export function App() {
   const [passkeys, setPasskeys] = useState(false);
   const closePasskeys = useCallback(() => setPasskeys(false), []);
   const [xray, setXray] = useState(false);
+  /** Explode is on: the piece, or one joint, pulled apart, with its slider over the model. */
+  const [explodeOn, setExplodeOn] = useState(false);
+  /** How far apart, from 0 to 1, and whether the last change eases there, as a button does, or jumps, as the slider does. */
+  const [explode, setExplode] = useState({ amount: 0, glide: true });
+  /** One of the design's joints pulled apart on its own, by id. */
+  const [focusJoint, setFocusJoint] = useState<string | null>(null);
+  /** Some part is still away from its place, as while the piece glides back together. */
+  const [apart, setApart] = useState(false);
+  /** Frame the piece apart once its plan is worked out, after Explode or Whole piece. */
+  const frameApart = useRef(false);
   const [pointMode, setPointMode] = useState<PointMode>("pick");
   const [pins, setPins] = useState<Pin[]>([]);
   const [look, setLook] = useKept<Look>("woodchuck.look", "plain");
@@ -267,7 +279,13 @@ export function App() {
   const liveId = live?.id ?? null;
   const liveRef = useRef(liveId);
   liveRef.current = liveId;
+  /** Pulls one of the design's joints apart on the model, set once the design is in. */
+  const explodeAtRef = useRef<(id: string) => void>(() => {});
   const openDrawer = useCallback((d: Drawer) => {
+    if (d.kind === "example" && d.of) {
+      explodeAtRef.current(d.of);
+      return;
+    }
     if (d.kind === "preview" && d.id === liveRef.current) {
       setGhostPref((p) => showGhost(d.id, p));
       setMode("3d");
@@ -337,8 +355,9 @@ export function App() {
   const tabRef = useRef(tab);
   tabRef.current = tab;
   /** The view settings now, for commands from outside the window. */
-  const viewNow = useRef<ViewState>({ mode, look, lighting, view, planView, xray, photo: photoOn === "on", full });
-  viewNow.current = { mode, look, lighting, view, planView, xray, photo: photoOn === "on", full };
+  const explodeNow = explodeOn ? explode.amount : 0;
+  const viewNow = useRef<ViewState>({ mode, look, lighting, view, planView, xray, photo: photoOn === "on", full, explode: explodeNow, focusJoint });
+  viewNow.current = { mode, look, lighting, view, planView, xray, photo: photoOn === "on", full, explode: explodeNow, focusJoint };
   /** The keyboard shortcuts, set each render so they act on what's showing now. */
   const onShortcut = useRef<(e: KeyboardEvent) => void>(() => {});
   /** The latest Render, so a request from outside renders what the window shows then. */
@@ -373,11 +392,25 @@ export function App() {
       const { state: next, effects } = applyView(viewNow.current, v, !!stateRef.current?.backdrop);
       setMode(next.mode);
       setXray(next.xray);
-      if (v.photo !== undefined) setPhotoOn(next.photo ? "on" : "off");
+      if (v.photo !== undefined || next.photo !== viewNow.current.photo) setPhotoOn(next.photo ? "on" : "off");
       setLook(next.look);
       setLighting(next.lighting);
       setView(next.view);
       setPlanView(next.planView);
+      // A joint opens as its card's button opens it. Back together, the joint it showed lets go once every part is home.
+      if (effects.focus) explodeAtRef.current(effects.focus);
+      if (v.explode !== undefined || v.focusJoint !== undefined || (v.photo && stateRef.current?.backdrop)) {
+        const on = next.explode > 0;
+        setExplodeOn(on);
+        setExplode({ amount: next.explode, glide: true });
+        if (on && !effects.focus) {
+          setFocusJoint(next.focusJoint);
+          if (!next.focusJoint) frameApart.current = true;
+          // A suggested change shows the piece together, so it's put away, as Hide does.
+          const waiting = liveRef.current;
+          if (waiting) setGhostPref((p) => hideGhost(waiting, p));
+        }
+      }
       if (effects.refit) setFitCount((n) => n + 1);
       setFull(next.full);
       // An orbit keeps going until it's stopped. A room photo holds the
@@ -491,6 +524,33 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state?.design, state?.derived, fits, shown?.side, names, draft],
   );
+  // The way the piece, or one joint, comes apart, worked out while it's apart or going back together.
+  const exploding = explodeOn || apart;
+  const piecePlan = useMemo(
+    () => (drawn && exploding && !focusJoint ? explodePiece(drawn.parts, drawn.joints, drawn.hardware) : null),
+    [drawn, exploding, focusJoint],
+  );
+  const jointPlan = useMemo(() => (drawn && focusJoint ? explodeJoint(drawn.parts, drawn.joints, focusJoint) : null), [drawn, focusJoint]);
+  // Once it's back together with Explode off, the joint it showed lets go. A joint that's gone does too.
+  useEffect(() => {
+    if (focusJoint && ((!explodeOn && !apart) || (drawn && !jointPlan))) setFocusJoint(null);
+  }, [focusJoint, explodeOn, apart, drawn, jointPlan]);
+  // Explode and Whole piece frame the piece apart, from where you're looking.
+  useEffect(() => {
+    if (!frameApart.current || !piecePlan || !drawn) return;
+    frameApart.current = false;
+    const off = explodeOffsets(piecePlan, 1);
+    const boxes = drawn.parts.filter((p) => !p.broken).flatMap((p) => {
+      const o = off.get(p.id) ?? [0, 0, 0];
+      return [p.nominal, { min: p.nominal.min.map((v, k) => v + o[k]!) as Box["min"], max: p.nominal.max.map((v, k) => v + o[k]!) as Box["max"] }];
+    });
+    if (!boxes.length) return;
+    const box: Box = {
+      min: [0, 1, 2].map((k) => Math.min(...boxes.map((b) => b.min[k]!))) as Box["min"],
+      max: [0, 1, 2].map((k) => Math.max(...boxes.map((b) => b.max[k]!))) as Box["max"],
+    };
+    setFrame((f) => ({ box, key: (f?.key ?? 0) + 1 }));
+  }, [piecePlan, drawn]);
 
   useEffect(() => {
     if (!state) return;
@@ -521,6 +581,9 @@ export function App() {
     setSlots(NO_SLOTS);
     setGhostPref(null);
     setFrame(null);
+    setExplodeOn(false);
+    setExplode({ amount: 0, glide: false });
+    setFocusJoint(null);
     answering.current = null;
   }, [slug]);
 
@@ -537,7 +600,8 @@ export function App() {
     // A design you've just opened shows as it is, with no drawer opening by itself.
     if (before === undefined || before.slug !== now.slug) return;
     if (example?.kind === "example" && now.example !== before.example) {
-      setSlots((s) => openSlot(s, { kind: "example", joint: example.joint, ...(example.note ? { note: example.note } : {}), ...(example.stopped ? { stopped: true as const } : {}) }));
+      if (example.of) explodeAtRef.current(example.of);
+      else setSlots((s) => openSlot(s, { kind: "example", joint: example.joint, ...(example.note ? { note: example.note } : {}), ...(example.stopped ? { stopped: true as const } : {}) }));
     }
     if (preview?.kind === "preview" && now.preview !== before.preview && preview.status === "proposed") {
       setSlots(NO_SLOTS);
@@ -734,7 +798,8 @@ export function App() {
   // On an empty design the view controls that act on a part wait for one.
   const empty = state.derived.parts.length === 0;
 
-  const tools = toolbarState(viewNow.current, { pointMode, hasPhoto: !!backdropUrl, empty, paper });
+  const ghostOn = !!drawn?.ghost;
+  const tools = toolbarState(viewNow.current, { pointMode, hasPhoto: !!backdropUrl, empty, paper, ghost: ghostOn, exploded: explodeOn });
   const controls = allControls(tools);
   /** Runs a control's action only when the control could: a shortcut never does what a disabled button can't. */
   const can = (id: string) => controls.get(id)?.disabled === false;
@@ -745,6 +810,55 @@ export function App() {
     setFitCount((n) => n + 1);
   };
   const toggleSeeThrough = () => setXray(!xray);
+  // The plan views, the room photo and a suggested change show the piece together.
+  const canExplode = mode === "3d" && !inPhoto && !ghostOn && !empty;
+  /** The whole of the piece, together, for framing it again. */
+  const wholeBox = (): Box | null => boxOf(state.derived.parts, state.derived.parts.filter((p) => !p.broken).map((p) => p.id));
+  const toggleExplode = () => {
+    if (explodeOn) {
+      setExplodeOn(false);
+      setExplode({ amount: 0, glide: true });
+      const box = wholeBox();
+      if (box) setFrame((f) => ({ box, key: (f?.key ?? 0) + 1 }));
+      return;
+    }
+    setFocusJoint(null);
+    setExplodeOn(true);
+    setExplode({ amount: 1, glide: true });
+    frameApart.current = true;
+  };
+  /** Pulls one joint apart on its own and frames it, as the Edit tab's joint cards ask. */
+  const explodeAt = (id: string) => {
+    const plan = explodeJoint(state.derived.parts, state.derived.joints, id);
+    if (!plan) return;
+    setMode("3d");
+    if (photoOn === "on") setPhotoOn("off");
+    if (live && shown) setGhostPref((p) => hideGhost(live.id, p));
+    setFocusJoint(id);
+    setExplodeOn(true);
+    setExplode({ amount: 1, glide: true });
+    setFrame((f) => ({ box: plan.focus, key: (f?.key ?? 0) + 1 }));
+  };
+  explodeAtRef.current = explodeAt;
+  const wholePiece = () => {
+    setFocusJoint(null);
+    setExplode({ amount: 1, glide: true });
+    frameApart.current = true;
+  };
+  /** A part's name, with its id when other parts share the name, such as the four legs of a table. */
+  const named = (id: string) => {
+    const n = names(id);
+    return state.derived.parts.filter((p) => names(p.id) === n).length > 1 ? `${n} (${id})` : n;
+  };
+  const plan = jointPlan ?? piecePlan;
+  const explodeView: ExplodeView | null = plan
+    ? {
+        plan,
+        amount: explodeOn && canExplode ? explode.amount : 0,
+        glide: explode.glide || !canExplode || !explodeOn,
+        joint: jointPlan ? { id: jointPlan.joint, host: jointPlan.host, guest: jointPlan.guest } : null,
+      }
+    : null;
   const choosePhoto = () => (backdropUrl ? setPhotoOn(inPhoto ? "off" : "on") : photoFile.current?.click());
   // In the photo, the 3D view shows it; from the 2D view, Photo brings the 3D view back.
   const onPhoto = () => {
@@ -800,6 +914,9 @@ export function App() {
         return;
       case "see-through":
         if (can("see-through")) toggleSeeThrough();
+        return;
+      case "explode":
+        if (can("explode")) toggleExplode();
         return;
       case "camera":
         if (can(`camera.${sc.view}`)) chooseCamera(sc.view);
@@ -963,6 +1080,7 @@ export function App() {
           onCamera={chooseCamera}
           onFit={() => setFitCount((n) => n + 1)}
           onSeeThrough={toggleSeeThrough}
+          onExplode={toggleExplode}
           onLook={setLook}
           onLighting={setLighting}
           onMode={setMode}
@@ -1006,6 +1124,8 @@ export function App() {
                   paused={mode === "2d"}
                   orbit={orbit}
                   onOrbitEnd={() => setOrbit(null)}
+                  explode={explodeView}
+                  onApart={setApart}
                   mode={pointMode}
                   pins={pins}
                   apiRef={viewportApi}
@@ -1051,6 +1171,25 @@ export function App() {
               );
             })()}
           </div>
+          {explodeOn && canExplode && (
+            <ExplodeBar
+              amount={explode.amount}
+              stages={piecePlan?.stages ?? 1}
+              joint={
+                jointPlan
+                  ? {
+                      title: `${JOINT_LIBRARY[state.derived.joints.find((j) => j.id === jointPlan.joint)?.type ?? "butt"].name}: ${named(jointPlan.guest)} into ${named(jointPlan.host)}`,
+                      passes: jointPlan.passes.map(named),
+                      mover: named(jointPlan.moves[0]?.parts[0] ?? jointPlan.guest),
+                    }
+                  : null
+              }
+              locked={(piecePlan?.locked ?? []).map((set) => set.map(named))}
+              onAmount={(amount) => setExplode({ amount, glide: false })}
+              onWholePiece={wholePiece}
+              onClose={toggleExplode}
+            />
+          )}
           {live && mode === "3d" && !draft && (
             <GhostSwitch
               title={live.title}
@@ -1115,7 +1254,14 @@ export function App() {
         />
         <FollowCaption view={follow.view} />
         {tab === "edit" && (
-          <EditTab state={state} selection={selection} onSelect={select} onShowJoint={(type) => openDrawer({ kind: "example", joint: type })} onDraft={setDraft} />
+          <EditTab
+            state={state}
+            selection={selection}
+            onSelect={select}
+            onShowJoint={(type) => openDrawer({ kind: "example", joint: type })}
+            onExplodeJoint={explodeAt}
+            onDraft={setDraft}
+          />
         )}
         {tab === "finish" && (
           <FinishPanel
