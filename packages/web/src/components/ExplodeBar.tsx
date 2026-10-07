@@ -1,8 +1,8 @@
 // The bar over the 3D view while Explode is on. Its slider runs from the
 // piece together to fully apart, and the stages take turns along it, so
 // dragging it back watches the piece go together in order. With one joint
-// pulled apart, it names the joint and what holds it, and Whole piece goes
-// back to the lot. It also says when some parts can't come apart in a
+// pulled apart, it names the joint and what holds it, Section and sizes
+// opens its drawing beside the model, and Whole piece goes back to the lot. It also says when some parts can't come apart in a
 // straight line, so they pass through each other on the way apart.
 
 import { useRef } from "react";
@@ -22,6 +22,7 @@ export function ExplodeBar({
   joint,
   locked,
   onAmount,
+  onSection,
   onWholePiece,
   onClose,
 }: {
@@ -33,6 +34,8 @@ export function ExplodeBar({
   /** Sets of parts, by name, whose joints hold each other every way, so they pass through each other on the way apart. */
   locked: string[][];
   onAmount: (amount: number) => void;
+  /** Opens the joint's section and sizes beside the model, when they aren't open already. */
+  onSection?: () => void;
   onWholePiece: () => void;
   onClose: () => void;
 }) {
@@ -49,6 +52,11 @@ export function ExplodeBar({
         {joint ? (
           <>
             <strong>{joint.title}</strong>
+            {onSection && (
+              <button className="link small" title="Open this joint cut through, with its sizes and cuts" onClick={onSection}>
+                Section and sizes
+              </button>
+            )}
             <button className="link small" title="Pull the whole piece apart instead" onClick={onWholePiece}>
               Whole piece
             </button>

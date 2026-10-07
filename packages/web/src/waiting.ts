@@ -165,10 +165,16 @@ export function buttonReply(answer: Answer, box: string): Reply | null {
   return null;
 }
 
-/** The drawer beside the model has two slots, an older suggested change and a worked example, so one never hides the other. */
+/**
+ * The drawer beside the model has two slots, an older suggested change and
+ * a joint, so one never hides the other. The joint is a worked example or
+ * one of the design's own, in section with its sizes.
+ */
 export interface Slots {
   preview: string | null;
   example: { joint: JointType; note?: string; stopped?: true } | null;
+  /** One of the design's own joints, by id. */
+  section: string | null;
 }
 
 /**
@@ -176,12 +182,17 @@ export interface Slots {
  * its host. With of, it's one of the design's own joints, which pulls apart
  * on the model instead of opening the drawer.
  */
-export type Drawer = { kind: "preview"; id: string } | { kind: "example"; joint: JointType; note?: string; stopped?: true; of?: string };
+export type Drawer =
+  | { kind: "preview"; id: string }
+  | { kind: "example"; joint: JointType; note?: string; stopped?: true; of?: string }
+  /** One of the design's own joints in section, with its sizes. */
+  | { kind: "joint"; id: string };
 
-export const NO_SLOTS: Slots = { preview: null, example: null };
+export const NO_SLOTS: Slots = { preview: null, example: null, section: null };
 
-/** Opens a preview or an example in its own slot, leaving the other one as it was. */
+/** Opens a preview in its slot, or a joint in the other, leaving the preview's slot as it was. */
 export function openSlot(slots: Slots, d: Drawer): Slots {
   if (d.kind === "preview") return { ...slots, preview: d.id };
-  return { ...slots, example: { joint: d.joint, ...(d.note ? { note: d.note } : {}), ...(d.stopped ? { stopped: true as const } : {}) } };
+  if (d.kind === "joint") return { ...slots, example: null, section: d.id };
+  return { ...slots, section: null, example: { joint: d.joint, ...(d.note ? { note: d.note } : {}), ...(d.stopped ? { stopped: true as const } : {}) } };
 }

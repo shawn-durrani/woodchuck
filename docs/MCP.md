@@ -103,8 +103,9 @@ camera once and leaves it there.
 `woodchuck_view` with `explode` pulls the piece apart the way it goes
 together. A value of 1 is fully apart, 0 is back together, and a number
 between leaves it partly apart. `focus_joint` pulls one joint apart on its
-own and fades the rest. It takes a joint's id, which `woodchuck_status`
-lists. An empty `focus_joint` goes back to the whole piece, put together.
+own and fades the rest, and opens the joint's section and sizes beside the
+model. It takes a joint's id, which `woodchuck_status` lists.
+`close_drawer` puts the section away. An empty `focus_joint` goes back to the whole piece, put together.
 The plan views and the room photo show the piece together, so the tool
 refuses either with `explode` or `focus_joint`. A joint the design doesn't
 have is refused with a list of the ones it has.

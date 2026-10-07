@@ -1,10 +1,27 @@
 // The narrow drawer that slides out over the side of the 3D view. It shows
 // an older change Claude suggested, drawn on a copy of the design as it is
-// now, or a worked example of a joint from the library on two sample boards.
+// now, a worked example of a joint from the library on two sample boards,
+// or one of the design's own joints in section, with its sizes and cuts.
 // The change Claude is waiting on is drawn on the model itself instead.
 
-import { useMemo, useRef, useState } from "react";
-import { EXAMPLE_STOP_MM, JOINT_LIBRARY, JOINT_TYPES, canStop, cutList, derive, exampleStopEdge, jointExample, type Box, type Derived, type Design, type JointType } from "@woodchuck/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  EXAMPLE_STOP_MM,
+  JOINT_LIBRARY,
+  JOINT_TYPES,
+  canStop,
+  cutList,
+  derive,
+  exampleStopEdge,
+  jointExample,
+  jointSection,
+  jointSizes,
+  sheetSvg,
+  type Box,
+  type Derived,
+  type Design,
+  type JointType,
+} from "@woodchuck/core";
 import { post, type ServerState } from "../api";
 import { WAIT_FOR_CLAUDE } from "../toolbar";
 import { partNamer } from "../names";
@@ -226,6 +243,90 @@ function JointExample({ joint, note, stopped: asked, onPick }: { joint: JointTyp
   );
 }
 
+/**
+ * One of the design's own joints: two cuts through it, at true scale, with
+ * its settings and the cuts each part needs, as the cut list words them.
+ */
+function OwnJoint({ state, id }: { state: ServerState; id: string }) {
+  const section = useMemo(() => jointSection(state.derived, id), [state.derived, id]);
+  const sizes = useMemo(() => jointSizes(state.derived, id), [state.derived, id]);
+  const names = useMemo(() => partNamer(state.derived.parts), [state.derived.parts]);
+  const svg = useMemo(
+    () =>
+      section
+        ? sheetSvg({ kind: "part", title: section.title, paper: "A4", width_mm: section.width_mm, height_mm: section.height_mm, scale: null, marks: section.marks, dims: section.dims })
+        : null,
+    [section],
+  );
+  // The drawing on its own, to zoom in on or print. Its sizes are in millimetres, so it prints at true scale.
+  const [full, setFull] = useState<string | null>(null);
+  useEffect(() => {
+    if (!svg) return setFull(null);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    setFull(url);
+    return () => URL.revokeObjectURL(url);
+  }, [svg]);
+  const j = state.derived.joints.find((x) => x.id === id);
+  if (!j || !sizes) return <p className="muted">That joint isn't in the design any more.</p>;
+  return (
+    <>
+      <h3>{JOINT_LIBRARY[j.type].name}</h3>
+      <p className="small muted">
+        {names(j.guest)} into {names(j.host)} <code>{id}</code>
+      </p>
+      {svg && section ? (
+        <>
+          <div className="joint-section" role="img" aria-label={`${section.title}, cut through`} dangerouslySetInnerHTML={{ __html: svg }} />
+          <p className="muted small">
+            Cut through the joint at {section.scales.map((n) => `1:${n}`).join(" and ")}. Hatching is wood the cut passes through, white is wood cut away, and
+            grey is a fixing.{" "}
+            {full && (
+              <a href={full} target="_blank" rel="noopener" title="The drawing on its own. Printed at 100%, it's true to scale">
+                Open full size
+              </a>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="small muted">This joint can't be cut through yet, since it isn't placed.</p>
+      )}
+      <h4>Sizes</h4>
+      <dl className="small joint-facts">
+        {sizes.settings.map((x) => (
+          <div key={x.name} className="joint-size">
+            <dt>{x.name}</dt>
+            <dd>
+              {x.value}
+              {x.usual ? " (usual)" : ""}
+            </dd>
+          </div>
+        ))}
+        {sizes.stopped && (
+          <div className="joint-size">
+            <dt>Stopped</dt>
+            <dd>{sizes.stopped}</dd>
+          </div>
+        )}
+      </dl>
+      <h4>Cuts</h4>
+      {sizes.cuts.length ? (
+        sizes.cuts.map((c) => (
+          <div key={c.part} className="small">
+            <strong>{names(c.part)}</strong> <code>{c.part}</code>
+            <ul>
+              {c.lines.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          </div>
+        ))
+      ) : (
+        <p className="small muted">Nothing to cut. The parts just meet.</p>
+      )}
+    </>
+  );
+}
+
 export function PreviewDrawer({
   state,
   drawer,
@@ -248,10 +349,10 @@ export function PreviewDrawer({
   return (
     <aside
       className={`drawer slot-${drawer.kind}${paired ? " paired" : ""}`}
-      aria-label={drawer.kind === "preview" ? "Preview of a suggested change" : "Worked joint example"}
+      aria-label={drawer.kind === "preview" ? "Preview of a suggested change" : drawer.kind === "joint" ? "A joint in section, with its sizes" : "Worked joint example"}
     >
       <header className="drawer-head">
-        <span className="muted small">{drawer.kind === "preview" ? "Suggested change" : "Worked example"}</span>
+        <span className="muted small">{drawer.kind === "preview" ? "Suggested change" : drawer.kind === "joint" ? "Section and sizes" : "Worked example"}</span>
         <button className="link" onClick={onClose} title="Close">
           Close
         </button>
@@ -259,6 +360,8 @@ export function PreviewDrawer({
       <div className="drawer-body">
         {drawer.kind === "preview" ? (
           <ChangePreview state={state} id={drawer.id} onClose={onClose} look={look} lighting={lighting} />
+        ) : drawer.kind === "joint" ? (
+          <OwnJoint state={state} id={drawer.id} />
         ) : (
           <JointExample
             key={drawer.stopped ? "stopped" : "plain"}

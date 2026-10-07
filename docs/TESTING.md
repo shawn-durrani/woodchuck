@@ -322,8 +322,17 @@ rail held at both ends stays, and its leg slides off it instead. The
 table's last stage fans it out, with the top going up, the rails up and
 out, and each leg out past its own corner.
 
+The core tests cut through every worked joint and check that both views
+carry sizes and stay on the paper. A tenon's chain gives its cheeks, its
+thickness and its shoulders, and a dado's gives its depth and the wood it
+leaves. A half lap splits into equal halves, a box joint into equal
+fingers, and a dowel crossing the cut is drawn solid. A joint's sizes
+mark the library's usual settings, and its cuts read as the cut list
+words them.
+
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.
+A joint's section shares the drawer's joint slot, beside a preview.
 The server tests hold `show_joint` with a joint's id, the card it leaves
 in the chat and the refusal of a joint the design doesn't have.
 

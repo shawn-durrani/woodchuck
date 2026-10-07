@@ -524,13 +524,14 @@ function CameraRig({
   }, [target?.key]);
 
   // Automatic fits: a new design frames at once, before it's drawn; a
-  // resize or a bigger model waits until the size settles and no panel is
-  // being dragged.
+  // resize or a bigger model waits until the size settles, no panel is
+  // being dragged and the camera has finished gliding.
   useLayoutEffect(() => {
     if (!auto) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const look = () => {
-      if (document.body.classList.contains("dragging")) {
+      // A drag, or a glide to a frame asked for on purpose, such as a joint pulled apart, finishes first.
+      if (document.body.classList.contains("dragging") || glide.current) {
         timer = setTimeout(look, 150);
         return;
       }

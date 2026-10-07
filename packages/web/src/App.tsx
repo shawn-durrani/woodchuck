@@ -535,6 +535,10 @@ export function App() {
   useEffect(() => {
     if (focusJoint && ((!explodeOn && !apart) || (drawn && !jointPlan))) setFocusJoint(null);
   }, [focusJoint, explodeOn, apart, drawn, jointPlan]);
+  // Its section goes with it.
+  useEffect(() => {
+    if (!focusJoint) setSlots((s) => (s.section ? { ...s, section: null } : s));
+  }, [focusJoint]);
   // Explode and Whole piece frame the piece apart, from where you're looking.
   useEffect(() => {
     if (!frameApart.current || !piecePlan || !drawn) return;
@@ -838,6 +842,8 @@ export function App() {
     setExplodeOn(true);
     setExplode({ amount: 1, glide: true });
     setFrame((f) => ({ box: plan.focus, key: (f?.key ?? 0) + 1 }));
+    // Its section and sizes slide out beside it.
+    setSlots((s) => openSlot(s, { kind: "joint", id }));
   };
   explodeAtRef.current = explodeAt;
   const wholePiece = () => {
@@ -1101,7 +1107,7 @@ export function App() {
           }}
         />
         {errorAt("view")}
-        <div className="stage">
+        <div className={`stage${slots.section ? " beside-joint" : ""}`}>
           <FollowChip mode={follow.chip} onStop={follow.stop} />
           {/* The 3D view stays put under the 2D view, so coming back to it is instant. */}
           <div className="canvas-wrap" inert={mode === "2d"} aria-hidden={mode === "2d" || undefined}>
@@ -1186,6 +1192,7 @@ export function App() {
               }
               locked={(piecePlan?.locked ?? []).map((set) => set.map(named))}
               onAmount={(amount) => setExplode({ amount, glide: false })}
+              {...(focusJoint && slots.section !== focusJoint ? { onSection: () => setSlots((s) => openSlot(s, { kind: "joint", id: focusJoint })) } : {})}
               onWholePiece={wholePiece}
               onClose={toggleExplode}
             />
@@ -1229,6 +1236,17 @@ export function App() {
               paired={!!slots.preview}
             />
           )}
+          {slots.section && (
+            <PreviewDrawer
+              state={state}
+              drawer={{ kind: "joint", id: slots.section }}
+              onClose={() => setSlots((s) => ({ ...s, section: null }))}
+              onOpen={openDrawer}
+              look={look}
+              lighting={lighting}
+              paired={!!slots.preview}
+            />
+          )}
           {slots.preview && (
             <PreviewDrawer
               state={state}
@@ -1237,7 +1255,7 @@ export function App() {
               onOpen={openDrawer}
               look={look}
               lighting={lighting}
-              paired={!!slots.example}
+              paired={!!slots.example || !!slots.section}
             />
           )}
         </div>

@@ -259,7 +259,7 @@ describe("woodchuck_view", () => {
     const win = await windowOpen();
     expect((await tool("woodchuck_view", { explode: 1 })).text).toBe("The Woodchuck window now shows the piece pulled apart.");
     expect((await tool("woodchuck_view", { explode: 0.5 })).text).toBe("The Woodchuck window now shows the piece partly pulled apart.");
-    expect((await tool("woodchuck_view", { focus_joint: "shelf_l" })).text).toBe("The Woodchuck window now shows joint shelf_l pulled apart.");
+    expect((await tool("woodchuck_view", { focus_joint: "shelf_l" })).text).toBe("The Woodchuck window now shows joint shelf_l pulled apart, with its section and sizes.");
     expect((await tool("woodchuck_view", { focus_joint: "", explode: 1 })).text).toBe("The Woodchuck window now shows the whole piece pulled apart.");
     expect((await tool("woodchuck_view", { explode: 0 })).text).toBe("The Woodchuck window now shows the piece back together.");
     await win.got(5);
