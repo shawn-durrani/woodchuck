@@ -176,9 +176,10 @@ export function describeView(c: ViewCommand): string {
     parts.push(`the model turning ${Math.abs(s)}° a second to the ${s > 0 ? "right" : "left"}`);
   } else if (c.orbit === "stop") parts.push("the model held still");
   if (c.seeThrough !== undefined) parts.push(c.seeThrough ? "see-through on" : "see-through off");
-  if (c.focusJoint) parts.push(`joint ${c.focusJoint} pulled apart`);
-  else if (c.focusJoint === "") parts.push("the whole piece again");
-  if (c.explode !== undefined && !c.focusJoint) parts.push(c.explode === 0 ? "the piece back together" : c.explode === 1 ? "the piece pulled apart" : "the piece partly pulled apart");
+  const apart = (x: number) => (x === 0 ? "back together" : x === 1 ? "pulled apart" : "partly pulled apart");
+  if (c.focusJoint) parts.push(`joint ${c.focusJoint} ${apart(c.explode ?? 1)}`);
+  else if (c.focusJoint === "") parts.push(`the whole piece ${apart(c.explode ?? 0)}`);
+  else if (c.explode !== undefined) parts.push(`the piece ${apart(c.explode)}`);
   if (c.photo !== undefined) parts.push(c.photo ? "the room photo" : "the photo put away");
   if (c.fill === true) parts.push("the 3D view filling the window");
   if (c.fill === false) parts.push("the panels back");

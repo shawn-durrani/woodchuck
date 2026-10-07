@@ -682,8 +682,8 @@ never gets a label.
 ## A piece comes apart the way it goes together
 
 Explode pulls the piece apart in the 3D view, and a slider puts it back.
-Solid wood can't pass through solid wood, so no part passes through
-another on the way. Each joint says which way its parts slide apart. A
+Solid wood can't rest inside solid wood, so no part ever stops inside
+another. Each joint says which way its parts slide apart. A
 tenon or a tongue comes straight out of its housing, and a screwed part
 comes straight off the face it meets. A half lap lifts off, a part through
 a slot slides out either end, and a box joint opens either way its fingers
@@ -694,9 +694,11 @@ A part with no joint can go any way with nothing in its path.
 largest part stays put. A stage takes every part that can slide free of
 everything left, and no two moves in a stage could cross. A part that
 can't come off alone takes what holds it, such as a table's end frame, and
-that group comes apart in later stages. Parts whose joints hold each other
-every way stay together, and the bar over the model names them. Each move
-goes far enough to clear what's around it, now and in every later stage.
+that group comes apart in later stages. On the way, the piece never
+overlaps more than it does together. Parts whose joints hold each other
+every way are the one exception. The part held least passes through what
+holds it, and the bar over the model names them. Each move goes far
+enough to rest clear of what's around it, now and in every later stage.
 
 The slider's stages take turns, the last part on coming off first. Dragging
 it back shows the piece going together in order. The view moves each part
@@ -705,9 +707,10 @@ select reads the part where it sits now.
 
 A joint can come apart on its own too. Its card in the Edit tab does it,
 and so do Claude's `show_joint` with the joint's id and another chat's
-`focus_joint`. Its two parts come apart and the rest fades. Whichever part
-has a clear path moves. When neither has, the guest moves anyway, and the
-bar names the parts that hold it too. The plan views, the room photo and a
+`focus_joint`. Its two parts come apart and the rest fades. The part that
+moves is the one that comes to rest clear of every part soonest, faded
+ones too. On the way it may pass through a faded part that holds it too,
+and the bar names that part. The plan views, the room photo and a
 suggested change show the piece together, so Explode waits for them.
 
 ## Other chats use the same tools

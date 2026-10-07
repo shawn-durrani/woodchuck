@@ -315,9 +315,10 @@ drops off the top as one frame, and each end frame slides off the long
 rails before its leg comes off its rail. The record console's drawers
 slide out the front. The tests step through the slider two thousand times
 and check that no two parts ever overlap more than they do together. Two
-parts whose joints hold each other every way stay together, and the plan
-names them. A joint on its own moves whichever part has a clear path, and
-names the parts in the way when neither has.
+parts whose joints hold each other every way come apart through each
+other, rest clear, and the plan names them. Every joint of the table and
+the console, pulled apart on its own, rests clear of every part. A table
+rail held at both ends stays, and its leg slides off it instead.
 
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.
