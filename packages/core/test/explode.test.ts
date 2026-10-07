@@ -1,10 +1,11 @@
 // Issue #66: the exploded view pulls a piece apart the way it goes
 // together. Every worked joint comes apart along its joint, a table's base
 // drops off its top as one frame before its end frames come off, and the
-// record console's drawers slide out the front. Solid wood never passes
-// through solid wood on the way: no two parts ever overlap more than they
-// do together, where a tongue sits in its housing. The table is invented:
-// 1200 × 600 × 725 in oak.
+// record console's drawers slide out the front. Solid wood never rests
+// inside solid wood: apart, no two parts overlap, and a joint pulled apart
+// on its own rests clear of every part. On the way, the whole piece never
+// overlaps more than it does together, where a tongue sits in its
+// housing. The table is invented: 1200 × 600 × 725 in oak.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -45,6 +46,20 @@ function stillInside(parts: DerivedPart[], e: Explosion): string[] {
 }
 
 const shared = (a: Box, b: Box) => [0, 1, 2].reduce((v, k) => v * Math.max(0, Math.min(a.max[k]!, b.max[k]!) - Math.max(a.min[k]!, b.min[k]!)), 1);
+
+/** Pairs of parts that overlap more, once apart, than they do together: one resting inside another. */
+function restsInside(parts: DerivedPart[], e: Explosion): string[] {
+  const off = explodeOffsets(e, 1);
+  const out: string[] = [];
+  for (let a = 0; a < parts.length; a++) {
+    for (let b = a + 1; b < parts.length; b++) {
+      const p = parts[a]!;
+      const q = parts[b]!;
+      if (shared(moved(p.box, off.get(p.id)), moved(q.box, off.get(q.id))) > shared(p.box, q.box) + 1) out.push(`${p.id} in ${q.id}`);
+    }
+  }
+  return out;
+}
 
 /** Pairs of parts that overlap more, at some point on the way apart, than they do together. */
 function passThrough(parts: DerivedPart[], e: Explosion, steps = 2000): string[] {
@@ -161,11 +176,21 @@ describe("one joint apart", () => {
     expect(e.passes).toEqual([]);
   });
 
-  it("says what a part held at both ends passes through, when neither part has a clear path", () => {
+  it("slides the leg off a rail held at both ends, through the other rail's tenon, and rests it clear", () => {
     const r = table();
     const e = explodeJoint(r.parts, r.joints, "rail_front_leg_fl")!;
-    expect(e.moves[0]!.parts).toEqual(["rail_front"]);
-    expect(e.passes).toContain("leg_fr");
+    // The rail would have to clear the far leg, so the leg comes off the rail instead.
+    expect(e.moves[0]!.parts).toEqual(["leg_fl"]);
+    expect(e.moves[0]!.by_mm[0]).toBeLessThan(0);
+    expect(e.passes).toEqual(["rail_left"]);
+    expect(restsInside(r.parts, e)).toEqual([]);
+  });
+
+  it("rests every joint of the table and the record console clear of every part", () => {
+    for (const r of [table(), derive(applyOps(emptyDesign("x"), recordConsoleOps()))]) {
+      // The other joints stay together, so only a new overlap counts.
+      for (const j of r.joints) expect(restsInside(r.parts, explodeJoint(r.parts, r.joints, j.id)!), j.id).toEqual([]);
+    }
   });
 
   it("is null for a joint that isn't there", () => {
@@ -224,7 +249,7 @@ describe("the whole piece apart", () => {
     expect(JSON.stringify(explodePiece(r.parts, r.joints, r.hardware))).toBe(JSON.stringify(explodePiece(r.parts, r.joints, r.hardware)));
   });
 
-  it("keeps two parts whose joints hold each other every way together, and says so", () => {
+  it("takes apart two parts whose joints hold each other every way through each other, rests them clear, and says so", () => {
     const part = (id: string, min: Vec3, max: Vec3) => ({ id, box: { min, max }, nominal: { min, max }, broken: false, thickness_axis: "x" as const });
     const parts = [part("a", [0, 0, 0], [100, 100, 100]), part("b", [100, 0, 0], [150, 100, 100])];
     const joints = [
@@ -232,9 +257,9 @@ describe("the whole piece apart", () => {
       { id: "j2", type: "screws" as const, family: "fastener" as const, host: "a", guest: "b", axis: "y" as const, side: "end" as const, features: [] },
     ];
     const e = explodePiece(parts, joints);
-    expect(e.moves).toEqual([]);
-    expect(e.stages).toBe(0);
+    expect(e.moves.map((m) => m.parts)).toEqual([["b"]]);
     expect(e.locked).toEqual([["a", "b"]]);
+    expect(stillInside(parts as unknown as DerivedPart[], e)).toEqual([]);
   });
 
   it("leaves out broken parts, and has nothing to do with fewer than two", () => {

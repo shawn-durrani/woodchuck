@@ -3,7 +3,7 @@
 // dragging it back watches the piece go together in order. With one joint
 // pulled apart, it names the joint and what holds it, and Whole piece goes
 // back to the lot. It also says when some parts can't come apart in a
-// straight line.
+// straight line, so they pass through each other on the way apart.
 
 import { useRef } from "react";
 
@@ -30,7 +30,7 @@ export function ExplodeBar({
   stages: number;
   /** One joint pulled apart on its own, or null for the whole piece. */
   joint: ExplodeBarJoint | null;
-  /** Sets of parts, by name, that stay together because their joints hold each other every way. */
+  /** Sets of parts, by name, whose joints hold each other every way, so they pass through each other on the way apart. */
   locked: string[][];
   onAmount: (amount: number) => void;
   onWholePiece: () => void;
@@ -91,7 +91,7 @@ export function ExplodeBar({
       {!joint &&
         locked.map((set) => (
           <div key={set.join(",")} className="small warn-text">
-            {set.join(", ")} can't slide apart in a straight line, so they stay together.
+            {set.join(", ")} can't slide apart in a straight line, so here they pass through each other on the way apart.
           </div>
         ))}
     </div>

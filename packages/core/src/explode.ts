@@ -7,17 +7,18 @@
 // only along its length, so a drawer comes out the front. A part with no
 // joint can go any way with nothing in its path.
 //
-// Solid wood can't pass through solid wood, so nothing here does. Parts
-// come off in stages, outside in, and the largest part stays put. A stage
-// takes every part that can slide free of everything still there, with
-// nothing in its path, as long as no two moves in the stage could cross.
-// When a part can't come off alone, it takes along whatever holds it that
-// way, such as a table's end frame of two legs and a rail, and that group
-// comes apart in later stages. Parts whose joints hold each other every
-// way can't come apart in a straight line, so they stay together, and the
-// explosion says which they are. Each move goes far enough to clear what's
-// around it, now and in every later stage, plus a gap in proportion to
-// what is coming apart. Kept free of three.js so the tests can hold it.
+// Solid wood can't rest inside solid wood, so no part ever stops inside
+// another. Parts come off in stages, outside in, and the largest part stays
+// put. A stage takes every part that can slide free of everything still
+// there, with nothing in its path, as long as no two moves in the stage
+// could cross. When a part can't come off alone, it takes along whatever
+// holds it that way, such as a table's end frame of two legs and a rail,
+// and that group comes apart in later stages. Parts whose joints hold each
+// other every way can't come apart in a straight line. The one held least
+// comes off anyway, through what holds it, and the explosion says which
+// parts they are. Each move goes far enough to rest clear of what's around
+// it, now and in every later stage, plus a gap in proportion to what is
+// coming apart. Kept free of three.js so the tests can hold it.
 
 import { AXIS_INDEX, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Vec3 } from "./derive.js";
 import { AXES, type Axis } from "./types.js";
@@ -35,7 +36,7 @@ export interface Explosion {
   moves: ExplodeMove[];
   /** How many stages it comes apart in. */
   stages: number;
-  /** Sets of parts whose joints hold each other every way, so they stay together. */
+  /** Sets of parts whose joints hold each other every way, so one comes off through the others. */
   locked: string[][];
 }
 
@@ -197,13 +198,13 @@ interface Move {
   t?: number;
 }
 
-/** A group coming apart: what stays put, every move off it in order, and what can't come off it. */
+/** A group coming apart: what stays put, every move off it in order, and each set of parts that held each other every way. */
 interface Level {
   root: string;
   members: string[];
   moves: Move[];
   rounds: number;
-  locked: string[];
+  locked: string[][];
 }
 
 /**
@@ -216,6 +217,7 @@ function planLevel(members: string[], parts: Map<string, ExplodePart>, blocks: (
   const root = sorted.reduce((best, id) => (volume(parts.get(id)!.nominal) > volume(parts.get(best)!.nominal) + EPS ? id : best), sorted[0]!);
   const remaining = new Set(sorted);
   const moves: Move[] = [];
+  const locked: string[][] = [];
   let round = 0;
   /** Everything that has to go along with id to move it this way, or null when that takes the part that stays. */
   const closure = (id: string, w: Way): Set<string> | null => {
@@ -259,10 +261,19 @@ function planLevel(members: string[], parts: Map<string, ExplodePart>, blocks: (
       for (const id of o.set) taken.add(id);
       now.push({ set: [...o.set].sort(), way: o.way, round, box });
     }
-    // Everything left holds everything else, so it stays together.
     if (!now.length) {
-      round--;
-      break;
+      // Everything left holds everything else, so the part held least comes off anyway, through what holds it.
+      locked.push([...remaining].sort());
+      let best: { id: string; way: Way; held: number; score: number } | null = null;
+      for (const id of remaining) {
+        if (id === root) continue;
+        for (const w of WAYS) {
+          const held = blocks(id, w).filter((q) => remaining.has(q)).length;
+          const score = outward([id], w);
+          if (!best || held < best.held || (held === best.held && score > best.score)) best = { id, way: w, held, score };
+        }
+      }
+      now.push({ set: [best!.id], way: best!.way, round, box: parts.get(best!.id)!.box });
     }
     for (const m of now) {
       for (const id of m.set) remaining.delete(id);
@@ -270,7 +281,7 @@ function planLevel(members: string[], parts: Map<string, ExplodePart>, blocks: (
     }
   }
   for (const m of moves) if (m.set.length > 1) m.child = planLevel(m.set, parts, blocks);
-  return { root, members: sorted, moves, rounds: round, locked: remaining.size > 1 ? [...remaining].sort() : [] };
+  return { root, members: sorted, moves, rounds: round, locked };
 }
 
 /** The distances along a way at which a moving box would stand within the gap of an obstacle. */
@@ -342,7 +353,7 @@ function placeLevel(level: Level, parts: Map<string, ExplodePart>): Box {
 /** Numbers each level's stages: a group comes apart once every move at the level above it is done. */
 function flatten(level: Level, start: number, out: ExplodeMove[], locked: string[][]): number {
   let last = start + level.rounds - 1;
-  if (level.locked.length) locked.push(level.locked);
+  locked.push(...level.locked);
   for (const m of level.moves) {
     out.push({ parts: m.set, by_mm: along(m.way, m.t ?? 0), stage: start + m.round - 1 });
     if (m.child) last = Math.max(last, flatten(m.child, start + level.rounds, out, locked));
@@ -383,9 +394,10 @@ export function explodePiece(parts: readonly ExplodePart[], joints: readonly Exp
 
 /**
  * One joint apart, with nothing else moving. Its guest slides off its host,
- * or its host off its guest, whichever has a clear path, the shortest way
- * the joint allows. When neither has, the guest goes anyway, and passes
- * says what it goes through: the parts that hold it too, which the view
+ * or its host off its guest, the way the joint allows, and comes to rest
+ * clear of every part, the faded ones too. Of those, the one that rests
+ * nearest moves, with a clear path winning a near tie. On the way it may
+ * pass through parts that hold it too, which passes names and the view
  * fades. Null for a joint that isn't there.
  */
 export function explodeJoint(parts: readonly ExplodePart[], joints: readonly ExplodeJoint[], id: string): JointExplosion | null {
@@ -411,13 +423,13 @@ export function explodeJoint(parts: readonly ExplodePart[], joints: readonly Exp
     ...ways.map((w) => ({ mover: host, w: { axis: w.axis, sign: w.sign > 0 ? -1 : 1 } as Way })),
   ].map((c) => {
     const still = c.mover === guest ? host : guest;
-    const t = firstFree(blocked(c.mover.box, c.w, [still.box], gap), gap);
+    const t = firstFree(blocked(c.mover.box, c.w, [still.box, ...others.map((o) => o.box)], gap), gap);
     const path = hull([c.mover.box, shift(c.mover.box, along(c.w, t))]);
     return { ...c, t, passes: others.filter((o) => overlaps(path, o.box)).map((o) => o.id) };
   });
-  const shortest = (list: typeof choices) => list.reduce((a, b) => (b.t < a.t - EPS ? b : a));
-  const clear = choices.filter((c) => !c.passes.length);
-  const best = clear.length ? shortest(clear) : shortest(choices.filter((c) => c.mover === guest));
+  const cost = (c: (typeof choices)[number]) => c.t * (c.passes.length ? 1.25 : 1);
+  // The guest wins a tie, as it comes first.
+  const best = choices.reduce((a, b) => (cost(b) < cost(a) - EPS ? b : a));
   const by = along(best.w, best.t);
   const margin = clamp(0.5 * longest(region), 40, 150);
   const near = hull([region, shift(region, by)]);

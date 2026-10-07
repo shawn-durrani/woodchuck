@@ -243,6 +243,35 @@ describe("woodchuck_view", () => {
     win.ws.close();
   });
 
+  // Issue #66: whatever the window's Explode, its slider and a joint card's pull apart do, another chat can do too.
+  it("pulls the piece apart, or one joint, and puts it back together", async () => {
+    const { tools } = await client.listTools();
+    const props = tools.find((t) => t.name === "woodchuck_view")!.inputSchema.properties as Record<string, { description?: string }>;
+    expect(props.explode!.description).toMatch(/1 fully apart, 0 back together/);
+    expect(props.focus_joint!.description).toMatch(/by its id from woodchuck_status/);
+    const pine = { op: "define_material", id: "pine18", name: "18 mm pine", kind: "solid", thickness_mm: 18, grained: true };
+    const side = (id: string, x: Record<string, unknown>) => ({ op: "add_panel", id, name: "Side", material: "pine18", thickness_axis: "x", grain_axis: "y", x, y: { start: { at: "0" }, size: "600" }, z: { start: { at: "0" }, size: "240" } });
+    const shelf = { op: "add_panel", id: "shelf", name: "Shelf", material: "pine18", thickness_axis: "y", grain_axis: "x", x: { start: { face: "side_l.right" }, end: { face: "side_r.left" } }, y: { start: { at: "300" } }, z: { start: { at: "0" }, size: "240" } };
+    const ops = [pine, side("side_l", { start: { at: "0" } }), side("side_r", { end: { at: "600" } }), shelf, { op: "add_joint", id: "shelf_l", type: "dado", host: "side_l", guest: "shelf" }];
+    expect((await fetch(`${process.env.WOODCHUCK_URL}/api/ops`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ops }) })).status).toBe(200);
+    expect((await tool("woodchuck_status")).text).toContain("Joints, by id: shelf_l");
+
+    const win = await windowOpen();
+    expect((await tool("woodchuck_view", { explode: 1 })).text).toBe("The Woodchuck window now shows the piece pulled apart.");
+    expect((await tool("woodchuck_view", { explode: 0.5 })).text).toBe("The Woodchuck window now shows the piece partly pulled apart.");
+    expect((await tool("woodchuck_view", { focus_joint: "shelf_l" })).text).toBe("The Woodchuck window now shows joint shelf_l pulled apart.");
+    expect((await tool("woodchuck_view", { focus_joint: "", explode: 1 })).text).toBe("The Woodchuck window now shows the whole piece pulled apart.");
+    expect((await tool("woodchuck_view", { explode: 0 })).text).toBe("The Woodchuck window now shows the piece back together.");
+    await win.got(5);
+    expect(win.views.map(({ from: _, ...v }) => v)).toEqual([{ explode: 1 }, { explode: 0.5 }, { focusJoint: "shelf_l" }, { focusJoint: "", explode: 1 }, { explode: 0 }]);
+    // A joint the design doesn't have, and pulling the plan views apart, are refused.
+    expect((await tool("woodchuck_view", { focus_joint: "nope" })).text).toBe("Woodchuck refused that: There's no joint nope. The design's joints: shelf_l");
+    expect((await tool("woodchuck_view", { explode: 1, plan_views: true })).text).toMatch(/^Woodchuck refused that: explode and focusJoint pull the 3D view apart/);
+    expect(win.views).toHaveLength(5);
+    win.ws.close();
+    await fetch(`${process.env.WOODCHUCK_URL}/api/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  });
+
   // Crossband keeps the first 900 characters of a tool's description, so anything after that never reaches its models.
   it("keeps every tool's description within the 900 characters a chat app reads", async () => {
     const { tools } = await client.listTools();
