@@ -1765,18 +1765,24 @@ input[aria-invalid="true"] {
 /* One of the design's own joints in section takes the same slot, a little wider for its drawing. The drawing keeps its white paper in every theme. */
 .drawer.slot-joint {
   width: clamp(320px, 42%, 600px);
+  max-width: 100%;
 }
 .drawer.paired.slot-joint {
   right: clamp(250px, 30%, 420px);
   box-shadow: none;
 }
-/* A joint's section sits beside the 3D view of the same joint, never over it. */
-.stage.beside-joint > .canvas-wrap {
-  right: clamp(320px, 42%, 600px);
+/* A joint's section sits beside the 3D view of the same joint, while the middle leaves the view at least 240 px. Narrower, it lies over the view instead. */
+.stage {
+  container: stage / inline-size;
 }
-.stage.beside-joint .explode-bar {
-  left: calc((100% - clamp(320px, 42%, 600px)) / 2);
-  width: min(460px, calc(100% - clamp(320px, 42%, 600px) - 20px));
+@container stage (min-width: 560px) {
+  .stage.beside-joint > .canvas-wrap {
+    right: clamp(320px, 42%, 600px);
+  }
+  .beside-joint .explode-bar {
+    left: calc((100% - clamp(320px, 42%, 600px)) / 2);
+    width: min(460px, calc(100% - clamp(320px, 42%, 600px) - 20px));
+  }
 }
 .joint-section {
   margin: 6px 0;

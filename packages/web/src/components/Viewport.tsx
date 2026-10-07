@@ -28,7 +28,7 @@ import {
   type Vec3,
 } from "@woodchuck/core";
 import { facesOf, NO_TOUCH_BOX, partsInRect, touchBox, type FingerEvent, type TouchBox } from "../select";
-import { autoFit, framing, type FitMemory, type FitReason } from "../autofit";
+import { autoFit, frameStands, framing, type FitMemory, type FitReason } from "../autofit";
 import { orbitStep, turnAround } from "../orbit";
 import { lookKey, makeWoodMaterial, setWood, woodLookOf, type WoodLook } from "../wood";
 import { useScene, type SceneColours } from "../theme";
@@ -458,7 +458,22 @@ function CameraRig({
     camera.updateMatrixWorld();
     return framing(corners(now.current.box).map((p) => p.project(camera).toArray() as [number, number, number]));
   };
+  /** The last frame asked for on purpose, until Fit, a camera view or another design replaces it. */
+  const asked = useRef<{ box: Box; design: string } | null>(null);
+  /** Frames a few parts with room round them, from where you're looking, as a view you've moved. */
+  const frameParts = (box: Box, animate: boolean) => {
+    const picked = new THREE.Box3(new THREE.Vector3(...box.min), new THREE.Vector3(...box.max));
+    const b = picked.clone().expandByScalar(Math.min(150, Math.max(30, picked.getSize(new THREE.Vector3()).length() * 0.08)));
+    // Never wider than Fit would frame the whole model.
+    b.intersect(now.current.box);
+    fit(looking(), animate, b.isEmpty() ? picked : b);
+    // The model now reaches past the frame on purpose, so only Fit or another design frames it all again.
+    const { canvas: c, design: d } = now.current;
+    const base = memory.current ?? autoFit(null, { kind: "fitted", design: d, width: c.width, height: c.height }).memory;
+    memory.current = { ...base, moved: true, overflow: true, small: false, pending: null };
+  };
   const act = (reason: FitReason | null) => {
+    if (reason === "design" && frameStands(asked.current, "design", designKey)) return frameParts(asked.current!.box, false);
     if (reason) fit(reason === "design" ? new THREE.Vector3(...DIRS[now.current.view]) : looking(), reason !== "design");
   };
 
@@ -501,25 +516,25 @@ function CameraRig({
 
   // A camera view, Fit, or a new fitKey frames the model from that view.
   // Without auto, a new design comes in by its fitKey, and the first parts
-  // of an empty one frame too.
+  // of an empty one frame too. When the view has only just got ready, a
+  // frame already asked for stands instead.
+  const lastAsk = useRef({ view, fitKey });
   useEffect(() => {
+    const why = lastAsk.current.view !== view || lastAsk.current.fitKey !== fitKey ? "asked" : "ready";
+    lastAsk.current = { view, fitKey };
+    if (why === "asked") asked.current = null;
+    if (frameStands(asked.current, why, designKey)) return frameParts(asked.current!.box, false);
     fit(new THREE.Vector3(...DIRS[view]), false);
     if (auto) memory.current = autoFit(memory.current, { kind: "fitted", design, width: canvas.width, height: canvas.height }).memory;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, fitKey, controls, auto || parts.length > 0]);
 
   // Show me frames a few parts, with room round them, from where you're
-  // looking. The model then reaches past the frame on purpose, so it
-  // counts as a view you've moved: only Fit or another design frames it
-  // all again.
+  // looking, and so does a joint pulled apart.
   useEffect(() => {
     if (!target) return;
-    const picked = new THREE.Box3(new THREE.Vector3(...target.box.min), new THREE.Vector3(...target.box.max));
-    const b = picked.clone().expandByScalar(Math.min(150, Math.max(30, picked.getSize(new THREE.Vector3()).length() * 0.08)));
-    // Never wider than Fit would frame the whole model.
-    b.intersect(now.current.box);
-    fit(looking(), true, b.isEmpty() ? picked : b);
-    if (memory.current) memory.current = { ...memory.current, moved: true, overflow: true, small: false, pending: null };
+    asked.current = { box: target.box, design: designKey };
+    frameParts(target.box, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.key]);
 

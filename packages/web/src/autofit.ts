@@ -87,6 +87,20 @@ export function autoFit(m: FitMemory | null, e: FitEvent): { memory: FitMemory; 
   return { memory: { ...(m ?? settled(here, false)), ...here, overflow: e.overflow, small }, fit: null };
 }
 
+/** Why the camera is about to frame the whole model: you asked, with Fit or a camera view, or the view just got ready. */
+export type WholeFit = "asked" | "ready" | "design";
+
+/**
+ * Whether a frame asked for on purpose, such as Show me or a joint pulled
+ * apart, still stands when the camera would otherwise frame the whole
+ * model. Fit, a camera view and another design replace it. The view
+ * getting ready, or the first look at the design it was asked in, don't,
+ * so a frame asked for just as the window opens isn't lost.
+ */
+export function frameStands(frame: { design: string } | null, why: WholeFit, design: string): boolean {
+  return !!frame && why !== "asked" && frame.design === design;
+}
+
 type Corner = readonly [number, number, number];
 
 /**

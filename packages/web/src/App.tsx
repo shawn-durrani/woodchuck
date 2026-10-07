@@ -384,10 +384,14 @@ export function App() {
     note,
   });
 
+  /** View commands that came before the design did, played in order once it's in. */
+  const earlyViews = useRef<ViewCommand[]>([]);
+  /** The design the window has taken in, once its fresh start has run. */
+  const takenIn = useRef<string | null>(null);
+  const takeView = useRef<(v: ViewCommand) => void>(() => {});
   // Another chat, such as Crossband, can change what this window shows.
   useEffect(() => {
-    const onView = (e: Event) => {
-      const v = (e as CustomEvent<ViewCommand>).detail;
+    const apply = (v: ViewCommand) => {
       // The same settings the toolbar's controls change, so each command shows on its control.
       const { state: next, effects } = applyView(viewNow.current, v, !!stateRef.current?.backdrop);
       setMode(next.mode);
@@ -450,10 +454,18 @@ export function App() {
       if (still && !routed.note) note(`${who} asked for the model to keep turning, but ${still}`);
       else note(routed.note ? `${who}: ${routed.note}` : v.note ? `${who}: ${v.note}` : `${who} changed the view: ${describeView(v)}.`);
     };
+    takeView.current = apply;
+    // A command can come in just as the window opens, before the design has drawn.
+    const onView = (e: Event) => {
+      const v = (e as CustomEvent<ViewCommand>).detail;
+      if (takenIn.current && takenIn.current === stateRef.current?.project.slug) apply(v);
+      else earlyViews.current.push(v);
+    };
     viewRequests.addEventListener("view", onView);
     return () => viewRequests.removeEventListener("view", onView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   // The plan views and the room photo hold the camera still, so an orbit stops for them.
   const photoUp = photoOn === "on" && !!state?.backdrop;
@@ -589,7 +601,12 @@ export function App() {
     setExplode({ amount: 0, glide: false });
     setFocusJoint(null);
     answering.current = null;
+    takenIn.current = slug ?? null;
   }, [slug]);
+  // Commands that came before the design play once it's in, after the fresh start above.
+  useEffect(() => {
+    if (takenIn.current && earlyViews.current.length) for (const v of earlyViews.current.splice(0)) takeView.current(v);
+  }, [state]);
 
   // Open the drawer when Claude shows a new joint example, but not for ones
   // already in the chat when the app loads. A new preview is drawn on the
