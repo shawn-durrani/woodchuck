@@ -1,7 +1,9 @@
 // The 3D view. Each part is drawn as its visible box, or as its true solid
 // once cuts shape it, coloured by material, or in the finished look as real
 // timber with its finish under a choice of lighting. Click a part to select
-// it, or a face in face mode; shift-click adds to the selection.
+// it, or a face in face mode; shift-click adds to the selection. Explode
+// pulls the parts apart the way they go together, as explode.ts plans it,
+// moving each part every frame without drawing the page again.
 
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, Html, Line, OrbitControls } from "@react-three/drei";
@@ -9,7 +11,22 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { FACES, shapeSig, type Box, type DerivedHardware, type DerivedJoint, type DerivedPart, type Design, type Face, type JointFeature, type PartProfile } from "@woodchuck/core";
+import {
+  explodeOffsets,
+  FACES,
+  hardwareOffset,
+  shapeSig,
+  type Box,
+  type DerivedHardware,
+  type DerivedJoint,
+  type DerivedPart,
+  type Design,
+  type Explosion,
+  type Face,
+  type JointFeature,
+  type PartProfile,
+  type Vec3,
+} from "@woodchuck/core";
 import { facesOf, NO_TOUCH_BOX, partsInRect, touchBox, type FingerEvent, type TouchBox } from "../select";
 import { autoFit, framing, type FitMemory, type FitReason } from "../autofit";
 import { orbitStep, turnAround } from "../orbit";
@@ -33,6 +50,84 @@ export interface Pin {
   part: string;
   face: string;
   point_mm: [number, number, number];
+}
+
+/**
+ * The piece, or one joint, pulled apart: the plan, how far from 0,
+ * together, to 1, fully apart, and whether to ease there, as a button
+ * does, or jump, as a slider does. A joint on its own fades every other
+ * part and shows only its own tongues and cut-outs.
+ */
+export interface ExplodeView {
+  plan: Explosion;
+  amount: number;
+  glide: boolean;
+  joint?: { id: string; host: string; guest: string } | null;
+}
+
+/** Where each part sits now while the piece comes apart, shared with every moving part so a frame needs no render. */
+interface Spread {
+  plan: Explosion | null;
+  shown: number;
+  offsets: Map<string, Vec3>;
+}
+
+const ZERO: Vec3 = [0, 0, 0];
+const shiftBox = (b: Box, o: Vec3): Box => ({ min: b.min.map((v, k) => v + o[k]!) as Vec3, max: b.max.map((v, k) => v + o[k]!) as Vec3 });
+/** The computer asks for less motion, so the parts jump instead of gliding. */
+const lessMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * Moves the shown amount towards the one asked for, once a frame, and works
+ * out where each part sits. A glide takes about a third of a second a
+ * stage. Switching between the whole piece and a joint starts from
+ * together, and a design change keeps how far apart it is. It says when
+ * the piece first comes apart and when it's back together.
+ */
+function ExplodeDriver({ explode, spread, onApart }: { explode: ExplodeView | null; spread: React.MutableRefObject<Spread>; onApart: (apart: boolean) => void }) {
+  const invalidate = useThree((s) => s.invalidate);
+  const apart = useRef(false);
+  const which = useRef<string | null>(null);
+  useFrame((_, delta) => {
+    const s = spread.current;
+    const plan = explode?.plan ?? null;
+    let dirty = plan !== s.plan;
+    s.plan = plan;
+    const kind = plan ? (explode?.joint?.id ?? "") : null;
+    if (kind !== which.current) {
+      which.current = kind;
+      s.shown = 0;
+      dirty = true;
+    }
+    const goal = plan ? (explode?.amount ?? 0) : 0;
+    let next = goal;
+    if (goal !== s.shown && explode?.glide && !lessMotion()) {
+      const step = delta / Math.min(2.4, Math.max(0.6, 0.35 * (plan?.stages ?? 1)));
+      next = s.shown < goal ? Math.min(goal, s.shown + step) : Math.max(goal, s.shown - step);
+    }
+    if (next === s.shown && !dirty) return;
+    s.shown = next;
+    s.offsets = plan && next > 0 ? explodeOffsets(plan, next) : new Map();
+    if (next > 0 !== apart.current) {
+      apart.current = next > 0;
+      onApart(apart.current);
+    }
+    invalidate();
+  });
+  return null;
+}
+
+/** A group that rides along with one part as the piece comes apart, or sits between several, as hardware does. */
+function Moved({ id, between, spread, children }: { id?: string; between?: readonly string[]; spread: React.MutableRefObject<Spread>; children: React.ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(() => {
+    const g = ref.current;
+    if (!g) return;
+    const offsets = spread.current.offsets;
+    const o = between ? (offsets.size ? hardwareOffset(between, offsets) : ZERO) : (offsets.get(id ?? "") ?? ZERO);
+    if (g.position.x !== o[0] || g.position.y !== o[1] || g.position.z !== o[2]) g.position.set(o[0], o[1], o[2]);
+  });
+  return <group ref={ref}>{children}</group>;
 }
 
 /** What the rest of the app can ask of the 3D view. */
@@ -492,19 +587,27 @@ function CameraRig({
 const boxSize = (b: Box) => b.max.map((v, i) => v - b.min[i]!) as [number, number, number];
 const boxCentre = (b: Box) => b.max.map((v, i) => (v + b.min[i]!) / 2) as [number, number, number];
 
-/** One joint's tongues, cut-outs and fixings, for the see-through view. */
+/**
+ * One joint's tongues, cut-outs and fixings, for the see-through view and
+ * the exploded one. Each rides with its own part. Pulled apart and solid, a
+ * cut-out shows on the face of its part, where its mouth is.
+ */
 function JointDetail({
   j,
   colourOf,
   scene,
   onHover,
   onPick,
+  spread,
+  onSurface,
 }: {
   j: DerivedJoint;
   colourOf: (id: string) => string;
   scene: SceneColours;
   onHover: (label: string | null) => void;
   onPick: (ids: string[]) => void;
+  spread: React.MutableRefObject<Spread>;
+  onSurface: boolean;
 }) {
   const label = `${j.id}: ${j.type.replace(/_/g, " ")}, ${j.guest} into ${j.host}`;
   const events = {
@@ -524,16 +627,22 @@ function JointDetail({
         if (f.box && (f.kind === "tongue" || f.kind === "removed")) {
           const tongue = f.kind === "tongue";
           return (
-            <mesh key={k} position={boxCentre(f.box)} {...events}>
-              <boxGeometry args={boxSize(f.box)} />
-              <meshStandardMaterial
-                color={tongue ? colourOf(f.part) : scene.cut}
-                transparent={!tongue}
-                opacity={tongue ? 1 : 0.35}
-                depthWrite={tongue}
-              />
-              <Edges color={tongue ? scene.tongue : scene.cutEdge} lineWidth={2} />
-            </mesh>
+            <Moved key={k} id={f.part} spread={spread}>
+              <mesh position={boxCentre(f.box)} {...events}>
+                <boxGeometry args={boxSize(f.box)} />
+                <meshStandardMaterial
+                  key={onSurface ? "surface" : "inside"}
+                  color={tongue ? colourOf(f.part) : scene.cut}
+                  transparent={!tongue}
+                  opacity={tongue ? 1 : onSurface ? 0.6 : 0.35}
+                  depthWrite={tongue}
+                  polygonOffset={onSurface && !tongue}
+                  polygonOffsetFactor={-1}
+                  polygonOffsetUnits={-4}
+                />
+                <Edges color={tongue ? scene.tongue : scene.cutEdge} lineWidth={2} />
+              </mesh>
+            </Moved>
           );
         }
         if (f.from && f.to) {
@@ -542,10 +651,12 @@ function JointDetail({
           const dir = b.clone().sub(a);
           const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
           return (
-            <mesh key={k} position={a.clone().add(b).multiplyScalar(0.5)} quaternion={q} {...events}>
-              <cylinderGeometry args={[(f.diameter_mm ?? 4) / 2, (f.diameter_mm ?? 4) / 2, dir.length(), 12]} />
-              <meshStandardMaterial color={scene.fastener} metalness={0.4} roughness={0.4} />
-            </mesh>
+            <Moved key={k} id={f.part} spread={spread}>
+              <mesh position={a.clone().add(b).multiplyScalar(0.5)} quaternion={q} {...events}>
+                <cylinderGeometry args={[(f.diameter_mm ?? 4) / 2, (f.diameter_mm ?? 4) / 2, dir.length(), 12]} />
+                <meshStandardMaterial color={scene.fastener} metalness={0.4} roughness={0.4} />
+              </mesh>
+            </Moved>
           );
         }
         return null;
@@ -574,7 +685,7 @@ function ToneMap({ look }: { look: Look }) {
 }
 
 /** A thin blue sheet over each selected face, so you can see which ones you've picked. */
-function FaceMarks({ parts, faces, scene }: { parts: DerivedPart[]; faces: string[]; scene: SceneColours }) {
+function FaceMarks({ parts, faces, scene, spread }: { parts: DerivedPart[]; faces: string[]; scene: SceneColours; spread: React.MutableRefObject<Spread> }) {
   const byId = new Map(parts.map((p) => [p.id, p]));
   return (
     <>
@@ -583,7 +694,13 @@ function FaceMarks({ parts, faces, scene }: { parts: DerivedPart[]; faces: strin
         const p = byId.get(key.slice(0, dot));
         const face = key.slice(dot + 1) as Face;
         if (!p || !FACES.includes(face)) return null;
-        if (p.profile) return <ShapedFaceMark key={key} p={p} face={face} scene={scene} />;
+        if (p.profile) {
+          return (
+            <Moved key={key} id={p.id} spread={spread}>
+              <ShapedFaceMark p={p} face={face} scene={scene} />
+            </Moved>
+          );
+        }
         const axis = Math.floor(FACES.indexOf(face) / 2);
         const max = FACES.indexOf(face) % 2 === 1;
         const size = p.nominal.max.map((v, i) => v - p.nominal.min[i]!) as [number, number, number];
@@ -591,10 +708,12 @@ function FaceMarks({ parts, faces, scene }: { parts: DerivedPart[]; faces: strin
         pos[axis] = (max ? p.nominal.max[axis]! + 0.4 : p.nominal.min[axis]! - 0.4);
         const dims = size.map((v, i) => (i === axis ? 0.2 : v + 0.4)) as [number, number, number];
         return (
-          <mesh key={key} position={pos} renderOrder={5} userData={{ uiOnly: true }}>
-            <boxGeometry args={dims} />
-            <meshBasicMaterial color={scene.pickEdge} transparent opacity={0.45} depthWrite={false} toneMapped={false} />
-          </mesh>
+          <Moved key={key} id={p.id} spread={spread}>
+            <mesh position={pos} renderOrder={5} userData={{ uiOnly: true }}>
+              <boxGeometry args={dims} />
+              <meshBasicMaterial color={scene.pickEdge} transparent opacity={0.45} depthWrite={false} toneMapped={false} />
+            </mesh>
+          </Moved>
         );
       })}
     </>
@@ -811,6 +930,8 @@ export function Viewport({
   frame = null,
   orbit = null,
   onOrbitEnd,
+  explode = null,
+  onApart,
 }: {
   parts: DerivedPart[];
   joints: DerivedJoint[];
@@ -863,6 +984,10 @@ export function Viewport({
   orbit?: number | null;
   /** The woodworker took the camera, so the orbit is over. */
   onOrbitEnd?: () => void;
+  /** The piece, or one of its joints, pulled apart. */
+  explode?: ExplodeView | null;
+  /** Told when some part first moves from its place, and when every part is back. */
+  onApart?: (apart: boolean) => void;
 }) {
   const scene = useScene();
   const [hover, setHover] = useState<string | null>(null);
@@ -887,6 +1012,23 @@ export function Viewport({
   const finished = (look === "finished" || !!photo) && !xray;
   /** How fast the orbit turns right now, in degrees a second. */
   const spin = useRef(0);
+  /** Where each part sits now as the piece comes apart. */
+  const spread = useRef<Spread>({ plan: null, shown: 0, offsets: new Map() });
+  /** Any part is away from its place, so the joints' tongues and cut-outs show. */
+  const [apart, setApart] = useState(false);
+  const focusJoint = explode?.joint ?? null;
+  /** A joint on its own fades every part but its two. */
+  const inFocus = (id: string) => !focusJoint || id === focusJoint.host || id === focusJoint.guest;
+  const offsetOf = (id: string) => spread.current.offsets.get(id) ?? ZERO;
+  // Fit frames the piece as far apart as it's asked to be.
+  const explodePlan = explode?.plan;
+  const explodeAmount = explode?.amount ?? 0;
+  const apartBoxes = useMemo(() => {
+    if (!explodePlan || explodeAmount <= 0) return undefined;
+    const off = explodeOffsets(explodePlan, explodeAmount);
+    return live.filter((p) => off.has(p.id)).map((p) => shiftBox(p.nominal, off.get(p.id)!));
+  }, [explodePlan, explodeAmount, live]);
+  const frameExtra = ghostBoxes || apartBoxes ? [...(ghostBoxes ?? []), ...(apartBoxes ?? [])] : undefined;
   // Out of sight or lined up with a photo, the camera stops dead.
   const inPhoto = !!photo;
   useEffect(() => {
@@ -903,7 +1045,9 @@ export function Viewport({
     // A box's face is the way the hit points. A shaped part's triangle names its own, so a slope reads as the face it was cut from.
     const face = hit.face ?? (hit.normal ? faceFromNormal(hit.normal) : null);
     if (mode === "pin") {
-      onPin({ part: id, face: face ?? "front", point_mm: [half(hit.point.x), half(hit.point.y), half(hit.point.z)] });
+      // A pin goes where the spot is on the piece together, wherever the part sits now.
+      const o = offsetOf(id);
+      onPin({ part: id, face: face ?? "front", point_mm: [half(hit.point.x - o[0]), half(hit.point.y - o[1]), half(hit.point.z - o[2])] });
       return;
     }
     if (face) onClickFace?.(`${id}.${face}`);
@@ -921,7 +1065,11 @@ export function Viewport({
   const finishBox = (r: NonNullable<typeof rect>) => {
     const api = apiRef.current;
     if (!api) return;
-    const inside = partsInRect(live, api.project, r);
+    const inside = partsInRect(
+      live.map((p) => ({ id: p.id, nominal: shiftBox(p.nominal, offsetOf(p.id)) })),
+      api.project,
+      r,
+    );
     if (!inside.length && Math.abs(r.x1 - r.x0) < 4 && Math.abs(r.y1 - r.y0) < 4) return;
     if (faceMode) {
       const picked = facesOf(inside);
@@ -959,6 +1107,14 @@ export function Viewport({
         onFaces([]);
       }}
     >
+      <ExplodeDriver
+        explode={explode}
+        spread={spread}
+        onApart={(a) => {
+          setApart(a);
+          onApart?.(a);
+        }}
+      />
       <ToneMap look={finished ? "finished" : "plain"} />
       {finished ? (
         <FinishedLights lighting={lighting} parts={live} {...(photo ? { photo: { shadow: photo.shadow } } : {})} />
@@ -971,42 +1127,48 @@ export function Viewport({
           <FloorGrid scene={scene} />
         </>
       )}
-      {live.map((p) => (
-        <Part
-          key={p.id}
-          p={p}
-          scene={scene}
-          selected={sel.has(p.id)}
-          highlighted={hl.has(p.id)}
-          faded={fade.has(p.id)}
-          outlined={lined.has(p.id)}
-          xray={xray}
-          wood={finished && !p.unverified && !p.decor && !fade.has(p.id) ? woodLookOf(design, p) : null}
-          onHover={setHover}
-          onPick={pick}
-        />
+      {live.map((p) => {
+        const faded = fade.has(p.id) || !inFocus(p.id);
+        return (
+          <Moved key={p.id} id={p.id} spread={spread}>
+            <Part
+              p={p}
+              scene={scene}
+              selected={sel.has(p.id)}
+              highlighted={hl.has(p.id)}
+              faded={faded}
+              outlined={lined.has(p.id)}
+              xray={xray}
+              wood={finished && !p.unverified && !p.decor && !faded ? woodLookOf(design, p) : null}
+              onHover={setHover}
+              onPick={pick}
+            />
+          </Moved>
+        );
+      })}
+      {hardware.map((h) => (
+        <Moved key={h.id} between={h.connects} spread={spread}>
+          {h.boxes.map((b, i) => (
+            <mesh
+              key={i}
+              position={boxCentre(b)}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setJointHover(`${h.name} (${h.id})`);
+              }}
+              onPointerOut={() => setJointHover(null)}
+            >
+              <boxGeometry args={boxSize(b)} />
+              <meshStandardMaterial color={scene.hardware} metalness={0.6} roughness={0.35} transparent={!!focusJoint} opacity={focusJoint ? 0.28 : 1} />
+              <Edges color={scene.hardwareEdge} />
+            </mesh>
+          ))}
+        </Moved>
       ))}
-      {hardware.flatMap((h) =>
-        h.boxes.map((b, i) => (
-          <mesh
-            key={`${h.id}:${i}`}
-            position={boxCentre(b)}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              setJointHover(`${h.name} (${h.id})`);
-            }}
-            onPointerOut={() => setJointHover(null)}
-          >
-            <boxGeometry args={boxSize(b)} />
-            <meshStandardMaterial color={scene.hardware} metalness={0.6} roughness={0.35} />
-            <Edges color={scene.hardwareEdge} />
-          </mesh>
-        )),
-      )}
-      {xray &&
+      {(xray || apart) &&
         joints.map((j) => {
-          // With parts selected, show only their joints.
-          if (selection.length && !sel.has(j.host) && !sel.has(j.guest)) return null;
+          // A joint on its own shows only itself. In see-through with parts selected, only their joints show.
+          if (focusJoint ? j.id !== focusJoint.id : xray && selection.length && !sel.has(j.host) && !sel.has(j.guest)) return null;
           return (
             <JointDetail
               key={j.id}
@@ -1018,13 +1180,17 @@ export function Viewport({
               }}
               onHover={setJointHover}
               onPick={onSelect}
+              spread={spread}
+              onSurface={!xray}
             />
           );
         })}
       {hovered && !jointHover && (
-        <Html position={hovered.nominal.max.map((v, i) => (v + hovered.nominal.min[i]!) / 2) as [number, number, number]} center>
-          <div className="hover-tag">{hovered.id}</div>
-        </Html>
+        <Moved id={hovered.id} spread={spread}>
+          <Html position={hovered.nominal.max.map((v, i) => (v + hovered.nominal.min[i]!) / 2) as [number, number, number]} center>
+            <div className="hover-tag">{hovered.id}</div>
+          </Html>
+        </Moved>
       )}
       {jointHover && (
         <Html fullscreen>
@@ -1032,9 +1198,11 @@ export function Viewport({
         </Html>
       )}
       {ghost && <GhostLayer ghost={ghost} scene={scene} />}
-      <FaceMarks parts={live} faces={marks.length ? [...faces, ...marks] : faces} scene={scene} />
+      <FaceMarks parts={live} faces={marks.length ? [...faces, ...marks] : faces} scene={scene} spread={spread} />
       {pins.map((p) => (
-        <PinMarker key={p.n} pin={p} scene={scene} />
+        <Moved key={p.n} id={p.part} spread={spread}>
+          <PinMarker pin={p} scene={scene} />
+        </Moved>
       ))}
       {/* In Pan mode a plain drag moves the view; right-drag rotates instead. */}
       <OrbitControls
@@ -1049,7 +1217,7 @@ export function Viewport({
       />
       <CameraRig
         parts={live}
-        {...(ghostBoxes ? { extra: ghostBoxes } : {})}
+        {...(frameExtra ? { extra: frameExtra } : {})}
         view={view}
         fitKey={fitKey}
         {...(focus ? { focus } : {})}

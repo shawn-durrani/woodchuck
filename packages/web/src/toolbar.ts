@@ -19,7 +19,7 @@ export type Paper = "A4" | "A3";
 /** A tooltip with its keyboard shortcut, as every control shows it. */
 export const withKey = (tip: string, key?: string) => (key ? `${tip} (${key})` : tip);
 
-export const KEYS = { undo: "⌘Z", redo: "⇧⌘Z", fit: "F", seeThrough: "X", chat: "⌘K", cameras: "1 to 6" } as const;
+export const KEYS = { undo: "⌘Z", redo: "⇧⌘Z", fit: "F", seeThrough: "X", explode: "E", chat: "⌘K", cameras: "1 to 6" } as const;
 
 /** The tooltips of the shortcut controls outside the toolbar. */
 export const TIPS = {
@@ -74,6 +74,10 @@ export interface ToolbarState {
   /** The design has no parts yet. */
   empty: boolean;
   paper: Paper;
+  /** The piece, or one of its joints, is pulled apart. */
+  exploded: boolean;
+  /** A suggested change is drawn on the model, which shows the piece together. */
+  ghost: boolean;
 }
 
 export interface Control {
@@ -134,6 +138,7 @@ export function toolbar(s: ToolbarState): Group[] {
           disabled: s.empty && !s.xray,
           on: s.xray,
         },
+        explodeControl(s),
         { id: "look", label: "Look", tip: "Plain or Finished, the lighting, and the 3D or 2D views", disabled: false },
       ],
     },
@@ -141,10 +146,24 @@ export function toolbar(s: ToolbarState): Group[] {
   ];
 }
 
+/** Explode, which pulls the piece apart. It works only on the 3D model as it is, so the plan views, the room photo and a suggested change hold it together. */
+function explodeControl(s: ToolbarState): Control {
+  const why = s.mode === "2d" ? IN_2D : s.inPhoto ? "The room photo shows the piece together." : s.ghost ? "A suggested change shows on the piece together. Answer it or hide it first." : s.empty ? `Nothing to pull apart yet. ${NOTHING_YET}` : null;
+  return {
+    id: "explode",
+    label: "Explode",
+    key: KEYS.explode,
+    tip: why ?? withKey("Pull the piece apart the way it goes together, with a slider to put it back", KEYS.explode),
+    disabled: why !== null,
+    on: s.exploded && why === null,
+  };
+}
+
 /**
  * The toolbar folded into four buttons, for a phone or a narrow window:
  * Select, Fit, Look and Share. Select opens the four tools and shows the
- * one that's on. The camera views and See-through move into Look's menu.
+ * one that's on. The camera views, See-through and Explode move into
+ * Look's menu.
  */
 export function compactToolbar(s: ToolbarState): Control[] {
   const [tools, view, share] = toolbar(s);
@@ -265,6 +284,8 @@ export const ROUTES: Record<Exclude<keyof ViewCommand, "from" | "note">, string>
   orbit: "canvas",
   orbitSpeed: "canvas",
   seeThrough: "see-through",
+  explode: "explode",
+  focusJoint: "explode",
   photo: "share.photo",
   render: "share.render",
   fill: "share.full",
@@ -284,6 +305,10 @@ export interface ViewState {
   /** Placed in the room photo. */
   photo: boolean;
   full: boolean;
+  /** How far the piece is pulled apart, from 0, together, to 1. */
+  explode: number;
+  /** The joint pulled apart on its own, or null for the whole piece. */
+  focusJoint: string | null;
 }
 
 /** What a command asks of the window beyond its settings. */
@@ -298,6 +323,8 @@ export interface ViewEffects {
   drawer: ViewCommand["drawer"] | null;
   /** The side panel tab to open, with the panel. */
   tab: ViewCommand["tab"] | null;
+  /** A joint to frame, pulled apart. */
+  focus: string | null;
 }
 
 /**
@@ -308,7 +335,10 @@ export interface ViewEffects {
  * look's lighting brings the Finished look, since lighting only shows
  * there. A camera view with the plan views picks that drawing too. An
  * orbit stops for a camera view, the plan views or the room photo, as it
- * does when you choose them yourself.
+ * does when you choose them yourself. A joint to focus on comes fully
+ * apart unless the command says how far, and going back to the whole
+ * piece puts it together, as an explode of 0 does. Pulling it apart puts
+ * the room photo away, and the room photo puts it together.
  */
 export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { state: ViewState; effects: ViewEffects } {
   const keepsMode =
@@ -325,6 +355,17 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
   }
   if (v.fill !== undefined) next.full = v.fill;
   if (v.tab) next.full = false;
+  if (v.focusJoint !== undefined) {
+    next.focusJoint = v.focusJoint || null;
+    next.explode = v.explode ?? (v.focusJoint ? 1 : 0);
+  } else if (v.explode !== undefined) {
+    next.explode = v.explode;
+    if (v.explode === 0) next.focusJoint = null;
+  }
+  if (v.photo && hasPhoto) {
+    next.explode = 0;
+    next.focusJoint = null;
+  } else if (next.explode > 0 && (v.explode !== undefined || v.focusJoint)) next.photo = false;
   return {
     state: next,
     effects: {
@@ -335,12 +376,16 @@ export function applyView(s: ViewState, v: ViewCommand, hasPhoto: boolean): { st
       select: v.select ?? null,
       drawer: v.drawer ?? null,
       tab: v.tab ?? null,
+      focus: next.focusJoint && v.focusJoint ? next.focusJoint : null,
     },
   };
 }
 
 /** The toolbar's view of a window's settings. */
-export function toolbarState(v: ViewState, rest: { pointMode: PointMode; hasPhoto: boolean; empty: boolean; paper: Paper }): ToolbarState {
+export function toolbarState(
+  v: ViewState,
+  rest: { pointMode: PointMode; hasPhoto: boolean; empty: boolean; paper: Paper; ghost?: boolean; exploded?: boolean },
+): ToolbarState {
   return {
     mode: v.mode,
     pointMode: rest.pointMode,
@@ -353,5 +398,7 @@ export function toolbarState(v: ViewState, rest: { pointMode: PointMode; hasPhot
     full: v.full,
     empty: rest.empty,
     paper: rest.paper,
+    exploded: rest.exploded ?? (v.explode > 0 || v.focusJoint !== null),
+    ghost: !!rest.ghost,
   };
 }

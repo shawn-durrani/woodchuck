@@ -70,7 +70,7 @@ export interface AppState {
   chat: Item[];
 }
 
-/** A short account of the open design: its name, problems, timber and finishes. */
+/** A short account of the open design: its name, problems, timber, finishes and joints. */
 export function summarise(s: AppState): string {
   const d = s.design;
   const lines = [
@@ -89,6 +89,8 @@ export function summarise(s: AppState): string {
     lines.push("Finishes on pieces and faces:");
     for (const [f, ts] of byColour) lines.push(`- ${finishLabel(f)}: ${ts.length > 6 ? `${ts.slice(0, 5).join(", ")} and ${ts.length - 5} more` : ts.join(", ")}`);
   }
+  // A joint's id is what woodchuck_view's focus_joint takes.
+  if (d.joints.length) lines.push(`Joints, by id: ${listed(d.joints.map((j) => j.id), 20)}`);
   lines.push(...claudeLines(s, false));
   return lines.join("\n");
 }
@@ -624,7 +626,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       title: "Change the Woodchuck window's view",
       // Crossband cuts a description at 900 characters, so the detail is in the inputs.
       description:
-        "Change what the open Woodchuck window shows. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, rather than asking Woodchuck's Claude. For the cut list or the cutting layout, such as \"show me the cut list\", open tab \"make\"; for problems, \"check\"; for colours, \"finish\"; for sizes or a picked part, \"edit\"; for past versions, \"history\". For a one-off turn, such as \"turn it a bit\", use turn_degrees. For a turn that keeps going, such as \"spin it slowly\", \"keep rotating\" or \"show it off while we talk\", use orbit \"start\", and orbit \"stop\" to hold it still. It can also show the 2D plan views, set the look, lighting and camera view, zoom, fit the model, turn see-through on, place the room photo, fill the window, highlight parts, show the waiting preview or a worked joint, and render a picture to the downloads.",
+        "Change what the open Woodchuck window shows. It never changes the design. Use it whenever the woodworker wants to see something in Woodchuck, rather than asking Woodchuck's Claude. For the cut list or the cutting layout, such as \"show me the cut list\", open tab \"make\"; for problems, \"check\"; for colours, \"finish\"; for sizes or a picked part, \"edit\"; for past versions, \"history\". For a one-off turn, such as \"turn it a bit\", use turn_degrees. For a turn that keeps going, such as \"spin it slowly\", \"keep rotating\" or \"show it off while we talk\", use orbit \"start\", and orbit \"stop\" to hold it still. It can also show the 2D plan views, set the look, lighting and camera view, zoom, fit the model, turn see-through on, pull the piece or a joint apart, place the room photo, fill the window, highlight parts, show the waiting preview or a worked joint, and render a picture to the downloads.",
       inputSchema: {
         plan_views: z.boolean().optional().describe("true shows the 2D plan views (front, top, side and iso drawings); false goes back to the 3D view"),
         look: z.enum(["finished", "plain"]).optional(),
@@ -646,6 +648,16 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
           .describe(`How fast an orbit turns, in degrees a second, at least ${ORBIT_SPEED.min} either way; positive turns it to the right. The default ${ORBIT_SPEED.default} is a slow showcase spin, once round in half a minute`),
         zoom: z.number().min(0.2).max(5).optional().describe("Above 1 moves closer, below 1 further away; 1.5 is a step in"),
         see_through: z.boolean().optional().describe("Show the parts see-through so the joints show"),
+        explode: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Pull the piece apart the way it goes together: 1 fully apart, 0 back together, and anything between partly apart, the last part on coming off first"),
+        focus_joint: z
+          .string()
+          .optional()
+          .describe('Pull one of the design\'s joints apart on its own, by its id from woodchuck_status, with the rest faded, for "how does this joint go together". "" goes back to the whole piece'),
         photo: z.boolean().optional().describe("Place the design in its room photo, or put the photo away"),
         render: z.boolean().optional().describe("After the other changes, save a picture of what the window shows to the woodworker's downloads"),
         fill_window: z.boolean().optional().describe("true fills the window with the 3D view; false brings the panels back"),
@@ -673,6 +685,8 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         if (a.orbit_degrees_per_second !== undefined) view.orbitSpeed = a.orbit_degrees_per_second;
         if (a.zoom) view.zoom = a.zoom;
         if (a.see_through !== undefined) view.seeThrough = a.see_through;
+        if (a.explode !== undefined) view.explode = a.explode;
+        if (a.focus_joint !== undefined) view.focusJoint = a.focus_joint;
         if (a.photo !== undefined) view.photo = a.photo;
         if (a.render) view.render = true;
         if (a.look) view.look = a.look;
@@ -810,7 +824,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     "woodchuck_status",
     {
       title: "Woodchuck design status",
-      description: "Read the open Woodchuck design's name, problems, timber and finishes, and whether Woodchuck's Claude is busy or waiting for an answer.",
+      description: "Read the open Woodchuck design's name, problems, timber, finishes and joint ids, and whether Woodchuck's Claude is busy or waiting for an answer.",
       inputSchema: {},
     },
     async () => {

@@ -17,6 +17,7 @@ describe("keyboard shortcuts", () => {
     expect(shortcutFor(press("k", { metaKey: true }), page)).toEqual({ do: "chat" });
     expect(shortcutFor(press("f"), page)).toEqual({ do: "fit" });
     expect(shortcutFor(press("x"), page)).toEqual({ do: "see-through" });
+    expect(shortcutFor(press("e"), page)).toEqual({ do: "explode" });
     expect(["1", "2", "3", "4", "5", "6"].map((k) => shortcutFor(press(k), page))).toEqual(
       ["iso", "front", "top", "left", "right", "back"].map((view) => ({ do: "camera", view })),
     );
@@ -39,7 +40,7 @@ describe("keyboard shortcuts", () => {
       press("z", { metaKey: true }),
       press("z", { metaKey: true, shiftKey: true }),
       press("k", { metaKey: true }),
-      ...["f", "x", "1", "2", "3", "4", "5", "6", "v", "b", "p", "h"].map((k) => press(k)),
+      ...["f", "x", "e", "1", "2", "3", "4", "5", "6", "v", "b", "p", "h"].map((k) => press(k)),
     ];
     for (const field of fields) {
       expect(isTyping(field), JSON.stringify(field)).toBe(true);

@@ -47,12 +47,15 @@ export function EditTab({
   selection,
   onSelect,
   onShowJoint,
+  onExplodeJoint,
   onDraft,
 }: {
   state: ServerState;
   selection: string[];
   onSelect: (ids: string[]) => void;
   onShowJoint: (type: JointType) => void;
+  /** Pull one of the design's joints apart on the model, by its id. */
+  onExplodeJoint: (id: string) => void;
   /** Hears a change to a cut while you type it, so the model can draw it as a ghost. */
   onDraft?: (r: PreviewResult | null) => void;
 }) {
@@ -66,6 +69,7 @@ export function EditTab({
           joints={state.derived.joints}
           selection={selection}
           onShowJoint={onShowJoint}
+          onExplodeJoint={onExplodeJoint}
           onSelect={onSelect}
           now={state}
           onDraft={onDraft}

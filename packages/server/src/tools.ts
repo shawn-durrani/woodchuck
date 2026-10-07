@@ -604,14 +604,15 @@ export const TOOLS: Tool[] = [
   {
     name: "show_joint",
     description:
-      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. A dado, groove, rabbet or dado_rabbet can be shown stopped 10 mm short of an edge, with the guest's corner notched. It doesn't change the design or end your turn.",
+      "Slide out a worked example of a joint from the library beside the model: two sample boards joined with it, in see-through view, with what it is, when it suits and what it takes to cut. Use it whenever you suggest a joint the woodworker may not know, or they ask what one is. A dado, groove, rabbet or dado_rabbet can be shown stopped 10 mm short of an edge, with the guest's corner notched. Or give id, one of this design's own joints, to pull its two parts apart on the model itself with the rest faded, when they ask how a joint in their piece goes together. It doesn't change the design or end your turn.",
     input_schema: obj(
       {
-        type: { type: "string", enum: [...JOINT_TYPES] },
+        type: { type: "string", enum: [...JOINT_TYPES], description: "The joint to show a worked example of. Leave it out when you give id" },
+        id: { type: "string", description: "A joint in this design, by id, such as rail_in_leg or shelf_dado#2, to pull apart on the model instead of a worked example" },
         stopped: { type: "boolean", description: "Show it stopping 10 mm short of an edge. Dado, groove, rabbet or dado_rabbet only" },
         note: { type: "string", description: "Optional: one sentence on why you're showing it" },
       },
-      ["type"],
+      [],
     ),
   },
   {
@@ -711,7 +712,7 @@ export interface ToolOutcome {
     | { kind: "part"; proposal: string; part: LibraryPart }
     | { kind: "preview"; title: string; explanation: string; ops: Op[] };
   /** Set when Claude opened a worked joint example, so the chat can show its card. */
-  example?: { joint: JointType; note?: string; stopped?: true };
+  example?: { joint: JointType; note?: string; stopped?: true; of?: string };
   /** A short line for the chat when a failed result is too long to show whole. */
   chatLine?: string;
 }
@@ -1045,9 +1046,18 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         };
       }
       case "show_joint": {
-        const type = String(input.type) as JointType;
-        if (!JOINT_TYPES.includes(type)) throw new QueryError(`Unknown joint "${type}". Joints: ${JOINT_TYPES.join(", ")}`);
         const note = input.note ? String(input.note) : undefined;
+        if (input.id !== undefined && input.id !== null && input.id !== "") {
+          const id = String(input.id);
+          const j = d.joints.find((x) => x.id === id);
+          if (!j) throw new QueryError(`There's no joint "${id}" in this design. Its joints: ${d.joints.map((x) => x.id).join(", ") || "none yet"}`);
+          return {
+            content: `Joint ${id}, a ${JOINT_LIBRARY[j.type].name.toLowerCase()} with ${j.guest} into ${j.host}, is pulled apart on the model, with the rest faded. Say a sentence about it; the model shows the rest.`,
+            example: { joint: j.type, of: id, ...(note ? { note } : {}) },
+          };
+        }
+        const type = String(input.type) as JointType;
+        if (!JOINT_TYPES.includes(type)) throw new QueryError(`Unknown joint "${type}". Joints: ${JOINT_TYPES.join(", ")}. Or give id, one of this design's joints`);
         const stopped = input.stopped === true;
         if (stopped && !canStop(type)) throw new QueryError(`A ${type.replace(/_/g, " ")} can't stop short of an edge. Only a dado, groove, rabbet or dado_rabbet can, so show it without stopped`);
         return {

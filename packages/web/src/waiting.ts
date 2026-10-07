@@ -171,8 +171,12 @@ export interface Slots {
   example: { joint: JointType; note?: string; stopped?: true } | null;
 }
 
-/** A worked example can show a joint's housing stopped short of an edge of its host. */
-export type Drawer = { kind: "preview"; id: string } | { kind: "example"; joint: JointType; note?: string; stopped?: true };
+/**
+ * A worked example can show a joint's housing stopped short of an edge of
+ * its host. With of, it's one of the design's own joints, which pulls apart
+ * on the model instead of opening the drawer.
+ */
+export type Drawer = { kind: "preview"; id: string } | { kind: "example"; joint: JointType; note?: string; stopped?: true; of?: string };
 
 export const NO_SLOTS: Slots = { preview: null, example: null };
 

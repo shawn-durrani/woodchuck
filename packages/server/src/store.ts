@@ -75,7 +75,8 @@ export type ChatItem =
       at: string;
     }
   /** stopped shows the joint's housing stopping 10 mm short of an edge of its host. */
-  | { id: string; kind: "example"; joint: JointType; note?: string; stopped?: true; at: string }
+  /** A worked joint, or with of, one of the design's own joints pulled apart on the model. */
+  | { id: string; kind: "example"; joint: JointType; note?: string; stopped?: true; of?: string; at: string }
   /** retry marks a dropped connection that Claude's turn is trying again after, rather than one that ended it. */
   | { id: string; kind: "error"; text: string; retry?: true; at: string }
   /**

@@ -35,6 +35,7 @@ export function Inspector({
   joints,
   selection,
   onShowJoint,
+  onExplodeJoint,
   onSelect,
   now,
   onDraft,
@@ -45,6 +46,8 @@ export function Inspector({
   selection: string[];
   /** Opens a worked example of a joint beside the model. */
   onShowJoint: (type: JointType) => void;
+  /** Pull this joint apart on the model, with the rest faded. */
+  onExplodeJoint: (id: string) => void;
   /** Picks other parts, such as an array's original to edit every copy. */
   onSelect: (ids: string[]) => void;
   /** The design with its parts and checks, which a change to a cut is worked out against. */
@@ -248,6 +251,9 @@ export function Inspector({
                     <strong>{entry.name}</strong> with <code>{other}</code> <span className="muted small">({j.id})</span>{" "}
                     <button className="link small" onClick={() => onShowJoint(j.type)} title="See a worked example of this joint">
                       what's this?
+                    </button>{" "}
+                    <button className="link small" onClick={() => onExplodeJoint(j.id)} title="Pull this joint apart on the model, with the rest faded">
+                      pull apart
                     </button>
                   </div>
                   {params.length > 0 && (
@@ -267,7 +273,7 @@ export function Inspector({
                 </div>
               );
             })}
-          <p className="muted small">Turn on See-through to see these joints in the model.</p>
+          <p className="muted small">Turn on See-through to see these joints in the model, or pull one apart to see how it goes together.</p>
         </>
       )}
       <p className="muted small">Type a number or expression, or @part.face to sit against another part. Give two of start, end and size.</p>

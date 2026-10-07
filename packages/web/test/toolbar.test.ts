@@ -34,6 +34,8 @@ const base: ToolbarState = {
   full: false,
   empty: false,
   paper: "A4",
+  exploded: false,
+  ghost: false,
 };
 
 const noop = () => {};
@@ -42,6 +44,7 @@ const actions: ToolbarActions = {
   onCamera: noop,
   onFit: noop,
   onSeeThrough: noop,
+  onExplode: noop,
   onLook: noop,
   onLighting: noop,
   onMode: noop,
@@ -70,12 +73,12 @@ describe("one toolbar row", () => {
     const groups = toolbar(base);
     expect(groups.map((g) => [g.label, g.controls.map((c) => c.label)])).toEqual([
       ["Tools", ["Select", "Box", "Pin", "Pan"]],
-      ["View", ["Iso", "Fit", "See-through", "Look"]],
+      ["View", ["Iso", "Fit", "See-through", "Explode", "Look"]],
       ["Share", ["Share"]],
     ]);
     const markup = html(base);
     expect([...markup.matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1])).toEqual(["Tools", "View", "Share"]);
-    expect(drawn(markup)).toEqual(["tool.pick", "tool.box", "tool.pin", "tool.pan", "camera", "fit", "see-through", "look", "share"]);
+    expect(drawn(markup)).toEqual(["tool.pick", "tool.box", "tool.pin", "tool.pan", "camera", "fit", "see-through", "explode", "look", "share"]);
   });
 
   it("keeps every control in its slot, whatever the mode, look or tool", () => {
@@ -85,6 +88,25 @@ describe("one toolbar row", () => {
     const ids = (s: ToolbarState) => [...allControls(s).keys()];
     for (const s of states) expect(ids(s)).toEqual(ids(base));
     for (const s of states) expect(drawn(html(s))).toEqual(drawn(html(base)));
+  });
+
+  it("greys out Explode in the plan views, the room photo, a suggested change and an empty design, saying why", () => {
+    expect(allControls(base).get("explode")).toMatchObject({ disabled: false, key: "E" });
+    expect(allControls(base).get("explode")!.tip).toContain("(E)");
+    for (const [state, why] of [
+      [{ ...base, mode: "2d" as const }, "3D view"],
+      [{ ...base, inPhoto: true, hasPhoto: true }, "room photo"],
+      [{ ...base, ghost: true }, "suggested change"],
+      [{ ...base, empty: true }, "Nothing to pull apart"],
+    ] as const) {
+      const c = allControls(state).get("explode")!;
+      expect(c.disabled, why).toBe(true);
+      expect(c.tip, why).toContain(why);
+      expect(greyed(html(state), "explode"), why).toBe(true);
+    }
+    // On, but held together by a suggested change, it doesn't show as on.
+    expect(allControls({ ...base, exploded: true, ghost: true }).get("explode")!.on).toBe(false);
+    expect(allControls({ ...base, exploded: true }).get("explode")!.on).toBe(true);
   });
 
   it("leaves Faces to the Finish tab", () => {
@@ -159,7 +181,7 @@ describe("one toolbar row", () => {
   });
 });
 
-const view: ViewState = { mode: "3d", look: "plain", lighting: "daylight", view: "iso", planView: "front", xray: false, photo: false, full: false };
+const view: ViewState = { mode: "3d", look: "plain", lighting: "daylight", view: "iso", planView: "front", xray: false, photo: false, full: false, explode: 0, focusJoint: null };
 const rest = { pointMode: "pick" as PointMode, hasPhoto: true, empty: false, paper: "A4" as const };
 /** A command from outside, then the toolbar as it would draw. */
 const after = (v: ViewCommand, from: ViewState = view, hasPhoto = true) => {
@@ -189,7 +211,9 @@ describe("view commands reach the toolbar", () => {
     // An orbit can't go with the plan views or the photo, and a tab can't go with filling the window, so each comes on its own.
     const orbit = readViewCommand({ orbit: "start", orbitSpeed: 10 });
     const tab = readViewCommand({ tab: "make" });
-    const routed = [...Object.keys(every), ...Object.keys(orbit), ...Object.keys(tab)].filter((k) => k !== "from" && k !== "note");
+    // Pulling the piece apart can't go with the photo either.
+    const apart = readViewCommand({ explode: 0.5, focusJoint: "rail_in_leg" });
+    const routed = [...Object.keys(every), ...Object.keys(orbit), ...Object.keys(tab), ...Object.keys(apart)].filter((k) => k !== "from" && k !== "note");
     expect(routed.sort()).toEqual(Object.keys(ROUTES).sort());
     const ids = [...allControls(base).keys()];
     for (const [key, home] of Object.entries(ROUTES)) {
@@ -200,6 +224,30 @@ describe("view commands reach the toolbar", () => {
         `${key} goes to ${home}`,
       ).toBe(true);
     }
+  });
+
+  it("pulls the piece apart, or one joint, and puts it back together (#66)", () => {
+    const apart = after({ explode: 1 });
+    expect(apart.state.explode).toBe(1);
+    expect(apart.controls.get("explode")!.on).toBe(true);
+    const joint = after({ focusJoint: "rail_in_leg" });
+    // A joint comes fully apart unless the command says how far, and the window frames it.
+    expect(joint.state).toMatchObject({ explode: 1, focusJoint: "rail_in_leg" });
+    expect(joint.effects.focus).toBe("rail_in_leg");
+    expect(after({ focusJoint: "rail_in_leg", explode: 0.4 }).state.explode).toBe(0.4);
+    // Going back to the whole piece puts it together.
+    const whole = after({ focusJoint: "" }, joint.state);
+    expect(whole.state).toMatchObject({ explode: 0, focusJoint: null });
+    expect(whole.effects.focus).toBeNull();
+    expect(whole.controls.get("explode")!.on).toBe(false);
+    // An explode of 0 puts a joint back together too.
+    expect(after({ explode: 0 }, joint.state).state).toMatchObject({ explode: 0, focusJoint: null });
+    // The room photo shows the piece together, and pulling it apart puts the photo away.
+    expect(after({ photo: true }, apart.state).state.explode).toBe(0);
+    expect(after({ explode: 1 }, { ...view, photo: true }).state.photo).toBe(false);
+    expect(after({ focusJoint: "rail_in_leg" }, { ...view, photo: true }).state.photo).toBe(false);
+    // A command about something else leaves it apart.
+    expect(after({ seeThrough: true }, apart.state).state.explode).toBe(1);
   });
 
   it("switches between the 3D view and the drawings in the Look menu", () => {

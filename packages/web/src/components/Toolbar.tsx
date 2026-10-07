@@ -1,7 +1,8 @@
 // The toolbar over the model, drawn from the model in toolbar.ts: Tools,
 // View and Share, in one row. Its menus are the phone layout's menus too.
 // Narrower than 1000 px it folds into four buttons: Select, Fit, Look and
-// Share, with the tools, the camera views and See-through in the menus.
+// Share, with the tools, the camera views, See-through and Explode in the
+// menus.
 
 import type { CameraView, Look, PointMode } from "./Viewport";
 import type { Lighting } from "../lighting";
@@ -15,6 +16,7 @@ export interface ToolbarActions {
   onCamera: (v: CameraView) => void;
   onFit: () => void;
   onSeeThrough: () => void;
+  onExplode: () => void;
   onLook: (l: Look) => void;
   onLighting: (l: Lighting) => void;
   onMode: (m: Mode) => void;
@@ -58,6 +60,7 @@ export function Toolbar({
   const camera = byId.get("camera")!;
   const fit = byId.get("fit")!;
   const seeThrough = byId.get("see-through")!;
+  const explode = byId.get("explode")!;
   const look = byId.get("look")!;
   const shareButton = share.controls[0]!;
   const opener = (m: Exclude<ToolbarMenu, null>) => (open: boolean) => onMenu(open ? m : null);
@@ -84,6 +87,7 @@ export function Toolbar({
         </Menu>
         <Button c={fit} onClick={a.onFit} />
         <Button c={seeThrough} toggle onClick={a.onSeeThrough} />
+        <Button c={explode} toggle onClick={a.onExplode} />
         <Menu id="look-menu" label={look.label} title={look.tip} open={menu === "look"} onOpen={opener("look")} control="look" className="look-menu" align="right">
           {lookMenu(state).map((s) => (
             <MenuSection key={s.id} label={s.label} {...(s.note ? { note: s.note } : {})}>
@@ -143,12 +147,14 @@ function ShareItems({ state, pick, a }: { state: ToolbarState; pick: (fn: () => 
 /**
  * The four-button toolbar for a phone or a narrow window: Select, Fit, Look
  * and Share. Select's menu holds the four tools and shows the one that's
- * on. Look's menu adds the camera views and See-through to its own.
+ * on. Look's menu adds the camera views, See-through and Explode to its
+ * own.
  */
 function CompactToolbar({ state, menu, onMenu, ...a }: { state: ToolbarState; menu: ToolbarMenu; onMenu: (m: ToolbarMenu) => void } & ToolbarActions) {
   const [tools, fit, look, share] = compactToolbar(state) as [Control, Control, Control, Control];
   const all = toolbar(state);
   const seeThrough = all[1]!.controls.find((c) => c.id === "see-through")!;
+  const explode = all[1]!.controls.find((c) => c.id === "explode")!;
   const opener = (m: Exclude<ToolbarMenu, null>) => (open: boolean) => onMenu(open ? m : null);
   const pick = (fn: () => void) => () => {
     onMenu(null);
@@ -187,6 +193,9 @@ function CompactToolbar({ state, menu, onMenu, ...a }: { state: ToolbarState; me
         <MenuDivider />
         <MenuItem kind="check" checked={!!seeThrough.on} disabled={seeThrough.disabled} title={seeThrough.tip} control={seeThrough.id} onSelect={pick(a.onSeeThrough)}>
           {seeThrough.label}
+        </MenuItem>
+        <MenuItem kind="check" checked={!!explode.on} disabled={explode.disabled} title={explode.tip} control={explode.id} onSelect={pick(a.onExplode)}>
+          {explode.label}
         </MenuItem>
         {choices(views!, (v) => pick(() => a.onMode(v as Mode))())}
       </Menu>

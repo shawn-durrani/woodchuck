@@ -42,8 +42,8 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_finish` | Changes colours straight away, through the same operation as the Finish tab, mid-build too. Woodchuck's Claude is told after its current step. |
 | `woodchuck_set_param` | Sets parameters the design already has straight away, mid-build too, as one undo step. A change over 20%, or to zero or less, waits for the woodworker's yes. Woodchuck's Claude is told after its current step. |
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
-| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the room photo, highlights, the waiting preview, a worked joint, a side panel tab and a render to the downloads. |
-| `woodchuck_status` | Sums up the design: its problems, timber and finishes. |
+| `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the piece or one joint pulled apart, the room photo, highlights, the waiting preview, a worked joint, a side panel tab and a render to the downloads. |
+| `woodchuck_status` | Sums up the design: its problems, timber, finishes and joint ids. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
 
@@ -97,6 +97,17 @@ It also stops when the woodworker takes the camera, picks a camera view or
 opens the plan views. A room photo keeps the model still, and so does a
 computer set to reduce motion. For a single turn, `turn_degrees` turns the
 camera once and leaves it there.
+
+## Pulling it apart
+
+`woodchuck_view` with `explode` pulls the piece apart the way it goes
+together. A value of 1 is fully apart, 0 is back together, and a number
+between leaves it partly apart. `focus_joint` pulls one joint apart on its
+own and fades the rest. It takes a joint's id, which `woodchuck_status`
+lists. An empty `focus_joint` goes back to the whole piece, put together.
+The plan views and the room photo show the piece together, so the tool
+refuses either with `explode` or `focus_joint`. A joint the design doesn't
+have is refused with a list of the ones it has.
 
 ## Opening a tab
 

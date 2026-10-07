@@ -51,6 +51,8 @@ group("the Woodchuck MCP server", () => {
     expect(text).toMatch(/18 mm drawer-front panel \(front_18\): Birch plywood, 1 Wien/);
     expect(text).toContain("- Osmo 3044 Raw: top");
     expect(text).toContain("waiting for an answer to a preview");
+    // Issue #66: the joints' ids, for pulling one apart in the window.
+    expect(text).toMatch(/^Joints, by id: bottom_in_left, bottom_in_right, .*front_to_box$/m);
   });
 
   it("caps each list in the design's lines, with how many more there are", () => {

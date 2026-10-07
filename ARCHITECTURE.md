@@ -679,6 +679,37 @@ picture. The page draws the label as it makes the copy to save, since the
 page is the one place that holds the finished blend. The true-scale picture
 never gets a label.
 
+## A piece comes apart the way it goes together
+
+Explode pulls the piece apart in the 3D view, and a slider puts it back.
+Solid wood can't pass through solid wood, so no part passes through
+another on the way. Each joint says which way its parts slide apart. A
+tenon or a tongue comes straight out of its housing, and a screwed part
+comes straight off the face it meets. A half lap lifts off, a part through
+a slot slides out either end, and a box joint opens either way its fingers
+are open. A drawer slide lets a drawer run out the front and no other way.
+A part with no joint can go any way with nothing in its path.
+
+`packages/core/src/explode.ts` plans it in stages, outside in, and the
+largest part stays put. A stage takes every part that can slide free of
+everything left, and no two moves in a stage could cross. A part that
+can't come off alone takes what holds it, such as a table's end frame, and
+that group comes apart in later stages. Parts whose joints hold each other
+every way stay together, and the bar over the model names them. Each move
+goes far enough to clear what's around it, now and in every later stage.
+
+The slider's stages take turns, the last part on coming off first. Dragging
+it back shows the piece going together in order. The view moves each part
+every frame without drawing the page again, and a pin, a click or a box
+select reads the part where it sits now.
+
+A joint can come apart on its own too. Its card in the Edit tab does it,
+and so do Claude's `show_joint` with the joint's id and another chat's
+`focus_joint`. Its two parts come apart and the rest fades. Whichever part
+has a clear path moves. When neither has, the guest moves anyway, and the
+bar names the parts that hold it too. The plan views, the room photo and a
+suggested change show the piece together, so Explode waits for them.
+
 ## Other chats use the same tools
 
 Woodchuck is also an MCP server, so a chat app such as Crossband can work

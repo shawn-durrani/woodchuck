@@ -20,3 +20,4 @@ export * from "./jointExamples.js";
 export * from "./viewCommand.js";
 export * from "./drawings.js";
 export * from "./runners.js";
+export * from "./explode.js";
