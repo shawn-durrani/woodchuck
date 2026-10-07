@@ -3,7 +3,7 @@
 // into a corner, and never during a drag.
 
 import { describe, expect, it } from "vitest";
-import { autoFit, framing, pastFrame, type FitEvent, type FitMemory } from "../src/autofit.js";
+import { autoFit, frameStands, framing, pastFrame, type FitEvent, type FitMemory } from "../src/autofit.js";
 
 const look = (over: Partial<Extract<FitEvent, { kind: "look" }>> = {}): FitEvent => ({ kind: "look", design: "reading-bench", width: 688, height: 815, overflow: false, ...over });
 
@@ -102,5 +102,15 @@ describe("fitting the model again by itself", () => {
     expect(framing([[-0.85, -0.5, 0.5], [0.85, 0.5, 0.5]])).toEqual({ overflow: false, small: false });
     expect(framing([[-0.9, 0.1, 0.5], [-0.2, 0.6, 0.5]])).toEqual({ overflow: false, small: true });
     expect(framing([[-1.3, 0.1, 0.5], [-0.2, 0.6, 0.5]])).toEqual({ overflow: true, small: false });
+  });
+
+  // Issue #66: a joint pulled apart by another chat just as the window opens kept losing its frame to the first fit.
+  it("keeps a frame asked for as the window opens, until Fit, a camera view or another design", () => {
+    const frame = { design: "oak-table" };
+    expect(frameStands(frame, "ready", "oak-table")).toBe(true);
+    expect(frameStands(frame, "design", "oak-table")).toBe(true);
+    expect(frameStands(frame, "asked", "oak-table")).toBe(false);
+    expect(frameStands(frame, "ready", "reading-bench")).toBe(false);
+    expect(frameStands(null, "ready", "oak-table")).toBe(false);
   });
 });

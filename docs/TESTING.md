@@ -478,7 +478,9 @@ wood a part's cuts take from its blank.
 The toolbar tests hold its groups and menus to fixed slots, and check
 that every view command from another chat lands on its control. An orbit
 from another chat is held to the same turn at any frame rate, to easing
-in and out, and to stopping for a camera view or the plan views. The
+in and out, and to stopping for a camera view or the plan views. A frame
+asked for as the window opens is held through the view's first fits,
+until Fit, a camera view or another design. The
 side panel's tests hold where each panel lives in the five tabs and on
 the All designs and parts page, that picking a part opens Edit, and that
 the status pill opens Check. A suggested change is held to the parts it
