@@ -3,7 +3,8 @@
 // view, never the design: the 3D or plan views, the look, lighting and
 // camera, see-through, the room photo, filling the window, which parts
 // are picked, what's open in the drawer and which side panel tab is open.
-// It can pull the piece apart, or just one of its joints.
+// It can pull the piece apart, or just one of its joints, and set the room
+// photo's lens and shadow, or blend its light.
 // It can also ask the window to save a picture of what it shows, or to keep
 // turning the model slowly until it's told to stop.
 
@@ -30,6 +31,10 @@ const TAB_LABELS: Record<SideTab, string> = { edit: "Edit", finish: "Finish", ma
  * right, as turn does.
  */
 export const ORBIT_SPEED = { default: 12, min: 1, max: 60 } as const;
+
+/** The room photo's lens and shadow, as its sliders go. */
+export const PHOTO_LENS = { min: 20, max: 80 } as const;
+export const PHOTO_SHADOW_MAX = 0.8;
 
 /** A joint's id, or one array copy's, such as shelf_dado#2. */
 const JOINT_ID = /^[a-z][a-z0-9_]*(#[0-9]+)?$/;
@@ -58,6 +63,12 @@ export interface ViewCommand {
   focusJoint?: string;
   /** Place the design in its room photo, or take it out. */
   photo?: boolean;
+  /** The room photo's lens, as the camera's field of view up and down, in degrees. */
+  photoLens?: number;
+  /** How dark the model's shadow on the room photo's floor is, from 0 to 0.8. */
+  photoShadow?: number;
+  /** Ask the AI blend to relight the piece in its room photo. The woodworker has said yes, since it costs money. */
+  blend?: true;
   /** Save a picture of what the window shows, as its Render button does. */
   render?: boolean;
   /** Fill the window with the 3D view (true), or bring the panels back (false). */
@@ -135,6 +146,20 @@ export function readViewCommand(input: unknown): ViewCommand {
   if ((c.explode || c.focusJoint) && mode === "plan") throw new Error("explode and focusJoint pull the 3D view apart, so they can't go with the plan views");
   if ((c.explode || c.focusJoint) && o.photo === true) throw new Error("the room photo shows the piece together, so it can't go with explode or focusJoint");
   if (typeof o.photo === "boolean") c.photo = o.photo;
+  if (o.photoLens !== undefined && o.photoLens !== null) {
+    const v = Number(o.photoLens);
+    if (!Number.isFinite(v) || v < PHOTO_LENS.min || v > PHOTO_LENS.max) throw new Error(`photoLens must be between ${PHOTO_LENS.min} and ${PHOTO_LENS.max} degrees`);
+    c.photoLens = Math.round(v);
+  }
+  if (o.photoShadow !== undefined && o.photoShadow !== null) {
+    const v = Number(o.photoShadow);
+    if (!Number.isFinite(v) || v < 0 || v > PHOTO_SHADOW_MAX) throw new Error(`photoShadow must be between 0 and ${PHOTO_SHADOW_MAX}`);
+    c.photoShadow = Math.round(v * 100) / 100;
+  }
+  if (o.blend === true) {
+    if (o.photo === false || mode === "plan") throw new Error("blend relights the piece in its room photo, so it needs the photo showing");
+    c.blend = true;
+  }
   if (o.render === true) c.render = true;
   if (typeof o.fill === "boolean") c.fill = o.fill;
   if (o.select !== undefined) {
@@ -156,7 +181,7 @@ export function readViewCommand(input: unknown): ViewCommand {
   if (typeof o.from === "string" && o.from.trim()) c.from = o.from.trim().slice(0, 40);
   if (typeof o.note === "string" && o.note.trim()) c.note = o.note.trim().slice(0, 160);
   if (Object.keys(c).filter((k) => k !== "from").length === 0) {
-    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, explode, focusJoint, photo, fill, select, drawer, tab or render");
+    throw new Error("Say what to change: mode, look, lighting, view, fit, turn, zoom, orbit, seeThrough, explode, focusJoint, photo, photoLens, photoShadow, blend, fill, select, drawer, tab or render");
   }
   return c;
 }
@@ -181,6 +206,9 @@ export function describeView(c: ViewCommand): string {
   else if (c.focusJoint === "") parts.push(`the whole piece ${apart(c.explode ?? 0)}`);
   else if (c.explode !== undefined) parts.push(`the piece ${apart(c.explode)}`);
   if (c.photo !== undefined) parts.push(c.photo ? "the room photo" : "the photo put away");
+  if (c.photoLens !== undefined) parts.push(`a ${c.photoLens}° lens on the photo`);
+  if (c.photoShadow !== undefined) parts.push(`the shadow at ${Math.round(c.photoShadow * 100)}%`);
+  if (c.blend) parts.push("the AI blend started");
   if (c.fill === true) parts.push("the 3D view filling the window");
   if (c.fill === false) parts.push("the panels back");
   if (c.select) parts.push(c.select.length ? `${c.select.slice(0, 3).join(", ")}${c.select.length > 3 ? ` and ${c.select.length - 3} more` : ""} picked` : "nothing picked");

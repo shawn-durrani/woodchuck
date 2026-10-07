@@ -520,3 +520,67 @@ describe("woodchuck_undo, woodchuck_redo and woodchuck_designs", () => {
     expect((await state()).project.slug).toBe(first);
   });
 });
+
+// Issue #69: the workshop drawings, the room photo bar and the History tab,
+// for another chat. Reads and settings end the same however often they're
+// sent. A restore, a removal and a blend wait for the woodworker's yes, and
+// a restore sent twice restores once.
+describe("woodchuck_drawings, woodchuck_photo and woodchuck_history", () => {
+  type State = { project: { slug: string }; design: { name: string; params: { name: string }[] }; versions: { sha: string; message: string }[] };
+  const state = () => app("/api/state") as unknown as Promise<State>;
+  const post = (p: string, body: unknown) =>
+    fetch(`${process.env.WOODCHUCK_URL}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("links to the drawings and the cut list", async () => {
+    const name = (await state()).design.name;
+    expect((await tool("woodchuck_drawings", { paper: "A3" })).text).toBe(
+      `Workshop drawings for ${name}, on A3: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A3\nCut list, as a spreadsheet file: ${process.env.WOODCHUCK_URL}/api/cutlist.csv`,
+    );
+    expect((await tool("woodchuck_drawings", {})).text).toContain("on A4: ");
+  });
+
+  it("sets the photo's lens and shadow, and holds a blend or a removal for a yes", async () => {
+    expect((await tool("woodchuck_photo", { show: true })).text).toBe("Nothing changed. There's no room photo with this design. The woodworker loads one with Share, then Photo.");
+    expect((await tool("woodchuck_photo", { remove: true, confirmed: true })).text).toBe("There's no room photo with this design, so there's nothing to remove.");
+    // A one-pixel photo, invented for the test.
+    const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    expect((await post("/api/backdrop", { media_type: "image/png", data: pixel })).status).toBe(200);
+    const win = await windowOpen();
+    for (let i = 0; i < 2; i++) {
+      expect((await tool("woodchuck_photo", { show: true, lens_degrees: 55, shadow: 0.4 })).text).toBe(
+        "The Woodchuck window now shows the room photo, a 55° lens on the photo and the shadow at 40%.",
+      );
+    }
+    await win.got(2);
+    expect(win.views.map(({ from: _, ...v }) => v)).toEqual([
+      { photo: true, photoLens: 55, photoShadow: 0.4 },
+      { photo: true, photoLens: 55, photoShadow: 0.4 },
+    ]);
+    // There's no OpenAI key in the tests, so the blend says so before asking for a yes.
+    expect((await tool("woodchuck_photo", { blend: true, confirmed: true })).text).toBe("Nothing changed. The AI blend needs an OpenAI API key in Woodchuck's .env file.");
+    expect((await tool("woodchuck_photo", { remove: true })).text).toBe(
+      "Nothing changed yet. Removing the room photo takes it off this design. Ask the woodworker, then call again with confirmed true.",
+    );
+    expect((await tool("woodchuck_photo", { remove: true, confirmed: true })).text).toBe("Removed the room photo from this design.");
+    expect((await tool("woodchuck_photo", { remove: true, confirmed: true })).text).toBe("There's no room photo with this design, so there's nothing to remove.");
+    expect(win.views).toHaveLength(2);
+    win.ws.close();
+  });
+
+  it("lists the versions and restores one once, after a yes", async () => {
+    await post("/api/ops", { ops: [{ op: "set_param", name: "history_a", expr: "10", unit: "mm" }], label: "Set history_a" });
+    const before = (await state()).versions[0]!;
+    await post("/api/ops", { ops: [{ op: "set_param", name: "history_b", expr: "20", unit: "mm" }], label: "Set history_b" });
+    const list = (await tool("woodchuck_history", { action: "list" })).text;
+    expect(list).toMatch(/^Versions of the open design, newest first, by id:\n- [0-9a-f]{7}: /);
+    expect(list).toContain(`- ${before.sha.slice(0, 7)}: ${before.message}, `);
+    const id = before.sha.slice(0, 7);
+    expect((await tool("woodchuck_history", { action: "restore", version: id })).text).toBe(
+      `Nothing changed yet. Restoring ${id}, "${before.message}", replaces the whole design with it, as one change the woodworker can undo. Ask them, then call again with confirmed true.`,
+    );
+    expect((await tool("woodchuck_history", { action: "restore", version: id, confirmed: true })).text).toBe(`Restored version ${id}, "${before.message}". It's one change the woodworker can undo.`);
+    expect((await state()).design.params.some((p) => p.name === "history_b")).toBe(false);
+    expect((await tool("woodchuck_history", { action: "restore", version: id, confirmed: true })).text).toBe(`The design is already as version ${id}, so nothing changed.`);
+    expect((await tool("woodchuck_history", { action: "restore", version: "abcdef0", confirmed: true })).text).toBe("Nothing changed. There's no version abcdef0. Call list for the ids.");
+  });
+});

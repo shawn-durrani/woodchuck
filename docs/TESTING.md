@@ -334,7 +334,9 @@ The server tests send `woodchuck_undo`, `woodchuck_redo` and each of
 `woodchuck_designs`' actions twice. The second send changes nothing and
 says so. Only the latest change undoes, a delete waits for `confirmed`,
 and a design of the same name is refused. The window's own Undo names its
-change the same way.
+change the same way. A restore, a photo's removal and a blend wait for
+`confirmed`, a second restore finds the design already as that version,
+and the photo's lens and shadow reach the window the same each time.
 
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.

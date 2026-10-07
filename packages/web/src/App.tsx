@@ -362,6 +362,10 @@ export function App() {
   const onShortcut = useRef<(e: KeyboardEvent) => void>(() => {});
   /** The latest Render, so a request from outside renders what the window shows then. */
   const renderRef = useRef<(() => Promise<void>) | null>(null);
+  /** The AI blend as another chat starts it, once the woodworker has said yes there. */
+  const blendRef = useRef<(() => Promise<void>) | null>(null);
+  /** Sets the room photo's lens or shadow, as its sliders do. */
+  const photoRef = useRef<(p: Partial<PhotoSettings>) => void>(() => {});
   // Claude drives the screen you'd use: the same tabs, picks and camera you
   // would, until you touch anything.
   const follow = useFollow(state, { selection, faces }, {
@@ -449,6 +453,11 @@ export function App() {
       const nudge = effects.nudge;
       if (nudge) setTimeout(() => viewportApi.current?.nudge(nudge.turn, nudge.zoom), 150);
       if (effects.render) setTimeout(() => void renderRef.current?.(), 900);
+      if (v.photoLens !== undefined || v.photoShadow !== undefined) {
+        photoRef.current({ ...(v.photoLens !== undefined ? { fov: v.photoLens } : {}), ...(v.photoShadow !== undefined ? { shadow: v.photoShadow } : {}) });
+      }
+      // The blend waits for the photo to show, as a render does.
+      if (v.blend) setTimeout(() => void blendRef.current?.(), 900);
       // The caller's name starts the line, so it takes a capital, as "another app" does here.
       const who = v.from ? v.from.charAt(0).toUpperCase() + v.from.slice(1) : "Another chat";
       if (still && !routed.note) note(`${who} asked for the model to keep turning, but ${still}`);
@@ -592,6 +601,7 @@ export function App() {
       // Storage refused: the lens and shadow just won't be remembered.
     }
   };
+  photoRef.current = (p) => setPhotoSettings({ ...photoSettings, ...p });
   useEffect(() => {
     setPins([]);
     setSlots(NO_SLOTS);
@@ -755,10 +765,11 @@ export function App() {
   };
   // The AI blend: OpenAI relights the placed piece so it matches the room.
   // Without a key it can't run, so it says so before asking you to pay.
-  const runBlend = async () => {
+  const runBlend = async (asked = false) => {
     if (!backdropUrl) return;
     if (!state.has_openai_key) return fail("photo", BLEND_NEEDS_KEY);
-    if (!confirm("Send this picture to OpenAI to blend the light? Your room photo goes to OpenAI, and each blend costs money.")) return;
+    // Started from another chat, the woodworker has said yes there already.
+    if (!asked && !confirm("Send this picture to OpenAI to blend the light? Your room photo goes to OpenAI, and each blend costs money.")) return;
     const model = viewportApi.current?.snapshot();
     if (!model) return fail("photo", "Couldn't make the picture to blend. Try again once the model has drawn.");
     setBlending(true);
@@ -780,6 +791,7 @@ export function App() {
     }
   };
   renderRef.current = saveRender;
+  blendRef.current = () => runBlend(true);
   // A photo comes from the view bar's Photo button or the photo bar's Change photo, and an error shows beside whichever you used.
   const loadPhoto = async (f: File, where: Where) => {
     try {
