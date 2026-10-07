@@ -447,3 +447,76 @@ describe("woodchuck_set_param and woodchuck_design", () => {
     expect(await expr("carcass_height")).toBe("400");
   });
 });
+
+// Issue #69: whatever the window's Undo, Redo and design menu do, another
+// chat can do too. A chat app may send a call twice, so each names the
+// change or the design it means, and a second send changes nothing.
+describe("woodchuck_undo, woodchuck_redo and woodchuck_designs", () => {
+  type State = { project: { slug: string }; design: { params: { name: string; expr: string }[] }; projects: { slug: string; starred: boolean }[] };
+  const state = () => app("/api/state") as unknown as Promise<State>;
+  const expr = async (name: string) => (await state()).design.params.find((p) => p.name === name)?.expr;
+  const post = (p: string, body: unknown) =>
+    fetch(`${process.env.WOODCHUCK_URL}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("undoes and redoes a change by its number, once however often it's sent", async () => {
+    const ops = (name: string, expr: string) => post("/api/ops", { ops: [{ op: "set_param", name, expr, unit: "mm" }], label: `Set ${name}` });
+    await ops("undo_a", "10");
+    await ops("undo_b", "20");
+    const status = (await tool("woodchuck_status")).text;
+    const [, b, a] = status.match(/Changes, latest first: (\d+) "Set undo_b" and (\d+) "Set undo_a"/)!;
+    // Only the latest change can be undone.
+    expect((await tool("woodchuck_undo", { change: Number(a) })).text).toBe(`Nothing changed. Change ${a} isn't the latest. Undo ${b} first.`);
+    expect((await tool("woodchuck_undo", { change: Number(b) })).text).toBe(`Undid change ${b}, "Set undo_b". woodchuck_redo with change ${b} puts it back.`);
+    expect((await tool("woodchuck_undo", { change: Number(b) })).text).toBe(`Change ${b}, "Set undo_b", is undone already, so nothing changed.`);
+    expect(await expr("undo_a")).toBe("10");
+    expect((await tool("woodchuck_status")).text).toContain(`Undone, next to redo first: ${b} "Set undo_b"`);
+    expect((await tool("woodchuck_redo", { change: Number(b) })).text).toBe(`Redid change ${b}, "Set undo_b". woodchuck_undo with change ${b} takes it out again.`);
+    expect((await tool("woodchuck_redo", { change: Number(b) })).text).toBe(`Change ${b}, "Set undo_b", is in the design already, so nothing changed.`);
+    expect(await expr("undo_b")).toBe("20");
+    expect((await tool("woodchuck_undo", { change: 99999 })).text).toBe("Nothing changed. There's no change 99999.");
+    // The window's own Undo names the change too, so a second click can't take another.
+    expect((await post("/api/undo", { change: Number(b) })).status).toBe(200);
+    expect(((await (await post("/api/undo", { change: Number(b) })).json()) as { already?: boolean }).already).toBe(true);
+    await post("/api/undo", { change: Number(a) });
+    expect(await expr("undo_a")).toBeUndefined();
+  });
+
+  it("starts, copies, renames, stars, opens and deletes designs, each once however often it's sent", async () => {
+    const first = (await state()).project.slug;
+    const list = (await tool("woodchuck_designs", { action: "list" })).text;
+    expect(list).toMatch(/^Designs, by id:\n/);
+    expect(list).toContain(`- ${first}: `);
+    expect(list).toContain(", open");
+    expect(list).toContain(`The open design's file: ${process.env.WOODCHUCK_URL}/api/design.json`);
+
+    expect((await tool("woodchuck_designs", { action: "new", name: "Fairhaven bench" })).text).toBe("Started Fairhaven bench. It's open now.");
+    expect((await tool("woodchuck_designs", { action: "new", name: "Fairhaven bench" })).text).toBe("Fairhaven bench is open already, so nothing changed.");
+    const bench = (await state()).project.slug;
+    expect((await tool("woodchuck_designs", { action: "copy", name: "Fairhaven bench, wider" })).text).toBe("Copied Fairhaven bench as Fairhaven bench, wider. The copy is open now.");
+    expect((await tool("woodchuck_designs", { action: "copy", name: "Fairhaven bench, wider" })).text).toBe("Fairhaven bench, wider is open already, so nothing changed.");
+    const wider = (await state()).project.slug;
+    expect((await tool("woodchuck_designs", { action: "new", name: "Fairhaven bench" })).text).toBe(`Nothing changed. There's already a design called Fairhaven bench (${bench}). Open it, or pick another name.`);
+
+    expect((await tool("woodchuck_designs", { action: "rename", name: "Wide bench" })).text).toBe("Renamed Fairhaven bench, wider to Wide bench. It's one change the woodworker can undo.");
+    expect((await tool("woodchuck_designs", { action: "rename", name: "Wide bench" })).text).toBe("It's called Wide bench already, so nothing changed.");
+    for (let i = 0; i < 2; i++) expect((await tool("woodchuck_designs", { action: "star", design: bench, starred: true })).text).toBe("Fairhaven bench is starred.");
+    expect((await state()).projects.find((p) => p.slug === bench)!.starred).toBe(true);
+    expect((await tool("woodchuck_designs", { action: "star", design: bench, starred: false })).text).toBe("Fairhaven bench is not starred.");
+
+    expect((await tool("woodchuck_designs", { action: "open", design: bench })).text).toBe("Opened Fairhaven bench.");
+    expect((await tool("woodchuck_designs", { action: "open", design: bench })).text).toBe("Fairhaven bench is open already.");
+    expect((await tool("woodchuck_designs", { action: "open", design: "nope" })).text).toMatch(/^Nothing changed\. There's no design nope\. Designs: /);
+
+    // Deleting waits for the woodworker's yes, and a second delete finds it gone.
+    expect((await tool("woodchuck_designs", { action: "delete", design: wider })).text).toBe(
+      "Nothing changed yet. Deleting Wide bench takes it and its chat out of Woodchuck, and it can't be undone. Ask the woodworker, then call again with confirmed true.",
+    );
+    expect((await state()).projects.some((p) => p.slug === wider)).toBe(true);
+    expect((await tool("woodchuck_designs", { action: "delete", design: wider, confirmed: true })).text).toBe("Deleted Wide bench. Fairhaven bench is open now.");
+    expect((await tool("woodchuck_designs", { action: "delete", design: wider, confirmed: true })).text).toBe(`There's no design ${wider}, so there's nothing to delete.`);
+
+    await tool("woodchuck_designs", { action: "delete", design: bench, confirmed: true });
+    await tool("woodchuck_designs", { action: "open", design: first });
+    expect((await state()).project.slug).toBe(first);
+  });
+});

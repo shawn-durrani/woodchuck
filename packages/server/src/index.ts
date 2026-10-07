@@ -198,6 +198,8 @@ export function createApp(opts: {
       cutlist: cutList(p.design, d),
       history: p.history.map((e) => ({ id: e.id, author: e.author, label: e.label, at: e.at })),
       redo: p.redo.length,
+      // The changes undone, next to redo last, so another chat can name one.
+      undone: p.redo.map((e) => ({ id: e.id, author: e.author, label: e.label, at: e.at })),
       chat: p.chat.slice(-400),
       waiting: p.pending?.waiting.map((w) => w.kind) ?? [],
       busy: turn !== null,
@@ -449,7 +451,8 @@ export function createApp(opts: {
         }
         case "POST /api/projects/copy": {
           if (turn) return fail(409, "Claude is working. Wait or stop it first.");
-          store.copy();
+          const name = String((await body()).name ?? "").trim();
+          store.copy(name || undefined);
           broadcastState();
           return json(200, { ok: true });
         }
@@ -534,10 +537,26 @@ export function createApp(opts: {
           broadcastState();
           return json(200, { ok: true });
         }
+        // Named by the change it means, an undo or redo happens once, however often
+        // it's sent: a change already where it's asked to go is left there.
         case "POST /api/undo":
         case "POST /api/redo": {
           if (turn) return fail(409, "Claude is working. Wait or stop it first.");
-          const e = route === "POST /api/undo" ? project.undo() : project.redoOne();
+          const undo = route === "POST /api/undo";
+          const asked = (await body()).change;
+          if (asked !== undefined && asked !== null) {
+            const id = Number(asked);
+            const [from, to] = undo ? [project.history, project.redo] : [project.redo, project.history];
+            const there = to.find((e) => e.id === id);
+            if (there && !from.some((e) => e.id === id)) return json(200, { ok: true, already: true, entry: { id, label: there.label } });
+            const at = from.findIndex((e) => e.id === id);
+            if (at < 0) return fail(404, `There's no change ${asked}`);
+            if (at !== from.length - 1) {
+              const first = from.slice(at + 1).reverse().map((e) => e.id);
+              return fail(409, `Change ${id} isn't the ${undo ? "latest" : "next to redo"}. ${undo ? "Undo" : "Redo"} ${first.join(", ")} first`);
+            }
+          }
+          const e = undo ? project.undo() : project.redoOne();
           broadcastState();
           return json(200, { ok: true, entry: e ? { id: e.id, label: e.label } : null });
         }

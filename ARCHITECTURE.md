@@ -743,6 +743,11 @@ change the view moves the open window and never touches the design. One
 that arrives as the window opens waits until the design is in, and the
 parts it frames stay framed while the view gets ready.
 
+A chat app may send a call twice, so each tool is safe to repeat. One that
+sets something ends in the same place, and one that takes a step, such as
+an undo or a new design, names the change or the design it means. A
+second send then finds it done.
+
 A chat app holds its turn while a tool runs, so no tool waits long. A
 request hands over within a few seconds, and a progress tool answers at
 once. Their results carry a background block, which lets the chat app

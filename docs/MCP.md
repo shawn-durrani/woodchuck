@@ -43,9 +43,32 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_set_param` | Sets parameters the design already has straight away, mid-build too, as one undo step. A change over 20%, or to zero or less, waits for the woodworker's yes. Woodchuck's Claude is told after its current step. |
 | `woodchuck_colours` | Lists the Linolie and Osmo colours by number and name. |
 | `woodchuck_view` | Changes what the open window shows: the 3D or plan views, look, lighting, camera, an orbit, see-through, the piece or one joint pulled apart, the room photo, highlights, the waiting preview, a worked joint, a side panel tab and a render to the downloads. |
-| `woodchuck_status` | Sums up the design: its problems, timber, finishes and joint ids. |
+| `woodchuck_status` | Sums up the design: its problems, timber, finishes, joint ids and latest changes by number. |
+| `woodchuck_undo` | Undoes the latest change, named by its number. |
+| `woodchuck_redo` | Puts back the change undone last, named by its number. |
+| `woodchuck_designs` | Lists, opens, starts, copies, renames, stars and deletes designs, as the design menu does, and links to the open one's file. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns a link to the picture. |
+
+## Sending a call twice
+
+A chat app may send a call again when the first seems lost, so every tool
+is safe to repeat. A tool that sets something, such as a size, a colour or
+the view, ends in the same place however often it's sent. The tools that
+take a step name the step instead. `woodchuck_undo` and `woodchuck_redo`
+take a change's number from `woodchuck_status`, and a change already undone
+or back in the design is left there. `woodchuck_designs` names a design by
+its id, and new and copy count as done once a design of that name is
+open. Starring sets starred to true or false.
+
+Some steps can't be taken back. Deleting a design waits for the woodworker's
+yes, given as `confirmed`, and a second delete finds the design gone. An
+undo or a redo only moves the latest change, so going back further is one
+call a change, latest first. The window's own Undo and Redo name their
+change the same way, so a second click can't take another step.
+
+`turn_degrees`, `zoom` and `render` are the exceptions. They turn, zoom or
+save a picture each time they're sent.
 
 ## Changing a size straight away
 

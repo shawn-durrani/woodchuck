@@ -330,6 +330,12 @@ fingers, and a dowel crossing the cut is drawn solid. A joint's sizes
 mark the library's usual settings, and its cuts read as the cut list
 words them.
 
+The server tests send `woodchuck_undo`, `woodchuck_redo` and each of
+`woodchuck_designs`' actions twice. The second send changes nothing and
+says so. Only the latest change undoes, a delete waits for `confirmed`,
+and a design of the same name is refused. The window's own Undo names its
+change the same way.
+
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.
 A joint's section shares the drawer's joint slot, beside a preview.

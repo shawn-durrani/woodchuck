@@ -808,7 +808,9 @@ export function App() {
     setUndoing({ which, from: historyKey });
     // If nothing comes back, such as when another window undid it first, the button frees itself.
     setTimeout(() => setUndoing(null), 10_000);
-    const r = await post(`/api/${which}`);
+    // It names the change it means, so a second click before the first lands can't undo or redo another.
+    const change = which === "undo" ? state.history.at(-1)?.id : state.undone?.at(-1)?.id;
+    const r = await post(`/api/${which}`, change === undefined ? {} : { change });
     if (!r.ok) setUndoing(null);
     say("history", r);
   };

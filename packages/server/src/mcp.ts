@@ -61,13 +61,27 @@ const REPLY_WAIT_MS = 8_000;
 
 export { describe, itemsAfter, type Item };
 
+/** One change to a design, as the window's history lists it. */
+interface Change {
+  id: number;
+  author: string;
+  label: string;
+  at: string;
+}
+
 export interface AppState {
   busy: boolean;
   waiting: string[];
   design: Design;
-  project: { slug: string; name: string };
+  project: { slug: string; name: string; example?: string };
   report: { errors: number; warnings: number; ready_to_cut: boolean };
   chat: Item[];
+  /** The changes that can be undone, latest last. */
+  history?: Change[];
+  /** The changes undone, next to redo last. */
+  undone?: Change[];
+  /** Every design, by id. */
+  projects?: { slug: string; name: string; starred: boolean; changed: string | null }[];
 }
 
 /** A short account of the open design: its name, problems, timber, finishes and joints. */
@@ -91,8 +105,22 @@ export function summarise(s: AppState): string {
   }
   // A joint's id is what woodchuck_view's focus_joint takes.
   if (d.joints.length) lines.push(`Joints, by id: ${listed(d.joints.map((j) => j.id), 20)}`);
+  // A change's number is what woodchuck_undo and woodchuck_redo take.
+  const said = (c: Change) => `${c.id} "${c.label}"`;
+  if (s.history?.length) lines.push(`Changes, latest first: ${listed([...s.history].reverse().map(said), 5)}`);
+  if (s.undone?.length) lines.push(`Undone, next to redo first: ${listed([...s.undone].reverse().map(said), 5)}`);
   lines.push(...claudeLines(s, false));
   return lines.join("\n");
+}
+
+/** Every design by id, with the open one's file to download. */
+export function designList(s: AppState): string {
+  const all = s.projects ?? [];
+  return [
+    "Designs, by id:",
+    ...all.map((p) => `- ${p.slug}: ${p.name}${p.starred ? ", starred" : ""}${p.slug === s.project.slug ? ", open" : ""}${p.changed ? `, changed ${p.changed.slice(0, 10)}` : ""}`),
+    `The open design's file: ${BASE}/api/design.json`,
+  ].join("\n");
 }
 
 /** Whether Woodchuck's Claude is working or waiting on the woodworker. */
@@ -472,6 +500,94 @@ async function postJson(path: string, body: unknown): Promise<{ status: number; 
   return { status: r.status, ...(j.error ? { error: j.error } : {}), ...(j.steered ? { steered: true } : {}), ...(j.change ? { change: j.change } : {}) };
 }
 
+/** Woodchuck's reason for refusing, as one sentence after "Nothing changed." */
+const refusal = (r: { status: number; error?: string }) => text(`Nothing changed. ${String(r.error ?? `Woodchuck answered ${r.status}`).replace(/\.?$/, ".")}`);
+
+/**
+ * Undoes or redoes the change it names, once. Sent again, the change is
+ * already where it was asked to go, so nothing more happens.
+ */
+async function historyStep(which: "undo" | "redo", change: number) {
+  const r = await fetch(`${BASE}/api/${which}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ change }) });
+  const j = (await r.json().catch(() => ({}))) as { error?: string; already?: boolean; entry?: { id: number; label: string } | null };
+  if (!r.ok) return refusal({ status: r.status, ...(j.error ? { error: j.error } : {}) });
+  const label = j.entry?.label ?? "";
+  if (j.already) return text(`Change ${change}, "${label}", is ${which === "undo" ? "undone" : "in the design"} already, so nothing changed.`);
+  return which === "undo"
+    ? text(`Undid change ${change}, "${label}". woodchuck_redo with change ${change} puts it back.`)
+    : text(`Redid change ${change}, "${label}". woodchuck_undo with change ${change} takes it out again.`);
+}
+
+export interface DesignRequest {
+  action: "list" | "open" | "new" | "copy" | "rename" | "star" | "delete";
+  design?: string | undefined;
+  name?: string | undefined;
+  example?: boolean | undefined;
+  starred?: boolean | undefined;
+  confirmed?: boolean | undefined;
+}
+
+/**
+ * The design menu, for another chat. Each action names the design or the
+ * name it means, so sent twice it does its job once: a design already
+ * open, made, named, starred or gone is left as it is.
+ */
+async function designAction(a: DesignRequest) {
+  const s = await getState();
+  const all = s.projects ?? [];
+  const byId = (id?: string) => all.find((p) => p.slug === id);
+  const ids = () => `Designs: ${all.map((p) => p.slug).join(", ")}.`;
+  switch (a.action) {
+    case "list":
+      return text(designList(s));
+    case "open": {
+      const p = byId(a.design);
+      if (!p) return text(`Nothing changed. There's no design ${a.design ?? "named"}. ${ids()}`);
+      if (p.slug === s.project.slug) return text(`${p.name} is open already.`);
+      const r = await postJson("/api/projects/open", { slug: p.slug });
+      return r.status >= 300 ? refusal(r) : text(`Opened ${p.name}.`);
+    }
+    case "new":
+    case "copy": {
+      const name = a.name?.trim();
+      if (!name) return text(`Nothing changed. Say what to call the ${a.action === "new" ? "new design" : "copy"}.`);
+      // Sent again, the design it made is the one open.
+      const made = s.design.name === name && (a.action === "copy" || (a.example ? s.project.example === "record_console" : !s.design.parts.length));
+      if (made) return text(`${name} is open already, so nothing changed.`);
+      const clash = all.find((p) => p.name === name);
+      if (clash) return text(`Nothing changed. There's already a design called ${name} (${clash.slug}). Open it, or pick another name.`);
+      const r = a.action === "new" ? await postJson("/api/projects", { name, ...(a.example ? { example: "record_console" } : {}) }) : await postJson("/api/projects/copy", { name });
+      if (r.status >= 300) return refusal(r);
+      return text(a.action === "new" ? `Started ${name}${a.example ? " from the record console example" : ""}. It's open now.` : `Copied ${s.design.name} as ${name}. The copy is open now.`);
+    }
+    case "rename": {
+      const name = a.name?.trim();
+      if (!name) return text("Nothing changed. Say the new name.");
+      if (s.design.name === name) return text(`It's called ${name} already, so nothing changed.`);
+      const r = await postJson("/api/ops", { ops: [{ op: "rename_design", name }], label: `${CALLER_AT_START}: rename to ${name}` });
+      return r.status >= 300 ? refusal(r) : text(`Renamed ${s.design.name} to ${name}. It's one change the woodworker can undo.`);
+    }
+    case "star": {
+      const p = byId(a.design ?? s.project.slug);
+      if (!p) return text(`Nothing changed. There's no design ${a.design}. ${ids()}`);
+      if (a.starred === undefined) return text("Nothing changed. Say starred true to star it, or false to take the star off.");
+      const r = await postJson("/api/projects/star", { slug: p.slug, starred: a.starred });
+      return r.status >= 300 ? refusal(r) : text(`${p.name} is ${a.starred ? "starred" : "not starred"}.`);
+    }
+    case "delete": {
+      if (!a.design) return text("Nothing changed. Say which design to delete, by its id from list.");
+      const p = byId(a.design);
+      if (!p) return text(`There's no design ${a.design}, so there's nothing to delete.`);
+      if (!a.confirmed) {
+        return text(`Nothing changed yet. Deleting ${p.name} takes it and its chat out of Woodchuck, and it can't be undone. Ask the woodworker, then call again with confirmed true.`);
+      }
+      const r = await postJson("/api/projects/delete", { slug: p.slug });
+      if (r.status >= 300) return refusal(r);
+      return text(`Deleted ${p.name}. ${(await getState()).project.name} is open now.`);
+    }
+  }
+}
+
 /** Sends the open window a view change, and says how many windows took it. */
 async function showView(view: Record<string, unknown>): Promise<number> {
   const v = await fetch(`${BASE}/api/view`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from: CALLER, ...view }) });
@@ -821,10 +937,72 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
   );
 
   server.registerTool(
+    "woodchuck_undo",
+    {
+      title: "Undo a change in Woodchuck",
+      description:
+        "Undo the latest change to the open design, named by its number from woodchuck_status, such as 14. To go back further, undo each change in turn, latest first. A change already undone is left as it is, so calling again is safe. Woodchuck's Claude mustn't be working: wait for it, or stop it first. woodchuck_redo puts a change back.",
+      inputSchema: { change: z.number().int().min(1).describe("The change's number, from woodchuck_status") },
+    },
+    async ({ change }) => {
+      warmUp();
+      try {
+        return await historyStep("undo", change);
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_redo",
+    {
+      title: "Redo a change in Woodchuck",
+      description:
+        "Put back a change that was undone, named by its number from woodchuck_status's undone list. Changes come back in order, the one undone last first. A change already back in the design is left as it is, so calling again is safe. Woodchuck's Claude mustn't be working.",
+      inputSchema: { change: z.number().int().min(1).describe("The change's number, from woodchuck_status") },
+    },
+    async ({ change }) => {
+      warmUp();
+      try {
+        return await historyStep("redo", change);
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_designs",
+    {
+      title: "Woodchuck's designs",
+      description:
+        "List, open, start, copy, rename, star or delete Woodchuck's designs, as its design menu does. Name a design by its id from list, which also gives a link to download the open one. new and copy need a name, and the design they made being open counts as done, so calling again is safe. star sets starred true or false. delete takes a design and its chat out of Woodchuck for good, so ask the woodworker first, then call again with confirmed true. Woodchuck's Claude mustn't be working to open, start, copy or delete one.",
+      inputSchema: {
+        action: z.enum(["list", "open", "new", "copy", "rename", "star", "delete"]),
+        design: z.string().optional().describe("A design's id, from list. For open, star and delete; star takes the open design without one"),
+        name: z.string().min(1).max(120).optional().describe("The name for new, copy and rename"),
+        example: z.boolean().optional().describe("For new: start from the record console example"),
+        starred: z.boolean().optional().describe("For star: true to star it, false to take the star off"),
+        confirmed: z.boolean().optional().describe("For delete: true once the woodworker has said yes"),
+      },
+    },
+    async (a) => {
+      warmUp();
+      try {
+        return await designAction(a);
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "woodchuck_status",
     {
       title: "Woodchuck design status",
-      description: "Read the open Woodchuck design's name, problems, timber, finishes and joint ids, and whether Woodchuck's Claude is busy or waiting for an answer.",
+      description:
+        "Read the open Woodchuck design's name, problems, timber, finishes and joint ids, its latest changes by number for woodchuck_undo and woodchuck_redo, and whether Woodchuck's Claude is busy or waiting for an answer.",
       inputSchema: {},
     },
     async () => {
