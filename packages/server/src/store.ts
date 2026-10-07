@@ -620,9 +620,10 @@ export class Store {
   }
 
   /** A new design that starts as a copy of the open one, with a fresh chat. */
-  copy(): Project {
+  /** Copies the open design, under a name of its own or as "… (copy)". */
+  copy(as?: string): Project {
     const from = this.current.design;
-    const name = `${from.name} (copy)`;
+    const name = as ?? `${from.name} (copy)`;
     return this.create(name, [], { ...structuredClone(from), name }, `Copied from ${from.name}`);
   }
 

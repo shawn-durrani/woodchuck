@@ -101,6 +101,8 @@ export interface ServerState {
   cutlist: CutList;
   history: { id: number; author: Author; label: string; at: string }[];
   redo: number;
+  /** The changes undone, next to redo last. */
+  undone?: { id: number; author: Author; label: string; at: string }[];
   chat: ChatItem[];
   waiting: ("question" | "plan" | "part" | "preview")[];
   busy: boolean;
