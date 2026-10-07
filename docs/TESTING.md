@@ -318,7 +318,9 @@ and check that no two parts ever overlap more than they do together. Two
 parts whose joints hold each other every way come apart through each
 other, rest clear, and the plan names them. Every joint of the table and
 the console, pulled apart on its own, rests clear of every part. A table
-rail held at both ends stays, and its leg slides off it instead.
+rail held at both ends stays, and its leg slides off it instead. The
+table's last stage fans it out, with the top going up, the rails up and
+out, and each leg out past its own corner.
 
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.

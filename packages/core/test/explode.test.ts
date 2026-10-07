@@ -1,7 +1,8 @@
 // Issue #66: the exploded view pulls a piece apart the way it goes
 // together. Every worked joint comes apart along its joint, a table's base
 // drops off its top as one frame before its end frames come off, and the
-// record console's drawers slide out the front. Solid wood never rests
+// record console's drawers slide out the front. Then every part fans out
+// from the middle of the piece, up and down as well as out. Solid wood never rests
 // inside solid wood: apart, no two parts overlap, and a joint pulled apart
 // on its own rests clear of every part. On the way, the whole piece never
 // overlaps more than it does together, where a tongue sits in its
@@ -20,6 +21,7 @@ import {
   jointExample,
   NO_EXPLOSION,
   recordConsoleOps,
+  FAN_OUT,
   runChecks,
   type Box,
   type DerivedPart,
@@ -76,6 +78,11 @@ function passThrough(parts: DerivedPart[], e: Explosion, steps = 2000): string[]
   }
   return [...out];
 }
+
+/** The moves that slide parts off their joints, before the last stage fans them out. */
+const slides = (e: Explosion) => e.moves.filter((m) => m.stage < e.stages);
+/** The last stage: every part carried on away from the middle of the piece, by id. */
+const fan = (e: Explosion) => new Map(e.moves.filter((m) => m.stage === e.stages).map((m) => [m.parts[0]!, m.by_mm]));
 
 function table() {
   const leg = (id: string, x: string, z: string): Op => ({
@@ -204,7 +211,7 @@ describe("the whole piece apart", () => {
     for (const type of JOINT_TYPES) {
       const r = derive(jointExample(type));
       const e = explodePiece(r.parts, r.joints, r.hardware);
-      expect(e.moves, type).toHaveLength(1);
+      expect(slides(e), type).toHaveLength(1);
       expect(stillInside(r.parts, e), type).toEqual([]);
       expect(passThrough(r.parts, e, 200), type).toEqual([]);
     }
@@ -239,9 +246,27 @@ describe("the whole piece apart", () => {
     expect(passThrough(r.parts, e)).toEqual([]);
     const drawer = e.moves.find((m) => m.parts.includes("drawer_side_l") && m.parts.includes("drawer_bottom") && m.parts.length > 1)!;
     expect(drawer.by_mm[2]).toBeGreaterThan(0);
-    // Every part moves but the one that stays put.
-    const off = explodeOffsets(e, 1);
-    expect(r.parts.filter((p) => !off.has(p.id))).toHaveLength(1);
+    // Every part slides off its joints but the one that stays put, and then every part fans out.
+    const slid = new Set(slides(e).flatMap((m) => m.parts));
+    expect(r.parts.filter((p) => !slid.has(p.id))).toHaveLength(1);
+    expect(fan(e).size).toBe(r.parts.length);
+  });
+
+  it("fans a table out from its middle, the top up, the rails up and out, and each leg out past its corner", () => {
+    const r = table();
+    const e = explodePiece(r.parts, r.joints, r.hardware);
+    const f = fan(e);
+    const sign = (id: string) => f.get(id)!.map(Math.sign);
+    expect(sign("top")).toEqual([0, 1, 0]);
+    expect(sign("leg_fl")).toEqual([-1, -1, 1]);
+    expect(sign("leg_br")).toEqual([1, -1, -1]);
+    expect(sign("rail_front")[1]).toBe(1);
+    expect(sign("rail_front")[2]).toBe(1);
+    // A part at the very edge goes the full share of the longest side.
+    expect(f.get("top")![1]).toBeGreaterThan(0.9 * FAN_OUT * 1240);
+    // The fan-out is the last stage, after every part is off its joints, and nothing meets on the way.
+    expect(Math.max(...slides(e).map((m) => m.stage))).toBe(e.stages - 1);
+    expect(passThrough(r.parts, e)).toEqual([]);
   });
 
   it("works it out the same way every time", () => {
@@ -257,7 +282,7 @@ describe("the whole piece apart", () => {
       { id: "j2", type: "screws" as const, family: "fastener" as const, host: "a", guest: "b", axis: "y" as const, side: "end" as const, features: [] },
     ];
     const e = explodePiece(parts, joints);
-    expect(e.moves.map((m) => m.parts)).toEqual([["b"]]);
+    expect(slides(e).map((m) => m.parts)).toEqual([["b"]]);
     expect(e.locked).toEqual([["a", "b"]]);
     expect(stillInside(parts as unknown as DerivedPart[], e)).toEqual([]);
   });
