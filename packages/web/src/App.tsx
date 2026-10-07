@@ -8,7 +8,8 @@
 // chat and the tabs share one bottom sheet (PhoneShell and BottomSheet).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { post, useServer, viewRequests, type ServerState } from "./api";
+import { captureRequests, post, useServer, viewRequests, type ServerState } from "./api";
+import { describeWindow, loadImage, toShot, type Shot } from "./screenshot";
 import { Passkeys, PasskeysButton } from "./components/Passkeys";
 import { ChatPanel } from "./components/ChatPanel";
 import { drawingsNote, drawingsUrl, ViewsPanel } from "./components/Panels";
@@ -21,7 +22,7 @@ import { Toolbar, type ToolbarMenu } from "./components/Toolbar";
 import type { Lighting } from "./lighting";
 import { Viewport, type CameraView, type ExplodeView, type Look, type Pin, type PointMode, type ViewportApi } from "./components/Viewport";
 import { ExplodeBar } from "./components/ExplodeBar";
-import { describeView, explodeJoint, explodeOffsets, explodePiece, FACES, JOINT_LIBRARY, type Box, type Face, type ViewCommand } from "@woodchuck/core";
+import { describeView, explodeJoint, explodeOffsets, explodePiece, FACES, JOINT_LIBRARY, jointSection, sheetSvg, type Box, type Face, type ViewCommand } from "@woodchuck/core";
 import { allControls, applyView, TIPS, toolbarState, WAIT_FOR_CLAUDE, type Mode, type Paper, type PlanView, type ViewState } from "./toolbar";
 import { shortcutFor, type Shortcut } from "./shortcuts";
 import { isFace } from "./select";
@@ -362,6 +363,8 @@ export function App() {
   const onShortcut = useRef<(e: KeyboardEvent) => void>(() => {});
   /** The latest Render, so a request from outside renders what the window shows then. */
   const renderRef = useRef<(() => Promise<void>) | null>(null);
+  /** What the window shows, as pictures and words, for another chat that asks to see it. */
+  const shotRef = useRef<(withPhoto: boolean) => Promise<{ images: Shot[]; shows: string }>>(async () => ({ images: [], shows: "The window is still opening." }));
   /** The AI blend as another chat starts it, once the woodworker has said yes there. */
   const blendRef = useRef<(() => Promise<void>) | null>(null);
   /** Sets the room photo's lens or shadow, as its sliders do. */
@@ -388,6 +391,18 @@ export function App() {
     note,
   });
 
+  // Another chat can ask to see the window. Each request gets its pictures, or none, so it never waits long.
+  useEffect(() => {
+    const onCapture = (e: Event) => {
+      const { id, withPhoto } = (e as CustomEvent<{ id: string; withPhoto: boolean }>).detail;
+      void shotRef
+        .current(withPhoto)
+        .catch(() => ({ images: [], shows: "The window couldn't make its picture." }))
+        .then((shot) => post("/api/screenshot/answer", { id, ...shot }));
+    };
+    captureRequests.addEventListener("capture", onCapture);
+    return () => captureRequests.removeEventListener("capture", onCapture);
+  }, []);
   /** View commands that came before the design did, played in order once it's in. */
   const earlyViews = useRef<ViewCommand[]>([]);
   /** The design the window has taken in, once its fresh start has run. */
@@ -791,6 +806,49 @@ export function App() {
     }
   };
   renderRef.current = saveRender;
+  // What another chat sees: the 3D view from your own angle, or the plan view's drawing, and a joint's section when it's open.
+  shotRef.current = async (withPhoto: boolean) => {
+    const images: Shot[] = [];
+    if (mode === "2d") {
+      const img = document.querySelector<HTMLImageElement>(".plan-view img");
+      if (img?.complete && img.naturalWidth) {
+        const shot = toShot(img, img.naturalWidth, img.naturalHeight);
+        if (shot) images.push(shot);
+      }
+    } else if (inPhoto && withPhoto) {
+      const model = viewportApi.current?.snapshot();
+      if (model) {
+        const both = await loadImage(await compose(backdropUrl!, model));
+        const shot = toShot(both, both.naturalWidth, both.naturalHeight);
+        if (shot) images.push(shot);
+      }
+    } else {
+      const shot = viewportApi.current?.capture();
+      if (shot) images.push(shot);
+    }
+    const section = mode === "3d" && slots.section ? jointSection(state.derived, slots.section) : null;
+    if (section) {
+      const img = await loadImage(sheetSvg({ kind: "part", title: section.title, paper: "A4", width_mm: section.width_mm, height_mm: section.height_mm, scale: null, marks: section.marks, dims: section.dims }));
+      // At four pixels a millimetre, its sizes read clearly.
+      const shot = toShot(img, section.width_mm * 4, section.height_mm * 4);
+      if (shot) images.push(shot);
+    }
+    const shows = describeWindow({
+      design: state.design.name,
+      mode,
+      view,
+      planView,
+      look: inPhoto ? "finished" : look,
+      seeThrough: xray,
+      explode: explodeOn ? explode.amount : null,
+      joint: focusJoint,
+      section: section ? slots.section : null,
+      picked: selection,
+      inPhoto,
+      withPhoto: inPhoto && withPhoto,
+    });
+    return { images, shows };
+  };
   blendRef.current = () => runBlend(true);
   // A photo comes from the view bar's Photo button or the photo bar's Change photo, and an error shows beside whichever you used.
   const loadPhoto = async (f: File, where: Where) => {

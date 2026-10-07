@@ -584,3 +584,44 @@ describe("woodchuck_drawings, woodchuck_photo and woodchuck_history", () => {
     expect((await tool("woodchuck_history", { action: "restore", version: "abcdef0", confirmed: true })).text).toBe("Nothing changed. There's no version abcdef0. Call list for the ids.");
   });
 });
+
+// Another chat sees what the woodworker's window shows: the window is asked
+// over its socket, and its pictures come back as images the model can look
+// at. A stand-in window answers here, with an invented picture.
+describe("woodchuck_screenshot", () => {
+  const PICTURE = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+  /** A window that answers each screenshot with one picture, and says whether it was asked for the photo. */
+  async function answeringWindow() {
+    const ws = new WebSocket(`${process.env.WOODCHUCK_URL!.replace("http", "ws")}/ws`);
+    await new Promise((r) => ws.addEventListener("open", r, { once: true }));
+    const asked: boolean[] = [];
+    ws.addEventListener("message", (m) => {
+      const msg = JSON.parse(String(m.data)) as { type: string; id?: string; withPhoto?: boolean };
+      if (msg.type !== "capture") return;
+      asked.push(!!msg.withPhoto);
+      void fetch(`${process.env.WOODCHUCK_URL}/api/screenshot/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: msg.id, images: [{ media_type: "image/jpeg", data: PICTURE }], shows: "The test window shows the 3D model." }),
+      });
+    });
+    return { ws, asked };
+  }
+
+  it("says there's nothing to see with no window open", async () => {
+    const r = await tool("woodchuck_screenshot", {});
+    expect(r.text).toMatch(/^No Woodchuck window is open, so there's nothing to see\./);
+  });
+
+  it("sends back what the window shows as a picture to look at, the same each time it's asked", async () => {
+    const win = await answeringWindow();
+    for (let i = 0; i < 2; i++) {
+      const r = (await client.callTool({ name: "woodchuck_screenshot", arguments: {} })) as unknown as { content: { type: string; text?: string; data?: string; mimeType?: string }[] };
+      expect(r.content[0]).toEqual({ type: "text", text: "The test window shows the 3D model." });
+      expect(r.content[1]).toEqual({ type: "image", data: PICTURE, mimeType: "image/jpeg" });
+    }
+    await tool("woodchuck_screenshot", { with_photo: true });
+    expect(win.asked).toEqual([false, false, true]);
+    win.ws.close();
+  });
+});

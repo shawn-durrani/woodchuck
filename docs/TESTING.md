@@ -332,6 +332,12 @@ fingers, and a dowel crossing the cut is drawn solid. A joint's sizes
 mark the library's usual settings, and its cuts read as the cut list
 words them.
 
+The server tests stand in a window that answers a screenshot. The
+picture comes back to the MCP client as an image, the same each time, and
+the window hears whether the room photo was asked for. With no window
+open, the tool says so. The web tests hold the line of words with a
+screenshot.
+
 The server tests send `woodchuck_undo`, `woodchuck_redo` and each of
 `woodchuck_designs`' actions twice. The second send changes nothing and
 says so. Only the latest change undoes, a delete waits for `confirmed`,

@@ -1157,11 +1157,39 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
   );
 
   server.registerTool(
+    "woodchuck_screenshot",
+    {
+      title: "See the Woodchuck window",
+      description:
+        "See what the open Woodchuck window shows right now, as the woodworker sees it: the model from their own camera angle, the piece or a joint pulled apart, the parts they've picked, or the 2D plan view they're on. A joint's section drawing, with its sizes, comes as a second picture when it's open. Use it whenever they say look at it, can you see this, or does this look right. It only reads, so calling again is safe. The room photo stays out unless with_photo is true.",
+      inputSchema: {
+        with_photo: z.boolean().optional().describe("true includes the woodworker's room photo when the design is placed in it; it's left out otherwise"),
+      },
+    },
+    async ({ with_photo }) => {
+      warmUp();
+      try {
+        const r = await fetch(`${BASE}/api/screenshot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ with_photo: !!with_photo }) });
+        const j = (await r.json().catch(() => ({}))) as { windows?: number; images?: { media_type: string; data: string }[]; shows?: string; error?: string };
+        if (!r.ok) return text(`Couldn't see the window: ${j.error ?? r.status}.`);
+        if (!j.windows) return text(`No Woodchuck window is open, so there's nothing to see. Open ${BASE} in a browser on this computer, or use woodchuck_picture for a picture of the design.`);
+        const images = j.images ?? [];
+        if (!images.length) return text(`${j.shows ?? ""} The window couldn't make a picture of it just now. Try again in a moment.`.trim());
+        return {
+          content: [{ type: "text" as const, text: j.shows ?? "" }, ...images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.media_type }))],
+        };
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "woodchuck_picture",
     {
       title: "Picture of the Woodchuck design",
       description:
-        "Draw the open design as a picture, in the Finished look with its real timber and finishes by default, and get a link to it. With preview true, it draws the preview Woodchuck's Claude is showing as if applied, without applying it. To show the picture, put the markdown image line it gives you in your reply.",
+        "Draw the open design as a picture, in the Finished look with its real timber and finishes by default, from a fixed camera. The picture comes back for you to look at, with a link to it. With preview true, it draws the preview Woodchuck's Claude is showing as if applied, without applying it. To show the woodworker the picture, put the markdown image line it gives you in your reply. For what their window shows right now, use woodchuck_screenshot.",
       inputSchema: {
         preview: z.boolean().optional().describe("Draw the waiting preview's change instead of the design as it is"),
         look: z.enum(["finished", "plain"]).optional(),

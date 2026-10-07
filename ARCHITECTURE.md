@@ -666,6 +666,12 @@ room sits behind the model at its true size. The optional AI blend may
 relight only the piece and its shadow, through a mask, and the rest of the
 photo stays as taken.
 
+Another chat can also see what the open window shows. The server asks the
+window over its socket, and the window sends its own view back as
+pictures, with a line saying what they show. That covers the camera you
+left it at, the piece pulled apart and a joint's section. The room photo
+goes only when it's asked for.
+
 The pictures Claude looks at are plan views drawn on the server, with no
 browser, so they're quick and need no key to test. They come in the plain
 look or the finished one. The finished look gives each face the average

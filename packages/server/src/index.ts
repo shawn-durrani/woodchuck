@@ -4,7 +4,7 @@
 // pass it requests from your own tailnet, behind the owner lock.
 
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -92,6 +92,13 @@ function webBuild(): string {
   }
 }
 const LIBRARY_DIR = path.resolve(ROOT, process.env.WOODCHUCK_LIBRARY_DIR || "library/parts");
+/** How long a screenshot waits for the window to answer. */
+const SHOT_WAIT_MS = 8_000;
+/** A window's answer to a screenshot: its pictures, and what it shows in words. */
+interface ShotAnswer {
+  images: { media_type: "image/jpeg"; data: string }[];
+  shows: string;
+}
 /**
  * Where missing-tool specs are filed and approved parts are shared. There's
  * no default: with WOODCHUCK_REPO unset, GitHub stays off. Checked each time
@@ -165,6 +172,8 @@ export function createApp(opts: {
   const sockets = new Set<WebSocket>();
   /** The render-only pages Chrome opens for pictures, which aren't anyone's window. */
   const renderSockets = new WeakSet<WebSocket>();
+  /** Screenshot requests waiting on a window's answer, by id. */
+  const shots = new Map<string, (a: ShotAnswer) => void>();
   /** The session a tailnet socket opened with, as its hash. A loopback socket has none. */
   const socketSessions = new WeakMap<WebSocket, string>();
   /** A socket whose session has ended is closed, and the page locks itself. */
@@ -409,6 +418,32 @@ export function createApp(opts: {
           const msg = JSON.stringify({ type: "view", view });
           for (const ws of windows) ws.send(msg);
           return json(200, { ok: true, windows: windows.length, shown: describeView(view) });
+        }
+        // What the open window shows right now, as pictures, for another chat
+        // such as Crossband: the window is asked over its socket, and the
+        // first to answer is sent back. It only reads.
+        case "POST /api/screenshot": {
+          const withPhoto = (await body()).with_photo === true;
+          const windows = [...sockets].filter((ws) => ws.readyState === ws.OPEN && !renderSockets.has(ws));
+          if (!windows.length) return json(200, { ok: true, windows: 0, images: [], shows: "" });
+          const id = randomUUID();
+          const answer = new Promise<ShotAnswer>((resolve) => shots.set(id, resolve));
+          const msg = JSON.stringify({ type: "capture", id, withPhoto });
+          for (const ws of windows) ws.send(msg);
+          const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), SHOT_WAIT_MS));
+          const got = await Promise.race([answer, late]);
+          shots.delete(id);
+          if (!got) return fail(504, "The Woodchuck window didn't answer in time. It may be asleep in a background tab");
+          return json(200, { ok: true, windows: windows.length, images: got.images, shows: got.shows });
+        }
+        case "POST /api/screenshot/answer": {
+          const b = (await body(40_000_000)) as Partial<ShotAnswer> & { id?: string };
+          const done = shots.get(String(b.id ?? ""));
+          // A late answer, or a second window's, has no one waiting.
+          if (!done) return json(200, { ok: true, late: true });
+          const images = (Array.isArray(b.images) ? b.images : []).filter((i) => i && i.media_type === "image/jpeg" && typeof i.data === "string").slice(0, 3);
+          done({ images, shows: String(b.shows ?? "").slice(0, 2000) });
+          return json(200, { ok: true });
         }
         // A picture of the open design, saved with its renders, for places
         // that can't run the 3D view, such as Crossband.

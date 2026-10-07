@@ -152,6 +152,13 @@ export const applyOps = (ops: Op[], label?: string) => post("/api/ops", { ops, l
  */
 export const viewRequests = new EventTarget();
 
+/**
+ * Requests from outside the window to see what it shows, such as a
+ * Crossband chat's screenshot. The app listens for "capture" events, and
+ * answers each one's id with its pictures.
+ */
+export const captureRequests = new EventTarget();
+
 export function useServer(role?: "render"): { state: ServerState | null; connected: boolean } {
   const [state, setState] = useState<ServerState | null>(null);
   const [connected, setConnected] = useState(false);
@@ -180,9 +187,14 @@ export function useServer(role?: "render"): { state: ServerState | null; connect
           | { type: "state"; state: ServerState }
           | { type: "chat"; item: ChatItem }
           | { type: "delta"; id: string; text: string }
-          | { type: "view"; view: ViewCommand };
+          | { type: "view"; view: ViewCommand }
+          | { type: "capture"; id: string; withPhoto?: boolean };
         if (msg.type === "view") {
           viewRequests.dispatchEvent(new CustomEvent("view", { detail: msg.view }));
+          return;
+        }
+        if (msg.type === "capture") {
+          captureRequests.dispatchEvent(new CustomEvent("capture", { detail: { id: msg.id, withPhoto: !!msg.withPhoto } }));
           return;
         }
         setState((prev) => {
