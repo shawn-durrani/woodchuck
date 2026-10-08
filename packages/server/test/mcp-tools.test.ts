@@ -534,7 +534,7 @@ describe("woodchuck_drawings, woodchuck_photo and woodchuck_history", () => {
   it("links to the drawings and the cut list", async () => {
     const name = (await state()).design.name;
     expect((await tool("woodchuck_drawings", { paper: "A3" })).text).toBe(
-      `Workshop drawings for ${name}, on A3: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A3\nCut list, as a spreadsheet file: ${process.env.WOODCHUCK_URL}/api/cutlist.csv`,
+      `Workshop drawings for ${name}, on A3: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A3\nCutting plan alone, to print and take to the saw: ${process.env.WOODCHUCK_URL}/api/cutting-plan.pdf?paper=A3\nCut list, as a spreadsheet file: ${process.env.WOODCHUCK_URL}/api/cutlist.csv`,
     );
     expect((await tool("woodchuck_drawings", {})).text).toContain("on A4: ");
   });
@@ -623,5 +623,46 @@ describe("woodchuck_screenshot", () => {
     await tool("woodchuck_screenshot", { with_photo: true });
     expect(win.asked).toEqual([false, false, true]);
     win.ws.close();
+  });
+});
+
+// Issue #78: another chat reads the cutting plan and tells Woodchuck what
+// wood the woodworker already has. Setting the same stock twice changes
+// nothing the second time.
+describe("woodchuck_stock", () => {
+  type State = { design: { name: string; materials: { id: string; name: string; kind: string; thickness_mm: number }[]; stock?: unknown }; history: unknown[] };
+  const state = () => app("/api/state") as unknown as Promise<State>;
+
+  it("reads the plan, with each board by letter and a link to print it", async () => {
+    const s = await state();
+    const r = await tool("woodchuck_stock");
+    expect(r.text.startsWith(`The cutting plan for ${s.design.name}:\nSaw kerf 3 mm, sheet trim 10 mm.`)).toBe(true);
+    expect(r.text).toMatch(/\nA: to buy, /);
+    expect(r.text).toContain(`\nTo print: ${process.env.WOODCHUCK_URL}/api/cutting-plan.pdf?paper=A4`);
+  });
+
+  it("sets the stock they own as one undo step, and a repeat changes nothing", async () => {
+    const solid = (await state()).design.materials.find((m) => m.kind === "solid")!;
+    const owned = [{ length_mm: 2400, width_mm: 600, qty: 1 }];
+    const before = (await state()).history.length;
+    const r = await tool("woodchuck_stock", { material: solid.id, owned });
+    expect(r.text).toMatch(new RegExp(`^Done: Set your own stock of ${solid.id} to 1 piece\\. It's one change the woodworker can undo\\.`));
+    expect(r.text).toMatch(/: yours, /);
+    expect(r.text).not.toContain(`length of 520 × ${solid.thickness_mm}`);
+    expect((await state()).history.length).toBe(before + 1);
+    const again = await tool("woodchuck_stock", { material: solid.id, owned });
+    expect(again.text.startsWith("That's already set, so nothing changed.")).toBe(true);
+    expect((await state()).history.length).toBe(before + 1);
+    // Cleared, and cleared again.
+    expect((await tool("woodchuck_stock", { material: solid.id, owned: [] })).text).toMatch(new RegExp(`^Done: Cleared your own stock of ${solid.id}\\.`));
+    expect((await tool("woodchuck_stock", { material: solid.id, owned: null })).text.startsWith("That's already set")).toBe(true);
+    expect((await state()).design.stock).toBeUndefined();
+  });
+
+  it("refuses stock it can't use, and changes nothing", async () => {
+    const sheet = (await state()).design.materials.find((m) => m.kind === "sheet")!;
+    expect((await tool("woodchuck_stock", { owned: [{ length_mm: 2400, width_mm: 90, qty: 1 }] })).text).toBe("Nothing changed. Say which material the stock is for, with material");
+    expect((await tool("woodchuck_stock", { material: sheet.id, widths_mm: [90] })).text).toMatch(/^Nothing changed\. .+ is sheet goods/);
+    expect((await state()).design.stock).toBeUndefined();
   });
 });

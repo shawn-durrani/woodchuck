@@ -21,6 +21,7 @@ import { AXIS_INDEX, type Box, type DeriveResult, type DerivedJoint, type Derive
 import { JOINT_LIBRARY } from "./joints.js";
 import { cutList, machiningText, machiningWith, roundCut, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
+import { cutLayout, ripped, rowBoards, type CutLayout, type StockPiece } from "./layout.js";
 import { cutOutline } from "./profile.js";
 import { signedArea, sliceIntervals, type Loop, type Pt } from "./shape.js";
 import { AXES, FACE_AXIS, FACE_IS_MAX, type Axis, type Design, type Face } from "./types.js";
@@ -73,7 +74,7 @@ export interface SheetDim {
 }
 
 export interface Sheet {
-  kind: "arrangement" | "part" | "cut list" | "drilling" | "hardware";
+  kind: "arrangement" | "part" | "cut list" | "cutting plan" | "drilling" | "hardware";
   title: string;
   paper: Paper;
   width_mm: number;
@@ -1170,7 +1171,7 @@ function tableSheets(kind: Sheet["kind"], title: string, intro: string[], cols: 
   return sheets;
 }
 
-function cutListSheets(list: CutList, d: DeriveResult, paper: Paper, sheetOf: Map<number, number>): Sheet[] {
+function cutListSheets(list: CutList, d: DeriveResult, paper: Paper, sheetOf: Map<number, number>, layout: CutLayout): Sheet[] {
   // The kinds of machining, counted. The row's own sheet has the detail.
   const summary = (r: CutRow) => {
     const counts = new Map<string, number>();
@@ -1198,7 +1199,8 @@ function cutListSheets(list: CutList, d: DeriveResult, paper: Paper, sheetOf: Ma
       { head: "Thick", weight: 8, align: "end" },
       { head: "Material", weight: 32 },
       { head: "Grain", weight: 9 },
-      { head: "Machining", weight: 34 },
+      { head: "Machining", weight: 28 },
+      { head: "Board", weight: 9 },
       { head: "Sheet", weight: 7, align: "end" },
     ],
     list.rows.map((r) => [
@@ -1211,6 +1213,7 @@ function cutListSheets(list: CutList, d: DeriveResult, paper: Paper, sheetOf: Ma
       r.material_name,
       r.grain ? "along L" : "",
       summary(r),
+      rowBoards(layout, r.row).join("; "),
       String(sheetOf.get(r.row) ?? ""),
     ]),
     paper,
@@ -1391,9 +1394,162 @@ function longDate(d: Date): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+
+// ---------------------------------------------------------------------------
+// The cutting plan
+// ---------------------------------------------------------------------------
+
+/** Room on the left of each board for its letter and size. */
+const PLAN_KEY = 30;
+/**
+ * How deep boards and sheets are drawn, from roomiest to tightest: a board
+ * at least so deep that its labels can be read, and a sheet at most so
+ * deep. The roomiest that fits one page is used.
+ */
+const PLAN_DEPTHS: { board: [number, number]; sheet: number }[] = [
+  { board: [9, 16], sheet: 46 },
+  { board: [9, 12], sheet: 34 },
+  { board: [8, 10], sheet: 26 },
+  { board: [7, 8], sheet: 20 },
+  { board: [6, 6], sheet: 15 },
+];
+
+/**
+ * A placed part's label, the longest of these that fits inside it, and
+ * whether it says everything: the row, the length, and a sheet part's
+ * width or a board part's rip.
+ */
+function partLabel(piece: StockPiece, p: StockPiece["parts"][number], kind: "sheet" | "solid", room_mm: number, depth_mm: number): { text: string; whole: boolean } {
+  const glued = p.board ? ` · board ${p.board[0]} of ${p.board[1]}` : "";
+  const rip = kind === "sheet" ? ` × ${num(p.width_mm)}` : ripped(piece, p, kind) ? ` · rip ${num(p.width_mm)}` : "";
+  const whole = [`#${p.row} · ${num(p.length_mm)}${rip}${glued}`, `#${p.row} · ${num(p.length_mm)}${rip}`];
+  const text = depth_mm < 2.6 ? "" : ([...whole, `#${p.row} · ${num(p.length_mm)}`, `#${p.row}`].find((t) => textWidth_mm(t, 2.2) <= room_mm) ?? "");
+  return { text, whole: whole.includes(text) };
+}
+
+/** A part in words, for the line under its board when its label doesn't say it all. */
+const partWords = (piece: StockPiece, p: StockPiece["parts"][number], kind: "sheet" | "solid") =>
+  `#${p.row} ${p.name} ${num(p.length_mm)}${kind === "sheet" ? ` × ${num(p.width_mm)}` : ripped(piece, p, kind) ? `, rip to ${num(p.width_mm)}` : ""}`;
+
+/**
+ * One page, when it fits, of every board and sheet to cut: yours first,
+ * then what's bought, each drawn with its parts in the order they come
+ * off it. Lengths share one scale across the page, and a narrow board is
+ * drawn deeper than true so its labels can be read.
+ */
+function cuttingPlanSheets(layout: CutLayout, paper: Paper): Sheet[] {
+  let sheets: Sheet[] = [];
+  for (const depth of PLAN_DEPTHS) {
+    sheets = drawCuttingPlan(layout, paper, depth);
+    if (sheets.length === 1) break;
+  }
+  return sheets;
+}
+
+function drawCuttingPlan(layout: CutLayout, paper: Paper, depth: (typeof PLAN_DEPTHS)[number]): Sheet[] {
+  const area = drawingArea(paper);
+  const pieces = layout.materials.flatMap((m) => m.stock);
+  const longest = Math.max(1, ...pieces.map((s) => s.length_mm));
+  const barW = area.w - PLAN_KEY;
+  const sx = barW / longest;
+  const sheets: Sheet[] = [];
+  let pen = new Pen();
+  let y = 0;
+  const bottom = area.y + area.h;
+  const start = () => {
+    const sheet = blankSheet("cutting plan", sheets.length ? "Cutting plan (continued)" : "Cutting plan", paper, null);
+    sheets.push(sheet);
+    pen = new Pen();
+    sheet.marks = pen.marks;
+    y = area.y + 5;
+    pen.text(area.x, y, sheet.title, { size_mm: 5, bold: true });
+    y += 6;
+  };
+  const say = (text: string, o: { bold?: boolean; size?: number } = {}) => {
+    const size = o.size ?? 3;
+    for (const line of wrap(text, area.w, size, o.bold)) {
+      if (y + size * 1.5 > bottom) start();
+      pen.text(area.x, y, line, { size_mm: size, ...(o.bold ? { bold: true } : {}) });
+      y += size * 1.5;
+    }
+  };
+  start();
+  say(
+    `Each part is marked with its cut-list row and length. Cut each board from the left, crosscutting to length, then rip to width. Grey is waste, and a dashed outline is an offcut worth keeping. Saw kerf ${num(layout.kerf_mm)} mm. Sheets lose ${num(layout.trim_mm)} mm trim at every edge, and your own pieces lose none.`,
+  );
+  if (layout.from_stock.length) say(`From your stock: ${layout.from_stock.map((b) => b.text).join(", ")}.`);
+  say(layout.buy.length ? `To buy: ${layout.buy.map((b) => b.text).join(", ")}.` : "Nothing to buy.");
+  for (const m of layout.materials) for (const n of m.notes) say(`${n}.`);
+  if (!pieces.length) say("Nothing to cut yet.");
+  for (const m of layout.materials) {
+    if (!m.stock.length && !m.unplaced.length) continue;
+    const drawn = m.stock.map((piece) => {
+      const h = m.kind === "sheet" ? Math.min(depth.sheet, piece.width_mm * sx) : Math.max(depth.board[0], Math.min(depth.board[1], piece.width_mm * sx));
+      const sy = h / piece.width_mm;
+      const labels = piece.parts.map((p) => partLabel(piece, p, m.kind, (p.rotated ? p.width_mm : p.length_mm) * sx - 1, (p.rotated ? p.length_mm : p.width_mm) * sy));
+      const offcuts = piece.offcuts.map((o) => {
+        const text = `offcut ${num(o.length_mm)} × ${num(o.width_mm)}`;
+        return o.width_mm * sy >= 2.6 && textWidth_mm(text, 2.2) <= o.length_mm * sx - 1 ? text : "";
+      });
+      // Anything the drawing can't say in full is said in a line under it.
+      const said = [
+        ...piece.parts.flatMap((p, i) => (labels[i]!.whole ? [] : [partWords(piece, p, m.kind)])),
+        ...piece.offcuts.flatMap((o, i) => (offcuts[i] ? [] : [`offcut ${num(o.length_mm)} × ${num(o.width_mm)}`])),
+      ];
+      const words = said.length ? wrap(said.join("; "), barW, 2.2) : [];
+      return { piece, h, sy, labels, offcuts, words, need: Math.max(h, 7) + words.length * 3 + 4.5 };
+    });
+    // The material's name stays with its first board.
+    if (y + 1.5 + 4.5 + (drawn[0]?.need ?? 0) > bottom) start();
+    y += 1.5;
+    say(m.name, { bold: true });
+    for (const { piece, h, sy, labels, offcuts, words, need } of drawn) {
+      if (y + need > bottom) {
+        start();
+        say(`${m.name}, continued`, { bold: true });
+      }
+      const x0 = area.x + PLAN_KEY;
+      pen.text(area.x, y + 4.5, piece.label, { size_mm: 5, bold: true });
+      pen.text(area.x + 9, y + 2.6, `${num(piece.length_mm)} × ${num(piece.width_mm)}`, { size_mm: 2.2 });
+      pen.text(area.x + 9, y + 5.6, piece.owned ? "yours" : "to buy", { size_mm: 2.2, bold: !!piece.owned });
+      pen.rect(x0, y, piece.length_mm * sx, h, { stroke_mm: OUTLINE, fill: CUT_AWAY });
+      piece.offcuts.forEach((o, i) => {
+        const [ox, oy, ow, oh] = [x0 + o.x_mm * sx, y + o.y_mm * sy, o.length_mm * sx, o.width_mm * sy];
+        pen.rect(ox, oy, ow, oh, { stroke_mm: FINE, fill: "#ffffff", dashed: true });
+        if (offcuts[i]) pen.text(ox + ow / 2, oy + oh / 2 + 0.8, offcuts[i]!, { size_mm: 2.2, anchor: "middle", colour: GREY });
+      });
+      piece.parts.forEach((p, i) => {
+        const w = (p.rotated ? p.width_mm : p.length_mm) * sx;
+        const ph = (p.rotated ? p.length_mm : p.width_mm) * sy;
+        const px = x0 + p.x_mm * sx;
+        const py = y + p.y_mm * sy;
+        pen.rect(px, py, w, ph, { stroke_mm: THIN, fill: "#ffffff" });
+        if (labels[i]!.text) pen.text(px + w / 2, py + ph / 2 + 0.8, labels[i]!.text, { size_mm: 2.2, anchor: "middle" });
+      });
+      y += Math.max(h, 7) + 1.5;
+      for (const line of words) {
+        y += 3;
+        pen.text(x0, y, line, { size_mm: 2.2, colour: GREY });
+      }
+      y += 3;
+    }
+    if (m.unplaced.length) say(`Not on any board: ${m.unplaced.map((u) => `#${u.row} ${u.name}, ${u.reason}`).join("; ")}.`);
+  }
+  return sheets;
+}
+
+/** The cutting plan alone, framed, to print and take to the saw. */
+export function cuttingPlan(design: Design, d: DeriveResult, opts: DrawingOptions = {}): Sheet[] {
+  const sheets = cuttingPlanSheets(cutLayout(design, cutList(design, d)), opts.paper ?? "A4");
+  const date = opts.date ?? longDate(new Date());
+  sheets.forEach((s, i) => frame(s, design.name, date, i + 1, sheets.length));
+  return sheets;
+}
+
 /**
  * The workshop drawings for a design: the general arrangement, a sheet for
- * each cut-list row, then the cut list, drilling list and hardware list.
+ * each cut-list row, then the cut list, the cutting plan, the drilling list
+ * and the hardware list.
  * Every sheet is on the same paper, so the set prints in one go, and each
  * drawing takes the largest standard scale that fits it.
  */
@@ -1404,7 +1560,8 @@ export function workshopDrawings(design: Design, d: DeriveResult, opts: DrawingO
   const ga = arrangement(design, d, paper);
   const parts = list.rows.map((row) => partSheet(row, d, paper));
   const sheetOf = new Map(list.rows.map((r, i) => [r.row, i + 2]));
-  const tables = [...cutListSheets(list, d, paper, sheetOf), ...drillingSheets(drillingList(design, d, list), paper, sheetOf), ...hardwareSheets(list, paper)];
+  const layout = cutLayout(design, list);
+  const tables = [...cutListSheets(list, d, paper, sheetOf, layout), ...(layout.materials.length ? cuttingPlanSheets(layout, paper) : []), ...drillingSheets(drillingList(design, d, list), paper, sheetOf), ...hardwareSheets(list, paper)];
   const sheets = [ga, ...parts, ...tables];
   sheets.forEach((s, i) => frame(s, design.name, date, i + 1, sheets.length));
   return sheets;

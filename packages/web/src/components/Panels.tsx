@@ -2,8 +2,8 @@
 // requests Claude has made, the workshop drawings' download and the 2D
 // view. The tabs that hold them are in SidePanel.tsx.
 
-import { useEffect, useRef, useState } from "react";
-import { fmt, literalValue, paperParams, paramLabel, type Param } from "@woodchuck/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cutLayout, fmt, literalValue, paperParams, paramLabel, rowBoards, type Param } from "@woodchuck/core";
 import { applyOps, post, type ServerState } from "../api";
 import { usePaper } from "../theme";
 import { MissingTool } from "./MissingTool";
@@ -127,6 +127,10 @@ export function ParamsPanel({ state }: { state: ServerState }) {
 
 export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect: (ids: string[]) => void }) {
   const { rows, hardware, excluded, notes } = state.cutlist;
+  // The board each row comes from, by the cut layout's letters, laid out
+  // again only when the parts or the stock change.
+  const key = JSON.stringify([rows, state.design.materials, state.design.stock ?? null]);
+  const layout = useMemo(() => cutLayout(state.design, state.cutlist), [key]);
   if (!rows.length) return <div className="empty">Nothing to cut yet.</div>;
   return (
     <div className="panel-body">
@@ -144,6 +148,7 @@ export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect
             <th>W</th>
             <th>T</th>
             <th>Material</th>
+            <th title="The board or sheet in the cut layout each part comes from, and the width it's ripped to">Board</th>
           </tr>
         </thead>
         <tbody>
@@ -164,6 +169,7 @@ export function CutListPanel({ state, onSelect }: { state: ServerState; onSelect
               <td>{r.width_mm}</td>
               <td>{r.thickness_mm}</td>
               <td className="small">{r.material_name}</td>
+              <td className="small">{rowBoards(layout, r.row).join("; ")}</td>
             </tr>
           ))}
         </tbody>

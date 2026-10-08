@@ -330,12 +330,28 @@ export interface Plan {
   assumptions: string[];
 }
 
+/** Boards or sheets of one size that you already have. */
+export interface OwnedStock {
+  /** Along the grain. */
+  length_mm: number;
+  width_mm: number;
+  qty: number;
+}
+
 /** What one material is bought as, for the cutting layouts. */
 export interface MaterialStock {
   /** A sheet as [length along the grain, width]. */
   sheet_mm?: [number, number];
   /** The lengths a solid timber comes in, shortest first. */
   lengths_mm?: number[];
+  /**
+   * The widths a solid timber comes in, narrowest first. A narrower part is
+   * ripped from the narrowest that holds it. Left out, each part's own
+   * width is bought.
+   */
+  widths_mm?: number[];
+  /** What you already have, cut from before anything is bought. */
+  owned?: OwnedStock[];
 }
 
 /**

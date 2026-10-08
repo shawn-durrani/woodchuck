@@ -43,6 +43,7 @@ export const PLACES: Record<string, Where> = {
   set_param: "sizes",
   delete_param: "sizes",
   define_material: "layout",
+  set_stock: "layout",
   set_finish: "finish",
   delete_material: "layout",
   clear_design: "part",
@@ -284,6 +285,12 @@ export function describe(place: Place, look: Lookup): Described {
     case "delete_material":
       verb = "removed";
       thing = material();
+      break;
+    case "set_stock":
+      // A material's stock lights its section of the cut layout. Kerf and trim name no material.
+      verb = "set";
+      thing = id ? `the stock for ${material()}` : "the stock";
+      if (id) marks = [`layout:${id}`];
       break;
     case "set_finish": {
       const seen = place.finish;

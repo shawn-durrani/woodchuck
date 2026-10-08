@@ -363,6 +363,28 @@ Under 5 mm of wood behind a mortise, beside it or between two is a warning,
 and so is a depth the machine has no stop for. A Domino more than half the
 stock's thickness is a warning as well, since about a third is usual.
 
+## Your own wood is cut first
+
+A design can list the boards and sheets the woodworker already has, by
+material, with each size's length, width and count. The cutting layout
+places parts on those first and buys only the rest, so the buy list is
+the shortfall. A piece of your own is used as it is, with no trim, since
+you cut its edges yourself.
+
+A part narrower than a board is ripped from it. Your own boards, and solid
+timber bought at the widths a material says the yard sells, pack the way
+a sheet does: crosscut to length, then ripped, so two narrow parts can
+share one board. A material that names no widths buys each part at its
+own width, as before.
+
+Every board and sheet gets a letter, your own first. The cut list names
+each row's boards by letter, and the cutting plan draws them on one page
+when they fit. It shrinks the drawings until they do, and only a big
+piece goes on to a second page. Claude, the window and another chat over
+MCP all set the stock through one operation, `set_stock`, which replaces
+the whole list for a material, so the same list sent twice changes
+nothing.
+
 ## Checks run after every change
 
 Overlaps, parts nothing holds up, joints out of proportion, parts too big

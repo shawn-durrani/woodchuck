@@ -1310,6 +1310,31 @@ li.version {
   flex: 1;
   min-width: 0;
 }
+.layout-print {
+  margin: 4px 0 8px;
+}
+/* Your own boards and sheets: a list of sizes, each with Remove, then a row to add more. */
+.owned-stock {
+  margin: 8px 0;
+}
+.owned-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.owned-list {
+  margin: 2px 0;
+}
+.owned-add {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.badge.yours {
+  color: var(--ok);
+  border-color: var(--ok);
+}
 .layout-material {
   margin: 14px 0 8px;
   padding-top: 4px;

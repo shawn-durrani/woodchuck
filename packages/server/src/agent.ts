@@ -625,6 +625,8 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
       return "ask you";
     case "submit_plan":
       return "submit a plan";
+    case "set_stock":
+      return `set stock${input.material ? ` ${String(input.material)}` : ""}`;
     case "apply_edits": {
       const n = Array.isArray(input.edits) ? input.edits.length : 0;
       return n ? `apply ${n} edit${n === 1 ? "" : "s"}` : "apply edits";

@@ -120,9 +120,16 @@ function finishesAndStock(out: string[], before: Design, after: Design, target: 
     const a = sa.materials?.[id];
     const b = sb.materials?.[id];
     if (!kept.has(id) || JSON.stringify(a) === JSON.stringify(b)) continue;
-    if (b?.sheet_mm) out.push(`Changed stock for ${material(id)} to ${fmt(b.sheet_mm[0])} × ${fmt(b.sheet_mm[1])} mm sheets`);
-    else if (b?.lengths_mm) out.push(`Changed stock for ${material(id)} to ${andList(b.lengths_mm.map(fmt))} mm lengths`);
-    else out.push(`Changed stock for ${material(id)} back to the default`);
+    const same = (k: "sheet_mm" | "lengths_mm" | "widths_mm" | "owned") => JSON.stringify(a?.[k]) === JSON.stringify(b?.[k]);
+    const sizes = !same("sheet_mm") || !same("lengths_mm");
+    if (sizes && b?.sheet_mm) out.push(`Changed stock for ${material(id)} to ${fmt(b.sheet_mm[0])} × ${fmt(b.sheet_mm[1])} mm sheets`);
+    else if (sizes && b?.lengths_mm) out.push(`Changed stock for ${material(id)} to ${andList(b.lengths_mm.map(fmt))} mm lengths`);
+    else if (sizes) out.push(`Changed stock for ${material(id)} back to the default`);
+    if (!same("widths_mm")) out.push(b?.widths_mm ? `Changed the board widths for ${material(id)} to ${andList(b.widths_mm.map(fmt))} mm` : `Took the board widths off ${material(id)}`);
+    if (!same("owned")) {
+      const n = (b?.owned ?? []).reduce((t, o) => t + o.qty, 0);
+      out.push(n ? `Set your own stock of ${material(id)} to ${n} ${n === 1 ? "piece" : "pieces"}` : `Cleared your own stock of ${material(id)}`);
+    }
   }
   if (JSON.stringify(before.plan) !== JSON.stringify(after.plan)) {
     if (!before.plan && after.plan) out.push("Pinned a plan");

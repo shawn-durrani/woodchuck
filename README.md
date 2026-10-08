@@ -120,11 +120,15 @@ would be lost.
   Each says when it suits, which tools cut it and its usual proportions,
   and a worked example on two sample boards shows how it goes together.
 - **Workshop drawings print at true scale.** They come as a PDF on A4 or
-  A3, with the main views, a drawing of each part and the cut, drilling and
-  hardware lists. Every size on them matches the cut list to 0.1 mm.
-- **Cut layout buys the least timber.** It places every part on the sheets
-  and lengths you buy, a saw kerf apart, and lists the offcuts worth
-  keeping.
+  A3, with the main views, a drawing of each part, the cut list, the
+  cutting plan and the drilling and hardware lists. Every size on them
+  matches the cut list to 0.1 mm.
+- **Cut layout buys the least timber.** Tell it the boards and sheets you
+  already have, and it cuts from those first, ripping narrower parts from
+  wider boards, and buys only the rest. It places every part a saw kerf
+  apart and lists the offcuts worth keeping. The cutting plan prints it on
+  one page to take to the saw, each board by letter with its parts in
+  cutting order and its rips.
 - **Finishes look like timber.** Pick a species and a Linolie Satin Wood
   Oil or Osmo Polyx-Oil colour for a material, a part or a single face, and
   the Finished look draws its grain under daylight, evening or workshop
