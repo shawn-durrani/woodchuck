@@ -233,7 +233,11 @@ describe("the set_stock operation", () => {
     bad({ kerf_mm: "3" as unknown as number }, /kerf_mm must be a number/);
     bad({ sheet_mm: [2400, 1200] }, /Say which material/);
     bad({ material: "walnut", sheet_mm: [2400, 1200] }, /no material "walnut"/);
-    bad({ material: "ply18" }, /Give sheet_mm or lengths_mm for ply18/);
+    bad({ material: "ply18" }, /Give sheet_mm, lengths_mm, widths_mm or owned for ply18/);
+    bad({ material: "ply18", widths_mm: [90] }, /ply18 is sheet goods/);
+    bad({ material: "fir", widths_mm: [0] }, /Each width must be above 0/);
+    bad({ material: "fir", owned: [{ length_mm: 2400, width_mm: 90, qty: 0 }] }, /qty must be a whole number from 1 to 200/);
+    bad({ material: "fir", owned: [{ length_mm: 2400, width_mm: 2000, qty: 1 }] }, /up to 1000 mm/);
     bad({ material: "ply18", lengths_mm: [2400] }, /ply18 is sheet goods/);
     bad({ material: "fir", sheet_mm: [2400, 1200] }, /fir is solid timber/);
     bad({ material: "ply18", sheet_mm: [2400] as unknown as [number, number] }, /sheet_mm must be \[length along the grain, width\]/);

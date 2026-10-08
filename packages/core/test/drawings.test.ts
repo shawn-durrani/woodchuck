@@ -61,8 +61,8 @@ describe("workshop drawings", () => {
     expect(dim(ga, "front", "x", "chain")!.openings_mm).toEqual([384, 384, 384, 384, 384]);
   });
 
-  it("makes a sheet for each cut-list row, then the cut list, drilling and hardware lists", () => {
-    expect(sheets.map((s) => s.kind)).toEqual(["arrangement", ...Array(12).fill("part"), "cut list", "drilling", "hardware"]);
+  it("makes a sheet for each cut-list row, then the cut list, the cutting plan, and the drilling and hardware lists", () => {
+    expect(sheets.map((s) => s.kind)).toEqual(["arrangement", ...Array(12).fill("part"), "cut list", "cutting plan", "cutting plan", "drilling", "hardware"]);
     expect(sheets.every((s) => s.paper === "A4")).toBe(true);
   });
 
@@ -71,7 +71,7 @@ describe("workshop drawings", () => {
       const written = texts(s);
       expect(written).toContain("Record console");
       expect(written).toContain("3 October 2026");
-      expect(written).toContain(`Sheet ${i + 1} of 16`);
+      expect(written).toContain(`Sheet ${i + 1} of 18`);
       expect(written).toContain(s.scale ? `Scale 1:${s.scale}` : "Not to scale");
       expect(written).toContain("Print at 100%, actual size, not fit to page.");
       expect(written.some((t) => / mm$/.test(t))).toBe(true);

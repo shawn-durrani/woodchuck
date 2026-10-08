@@ -185,6 +185,8 @@ describe("a field of the wrong shape", () => {
     sheet_sizes_mm: { ...ply, sheet_sizes_mm: [2440, 1220] },
     sheet_mm: { op: "set_stock", material: "ply12", sheet_mm: ["2440", "1220"] },
     lengths_mm: { op: "set_stock", material: "ash45", lengths_mm: [] },
+    widths_mm: { op: "set_stock", material: "ash45", widths_mm: [] },
+    owned: { op: "set_stock", material: "ash45", owned: [{ length_mm: "2400", width_mm: 90 }] },
     tags: { ...leg, id: "leg_b", tags: "legs" },
     parts: { op: "set_array", id: "legs", parts: "leg", axis: "x", count: "2", pitch: "355" },
     connects: hardware({ connects: "leg" }),

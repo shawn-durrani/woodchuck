@@ -63,9 +63,9 @@ describe("the local server", () => {
     expect(r.headers.get("content-disposition")).toMatch(/^attachment; filename=".+-drawings\.pdf"$/);
     const pdf = Buffer.from(await r.arrayBuffer()).toString("latin1");
     expect(pdf.startsWith("%PDF-1.4")).toBe(true);
-    // The arrangement, 12 parts, then the cut list, drilling and hardware lists.
-    expect(pdf.match(/\/Type \/Page\b/g)).toHaveLength(16);
-    expect(pdf).toContain("/Count 16");
+    // The arrangement, 12 parts, then the cut list, two pages of cutting plan, and the drilling and hardware lists.
+    expect(pdf.match(/\/Type \/Page\b/g)).toHaveLength(18);
+    expect(pdf).toContain("/Count 18");
     expect(pdf).toContain("/MediaBox [0 0 841.89 595.276]");
     const a3 = Buffer.from(await (await fetch(`${base}/api/drawings.pdf?paper=A3`)).arrayBuffer()).toString("latin1");
     expect(a3).toContain("/MediaBox [0 0 1190.551 841.89]");
@@ -73,7 +73,16 @@ describe("the local server", () => {
     const sheet = await fetch(`${base}/api/drawings/1.svg`);
     expect(sheet.headers.get("content-type")).toBe("image/svg+xml");
     expect(await sheet.text()).toContain(">2040</text>");
-    expect((await fetch(`${base}/api/drawings/17.svg`)).status).toBe(404);
+    expect((await fetch(`${base}/api/drawings/19.svg`)).status).toBe(404);
+  });
+
+  it("serves the cutting plan alone, to open and print", async () => {
+    const r = await fetch(`${base}/api/cutting-plan.pdf`);
+    expect(r.headers.get("content-type")).toBe("application/pdf");
+    expect(r.headers.get("content-disposition")).toMatch(/^inline; filename=".+-cutting-plan\.pdf"$/);
+    const pdf = Buffer.from(await r.arrayBuffer()).toString("latin1");
+    expect(pdf.match(/\/Type \/Page\b/g)).toHaveLength(2);
+    expect(pdf).toContain(": cutting plan)");
   });
 
   it("applies your edits as one undoable change and refuses bad ones", async () => {

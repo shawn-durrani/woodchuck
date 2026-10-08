@@ -22,7 +22,11 @@ import { z } from "zod";
 import {
   applyOp,
   AXIS_FACES,
+  cutLayout,
+  cutList,
+  cuttingPlanText,
   derive,
+  diffDesigns,
   FACE_AXIS,
   finishLabel,
   fmt,
@@ -964,6 +968,61 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
   );
 
   server.registerTool(
+    "woodchuck_stock",
+    {
+      title: "Woodchuck's cutting plan and the wood you have",
+      description:
+        "Read the open design's cutting plan: each board and sheet by letter, the woodworker's own first, with its parts in cutting order, the rips, offcuts, and what's left to buy. Or set what a material is cut from, then read the new plan. owned replaces the list of boards or sheets they already have, which are cut first, narrower parts ripped from wider boards. widths_mm are the widths the yard sells solid timber in, lengths_mm its lengths, and kerf_mm the saw's cut. Give only what changes; null or [] clears it. Material ids come from woodchuck_design. A setting already in place changes nothing, so sending a call twice is safe. Each change is one undo step.",
+      inputSchema: {
+        material: z.string().min(1).optional().describe("The material id, for owned, widths_mm and lengths_mm"),
+        owned: z
+          .array(z.object({ length_mm: z.number().positive(), width_mm: z.number().positive(), qty: z.number().int().min(1).max(200) }))
+          .max(50)
+          .nullable()
+          .optional()
+          .describe("Every size of board or sheet they have of this material. Length runs along the grain"),
+        widths_mm: z.array(z.number().positive()).max(20).nullable().optional().describe("Solid timber only, such as [42, 66, 90]"),
+        lengths_mm: z.array(z.number().positive()).max(20).nullable().optional().describe("Solid timber only, such as [2400, 3000, 3600]"),
+        kerf_mm: z.number().min(0).max(20).nullable().optional().describe("The saw's cut, 3 mm by default"),
+      },
+    },
+    async ({ material, owned, widths_mm, lengths_mm, kerf_mm }) => {
+      warmUp();
+      try {
+        const plan = (design: Design) => {
+          const lines = cuttingPlanText(cutLayout(design, cutList(design, derive(design))));
+          return `${lines.join("\n")}\nTo print: ${BASE}/api/cutting-plan.pdf?paper=A4`;
+        };
+        const design = (await getState()).design;
+        const clear = <T,>(v: T[] | null | undefined) => (v === undefined ? undefined : v === null || v.length === 0 ? null : v);
+        const fields = { owned: clear(owned), widths_mm: clear(widths_mm), lengths_mm: clear(lengths_mm), kerf_mm };
+        const given = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+        if (!Object.keys(given).length) return text(`The cutting plan for ${design.name}:\n${plan(design)}`);
+        const op = { op: "set_stock", ...(material === undefined ? {} : { material }), ...given } as Op;
+        let next: Design;
+        try {
+          next = applyOp(design, op);
+        } catch (e) {
+          if (e instanceof OpError) return text(`Nothing changed. ${e.message}`);
+          throw e;
+        }
+        const changes = diffDesigns(design, next);
+        if (!changes.length) return text(`That's already set, so nothing changed. The cutting plan for ${design.name}:\n${plan(design)}`);
+        const what = changes.join("; ");
+        const r = await postJson("/api/ops", { ops: [op], label: `${CALLER_AT_START}: ${what.charAt(0).toLowerCase()}${what.slice(1)}` });
+        if (r.status >= 300) return text(`Woodchuck refused that, so nothing changed: ${r.error ?? r.status}`);
+        const windows = await showView({ tab: "make", note: `${what}.` });
+        const after = (await getState()).design;
+        return text(
+          `Done: ${what}. It's one change the woodworker can undo.${windows ? " The Woodchuck window shows the Make tab." : ""} The cutting plan now:\n${plan(after)}`,
+        );
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "woodchuck_design",
     {
       title: "Read the Woodchuck design",
@@ -1078,7 +1137,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Woodchuck's workshop drawings",
       description:
-        "Get links to the open design's workshop drawings as a PDF to print at 100%, with a drawing of each part and the cut, drilling and hardware lists, and to its cut list as a spreadsheet file. It only reads, so calling again is safe.",
+        "Get links to the open design's workshop drawings as a PDF to print at 100%, with a drawing of each part and the cut list, cutting plan, drilling and hardware lists, to the cutting plan alone, and to its cut list as a spreadsheet file. It only reads, so calling again is safe.",
       inputSchema: { paper: z.enum(["A4", "A3"]).optional().describe("The paper the drawings are laid out on. A4 when left out") },
     },
     async ({ paper }) => {
@@ -1088,6 +1147,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
         return text(
           [
             `Workshop drawings for ${s.design.name}, on ${paper ?? "A4"}: ${BASE}/api/drawings.pdf?paper=${paper ?? "A4"}`,
+            `Cutting plan alone, to print and take to the saw: ${BASE}/api/cutting-plan.pdf?paper=${paper ?? "A4"}`,
             `Cut list, as a spreadsheet file: ${BASE}/api/cutlist.csv`,
           ].join("\n"),
         );

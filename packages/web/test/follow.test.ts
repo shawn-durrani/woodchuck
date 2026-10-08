@@ -121,6 +121,12 @@ describe("where each tool shows", () => {
       caption: "Claude set up Spotted gum 18 mm in Cut layout",
       marks: ["tab:make", "layout:gum18"],
     });
+    // Issue #78: the stock you own and the widths sold open the cut layout, on the material when the line names it.
+    expect(describePlace(place("set_stock", "set stock gum18"), look)).toMatchObject({
+      caption: "Claude set the stock for Spotted gum 18 mm in Cut layout",
+      marks: ["tab:make", "layout:gum18"],
+    });
+    expect(describePlace(place("set_stock", "set stock"), look)).toMatchObject({ caption: "Claude set the stock in Cut layout", marks: ["tab:make"] });
     const joined = describePlace(place("set_array", "set array shelf_slats"), look);
     expect(joined.caption).toBe("Claude repeated Shelf slat in Edit");
     expect(joined.frame.length).toBe(4);

@@ -31,6 +31,7 @@ import {
   type JointType,
   type Material,
   type MaterialStock,
+  type OwnedStock,
   type Panel,
   type PanelCut,
   type Param,
@@ -87,6 +88,10 @@ export type Op =
       material?: string;
       sheet_mm?: [number, number] | null;
       lengths_mm?: number[] | null;
+      /** The widths solid timber comes in, to rip narrower parts from. */
+      widths_mm?: number[] | null;
+      /** Every board or sheet of this material you already have, replacing the list. */
+      owned?: OwnedStock[] | null;
     }
   | { op: "rename_design"; name: string }
   | { op: "clear_design" };
@@ -169,6 +174,8 @@ export const SHAPES = {
   sheet_sizes_mm: { rule: "must be a list of [length along the grain, width] pairs in mm", example: "[[2440, 1220]]" },
   sheet_mm: { rule: "must be [length along the grain, width] in mm", example: "[2440, 1220]" },
   lengths_mm: { rule: "must list 1 to 20 lengths in mm", example: "[2400, 3000, 3600]" },
+  widths_mm: { rule: "must list 1 to 20 widths in mm", example: "[42, 66, 90]" },
+  owned: { rule: "must list up to 50 sizes, each {length_mm, width_mm, qty}", example: '[{"length_mm": 2400, "width_mm": 90, "qty": 3}]' },
   tags: { rule: "must be a list of words", example: '["carcass", "drawer"]' },
   parts: { rule: "must list at least one part", example: '["shelf"]' },
   connects: { rule: "must list the parts it joins", example: '["side_l", "drawer_side_l"]' },
@@ -603,7 +610,7 @@ function withStock(d: Design, stock: StockSettings): Design {
   const s: StockSettings = {};
   if (stock.kerf_mm !== undefined) s.kerf_mm = stock.kerf_mm;
   if (stock.trim_mm !== undefined) s.trim_mm = stock.trim_mm;
-  const materials = Object.fromEntries(Object.entries(stock.materials ?? {}).filter(([, m]) => m?.sheet_mm || m?.lengths_mm));
+  const materials = Object.fromEntries(Object.entries(stock.materials ?? {}).filter(([, m]) => m?.sheet_mm || m?.lengths_mm || m?.widths_mm || m?.owned));
   if (Object.keys(materials).length) s.materials = materials;
   const out: Design = { ...d, stock: s };
   if (!Object.keys(s).length) delete out.stock;
@@ -617,12 +624,34 @@ function withoutStock(d: Design, id: string): Design {
   return withStock(d, { ...d.stock, materials });
 }
 
+/** The stock you have, checked, with boards of one size merged into one line, longest first. */
+function ownedStock(v: unknown, m: Material): OwnedStock[] {
+  if (!Array.isArray(v) || v.length > 50) throw shapeError("owned");
+  const bySize = new Map<string, OwnedStock>();
+  for (const o of v) {
+    if (!o || typeof o !== "object") throw shapeError("owned");
+    const { length_mm, width_mm, qty } = o as Record<string, unknown>;
+    if (!isNumber(length_mm) || !isNumber(width_mm)) throw shapeError("owned");
+    const n = qty === undefined ? 1 : qty;
+    if (!isNumber(n) || !Number.isInteger(n) || n < 1 || n > 200) throw new OpError("Each owned entry's qty must be a whole number from 1 to 200");
+    if (length_mm <= 0 || length_mm > 12000 || width_mm <= 0 || width_mm > (m.kind === "sheet" ? 10000 : 1000)) {
+      throw new OpError(`Each owned ${m.kind === "sheet" ? "sheet" : "board"} needs a length above 0 and up to 12000 mm, and a width above 0 and up to ${m.kind === "sheet" ? 10000 : 1000} mm`);
+    }
+    const key = `${length_mm}|${width_mm}`;
+    const had = bySize.get(key);
+    if (had) had.qty += n;
+    else bySize.set(key, { length_mm, width_mm, qty: n });
+  }
+  return [...bySize.values()].sort((a, b) => b.length_mm - a.length_mm || b.width_mm - a.width_mm);
+}
+
 function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
-  if (op.material === undefined && (op.sheet_mm !== undefined || op.lengths_mm !== undefined)) {
+  const forMaterial = op.sheet_mm !== undefined || op.lengths_mm !== undefined || op.widths_mm !== undefined || op.owned !== undefined;
+  if (op.material === undefined && forMaterial) {
     throw new OpError("Say which material the stock is for, with material");
   }
   if (op.kerf_mm === undefined && op.trim_mm === undefined && op.material === undefined) {
-    throw new OpError("set_stock needs kerf_mm, trim_mm, or a material with sheet_mm or lengths_mm");
+    throw new OpError("set_stock needs kerf_mm, trim_mm, or a material with sheet_mm, lengths_mm, widths_mm or owned");
   }
   const next: StockSettings = { ...d.stock, materials: { ...d.stock?.materials } };
   const upTo = (v: unknown, what: string, max: number) => {
@@ -637,11 +666,14 @@ function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
   if (op.material === undefined) return withStock(d, next);
   const m = d.materials.find((x) => x.id === op.material);
   if (!m) throw new OpError(`There's no material "${String(op.material)}"`);
-  if (op.sheet_mm === undefined && op.lengths_mm === undefined) throw new OpError(`Give sheet_mm or lengths_mm for ${m.id}, or null for the default`);
+  if (!forMaterial) throw new OpError(`Give sheet_mm, lengths_mm, widths_mm or owned for ${m.id}, or null for the default`);
   if (m.kind === "sheet" && op.lengths_mm !== undefined) throw new OpError(`${m.id} is sheet goods, so give sheet_mm as [length along the grain, width]`);
+  if (m.kind === "sheet" && op.widths_mm !== undefined) throw new OpError(`${m.id} is sheet goods, so give sheet_mm as [length along the grain, width]. widths_mm is for solid timber`);
   if (m.kind === "solid" && op.sheet_mm !== undefined) throw new OpError(`${m.id} is solid timber, so give lengths_mm, such as [2400, 3000, 3600]`);
-  let own: MaterialStock | null = null;
-  if (op.sheet_mm !== undefined && op.sheet_mm !== null) {
+  // Each field given replaces that field only, and null clears it.
+  const own: MaterialStock = { ...next.materials![m.id] };
+  if (op.sheet_mm === null) delete own.sheet_mm;
+  else if (op.sheet_mm !== undefined) {
     const s = op.sheet_mm;
     if (!Array.isArray(s) || s.length !== 2 || !s.every(isNumber)) throw shapeError("sheet_mm");
     const sheet: [number, number] = [s[0], s[1]];
@@ -649,16 +681,25 @@ function checkStock(d: Design, op: Extract<Op, { op: "set_stock" }>): Design {
     if (sheet.some((v) => v <= 2 * trim || v > 10000)) {
       throw new OpError(`Each side of sheet_mm must be more than twice the ${trim} mm trim, and at most 10000 mm`);
     }
-    own = { sheet_mm: sheet };
+    own.sheet_mm = sheet;
   }
-  if (op.lengths_mm !== undefined && op.lengths_mm !== null) {
+  if (op.lengths_mm === null) delete own.lengths_mm;
+  else if (op.lengths_mm !== undefined) {
     const ls = op.lengths_mm;
     if (!Array.isArray(ls) || ls.length === 0 || ls.length > 20 || !ls.every(isNumber)) throw shapeError("lengths_mm");
-    const lengths = [...ls];
-    if (lengths.some((v) => v <= 0 || v > 12000)) throw new OpError("Each length must be above 0 and at most 12000 mm");
-    own = { lengths_mm: [...new Set(lengths)].sort((a, b) => a - b) };
+    if (ls.some((v) => v <= 0 || v > 12000)) throw new OpError("Each length must be above 0 and at most 12000 mm");
+    own.lengths_mm = [...new Set(ls)].sort((a, b) => a - b);
   }
-  if (own) next.materials![m.id] = own;
+  if (op.widths_mm === null) delete own.widths_mm;
+  else if (op.widths_mm !== undefined) {
+    const ws = op.widths_mm;
+    if (!Array.isArray(ws) || ws.length === 0 || ws.length > 20 || !ws.every(isNumber)) throw shapeError("widths_mm");
+    if (ws.some((v) => v <= 0 || v > 1000)) throw new OpError("Each width must be above 0 and at most 1000 mm");
+    own.widths_mm = [...new Set(ws)].sort((a, b) => a - b);
+  }
+  if (op.owned === null || (Array.isArray(op.owned) && op.owned.length === 0)) delete own.owned;
+  else if (op.owned !== undefined) own.owned = ownedStock(op.owned, m);
+  if (Object.keys(own).length) next.materials![m.id] = own;
   else delete next.materials![m.id];
   return withStock(d, next);
 }

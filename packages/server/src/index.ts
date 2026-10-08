@@ -28,6 +28,7 @@ import {
   toPlain,
   VIEW_NAMES,
   workshopDrawings,
+  cuttingPlan,
   type Op,
   type ViewCommand,
   type ViewName,
@@ -803,6 +804,15 @@ export function createApp(opts: {
             "content-disposition": `attachment; filename="${project.slug}-drawings.pdf"`,
           });
           return res.end(drawingsPdf(sheets, { title: project.design.name }));
+        }
+        case "GET /api/cutting-plan.pdf": {
+          // Opens in the browser, ready to print and take to the saw.
+          const sheets = cuttingPlan(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          res.writeHead(200, {
+            "content-type": "application/pdf",
+            "content-disposition": `inline; filename="${project.slug}-cutting-plan.pdf"`,
+          });
+          return res.end(drawingsPdf(sheets, { title: `${project.design.name}: cutting plan` }));
         }
         case "POST /api/tool-requests/issue": {
           const b = await body();

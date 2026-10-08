@@ -529,6 +529,7 @@ describe("the tool list", () => {
         "set_hardware",
         "set_param",
         "set_rule",
+        "set_stock",
         "show_joint",
         "submit_plan",
         "update_panel",

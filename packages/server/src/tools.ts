@@ -10,6 +10,8 @@ import type { ChatItem } from "./store.js";
 import {
   canStop,
   cutList,
+  cutLayout,
+  cuttingPlanText,
   derive,
   describeJoints,
   JOINT_TYPES,
@@ -224,6 +226,27 @@ export const TOOLS: Tool[] = [
         },
       },
       ["targets", "finish"],
+    ),
+  },
+  {
+    name: "set_stock",
+    description:
+      "Set what a material is cut from, for the cutting plan. owned lists the boards or sheets the woodworker already has, and replaces the list; the plan cuts from them first, rips narrower parts from wider boards, and buys only the rest. widths_mm, for solid timber, are the board widths the yard sells, so bought parts are ripped from those. lengths_mm are the lengths solid timber comes in, and sheet_mm a sheet's size. Give only the fields to change; null or [] clears one. kerf_mm and trim_mm need no material. Ask what they have before guessing.",
+    input_schema: obj(
+      {
+        material: { type: "string", description: "The material id, for any field but kerf_mm and trim_mm" },
+        owned: {
+          type: ["array", "null"],
+          items: obj({ length_mm: { type: "number" }, width_mm: { type: "number" }, qty: { type: "number" } }, ["length_mm", "width_mm", "qty"]),
+          description: 'Every size they have, such as [{"length_mm": 2400, "width_mm": 90, "qty": 3}]. Length runs along the grain',
+        },
+        widths_mm: { type: ["array", "null"], items: { type: "number" }, description: "Solid timber only, such as [42, 66, 90]" },
+        lengths_mm: { type: ["array", "null"], items: { type: "number" }, description: "Solid timber only, such as [2400, 3000, 3600]" },
+        sheet_mm: { type: ["array", "null"], items: { type: "number" }, description: "Sheet goods only: [length along the grain, width]" },
+        kerf_mm: { type: ["number", "null"], description: "The saw's cut, 3 mm by default" },
+        trim_mm: { type: ["number", "null"], description: "Cut off every edge of a bought sheet, 10 mm by default" },
+      },
+      [],
     ),
   },
   {
@@ -466,7 +489,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "get_cut_list",
-    description: "The cut list: identical parts grouped, with cut sizes that include joinery, plus the hardware list.",
+    description:
+      "The cut list: identical parts grouped, with cut sizes that include joinery, plus the hardware list, and the cutting plan: each board and sheet by letter, the woodworker's own stock first, with its parts in cutting order, the rips, and what's left to buy.",
     input_schema: obj({}, []),
   },
   {
@@ -667,6 +691,7 @@ export const EDIT_TOOLS = new Set([
   "add_unverified_box",
   "rename_design",
   "set_finish",
+  "set_stock",
 ]);
 
 export const TERMINAL_TOOLS = new Set(["submit_plan", "ask_user", "preview_change"]);
@@ -983,7 +1008,7 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
       }
       case "get_cut_list": {
         const list = cutList(design, d);
-        return { content: json(list) };
+        return { content: json({ ...list, cutting_plan: cuttingPlanText(cutLayout(design, list)) }) };
       }
       case "render_views": {
         const views = ((input.views as string[] | undefined)?.length ? input.views : ["front", "top", "left", "iso"]) as ViewName[];

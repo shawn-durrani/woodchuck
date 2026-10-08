@@ -352,6 +352,26 @@ A joint's section shares the drawer's joint slot, beside a preview.
 The server tests hold `show_joint` with a joint's id, the card it leaves
 in the chat and the refusal of a joint the design doesn't have.
 
+### Your own stock and the cutting plan
+
+The core tests build an invented hall stand of pine stiles and rails with
+a ply back. One board you own takes all six parts, ripped two side by
+side, and nothing is bought. A shorter board leaves the rails to buy at
+their own width, and boards you don't need are listed as left over. A
+board too narrow for any part is left alone. Your own sheet goes first,
+with no trim. Every part stays inside its board and a kerf from the next,
+and the plan is the same every time. With the widths a yard sells, each
+part takes the narrowest that holds it. The tests also hold the letters,
+the cut list's Board column, the plan in words, and `set_stock` merging
+sizes and clearing with null.
+
+The printed plan fits one page for the stand, says what's yours and what
+to buy, and labels each ripped part with its rip. Thirty long slats go on
+to a second page. The server tests hold the plan's PDF route, Claude's
+`set_stock` tool and the plan `get_cut_list` reads back. They send
+`woodchuck_stock` the same list twice, and the second send changes
+nothing.
+
 ### Edits Claude nearly got right
 
 The core tests hold an invented plant stand to how an edit reads what it's
