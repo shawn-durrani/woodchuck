@@ -167,7 +167,9 @@ flag a restart waits on never drops between the two. The MCP tools run
 against a live app on the same stand-ins, timed, with their background
 block held to the agreed shape. The size tool is held to one undo step
 mid-build, to refusing a name or formula that doesn't work, and to waiting
-for a yes on a big change. Its reply has to name each new problem. The
+for a yes on a big change. A test reads the MCP server's own imports, and
+fails if it runs any of Woodchuck's woodworking code beyond its tools'
+fixed inputs. Its reply has to name each new problem. The
 view tool is held to opening a tab and telling the calling model to open
 Make for the cut list. Every tool's description has to fit in the 900
 characters Crossband reads.

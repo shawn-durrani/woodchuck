@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyOps, cutList, derive, emptyDesign, runChecks, type Design, type Op } from "@woodchuck/core";
 import { describePins, pinnedCut, Turn, type MessagesClient } from "../src/agent.js";
 import { createApp } from "../src/index.js";
-import { designText, type AppState } from "../src/mcp.js";
+import { designText, type AppState } from "../src/answers.js";
 import { scriptedClient } from "../src/scripted.js";
 import { Store } from "../src/store.js";
 import { EDIT_TOOLS, runTool, TOOLS, type ToolContext } from "../src/tools.js";

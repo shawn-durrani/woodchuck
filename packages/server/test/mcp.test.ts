@@ -1,10 +1,13 @@
 // The Woodchuck MCP server's words: what it tells another chat about the
-// design and about what Woodchuck's Claude said and did. mcp-tools.test.ts
-// calls the tools themselves against a running app.
+// design and about what Woodchuck's Claude said and did. The app works out
+// the design's answers in answers.ts, and mcp-tools.test.ts calls the tools
+// themselves against a running app.
 
+import { readFileSync } from "node:fs";
 import { describe as group, expect, it } from "vitest";
 import { applyOps, emptyDesign, recordConsoleOps } from "@woodchuck/core";
-import { colourCards, describe, designText, drawingsText, itemsAfter, localOnly, pictureText, readText, READ_PARTS, summarise, type AppState } from "../src/mcp.js";
+import { colourCards, designText, readText, READ_PARTS, summarise, type AppState } from "../src/answers.js";
+import { describe, drawingsText, itemsAfter, localOnly, pictureText } from "../src/mcp.js";
 
 group("the Woodchuck MCP server", () => {
   const chat = [
@@ -176,5 +179,27 @@ group("woodchuck_read's words", () => {
     const file = lines("file");
     expect(file[0]).toBe("Record console's file, as JSON:");
     expect(JSON.parse(file[1]!)).toEqual(s.design);
+  });
+});
+
+group("the MCP server only relays", () => {
+  // Issue #88: a chat app keeps the MCP server running, so an answer it
+  // worked out itself stayed on old code after Woodchuck updated. Every
+  // answer now comes from the app.
+  const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  /** Each import a module runs, with the names it takes, leaving out types. */
+  const imports = (code: string) =>
+    [...code.matchAll(/^import (?!type )([\s\S]*?) from "([^"]+)";/gm)].map(([, names, from]) => ({
+      from: from!,
+      names: names!.replace(/[{}\s]/g, "").split(",").filter((n) => n && !n.startsWith("type")),
+    }));
+
+  it("runs none of Woodchuck's woodworking code, beyond its tools' fixed inputs", () => {
+    const own = imports(source("mcp.ts"));
+    // A chat app reads a tool's inputs once, when it connects, so they're the one thing this server keeps.
+    expect(own.find((i) => i.from === "@woodchuck/core")?.names.sort()).toEqual(["JOINT_TYPES", "ORBIT_SPEED", "SIDE_TABS"]);
+    const local = own.filter((i) => i.from.startsWith("./")).map((i) => i.from).sort();
+    expect(local).toEqual(["./progress.js", "./reads.js"]);
+    for (const file of local) expect(imports(source(file.replace(/\.js$/, ".ts")))).toEqual([]);
   });
 });

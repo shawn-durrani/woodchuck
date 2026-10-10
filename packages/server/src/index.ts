@@ -12,12 +12,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  applyOp,
+  cutLayout,
   cutList,
   cutListCsv,
+  cuttingPlanText,
   derive,
   describeView,
   diffDesigns,
   emptyDesign,
+  finishLabel,
+  normaliseFinish,
   OpError,
   paperFromParams,
   readViewCommand,
@@ -40,7 +45,23 @@ import { PartsLibrary, searchParts } from "./library.js";
 import { ghIssueLookup, syncToolRequests, type IssueLookup } from "./toolstatus.js";
 import { chromePicture, findChrome, type TakePicture } from "./picture.js";
 import { BLEND_SIZES, BlendError, openAiBlend, type Blend, type BlendSize } from "./blend.js";
-import { renderPng } from "./render.js";
+import { renderPng, sheetPng } from "./render.js";
+import {
+  colourCards,
+  confirmText,
+  designText,
+  needsConfirming,
+  paramChangeLabel,
+  paramChangeText,
+  planParams,
+  READ_PARTS,
+  readText,
+  summarise,
+  type AppState,
+  type ParamChange,
+  type ReadPart,
+  listed,
+} from "./answers.js";
 import { drawingsPdf, paperOf } from "./pdf.js";
 import { progress, type Item } from "./progress.js";
 import { scriptFromFile } from "./scripted.js";
@@ -335,6 +356,20 @@ export function createApp(opts: {
     }
   }
 
+  /** The chat app a tool call came from, as its MCP server names it, for undo labels and the window's notes. */
+  function callerOf(b: Record<string, unknown>) {
+    const name = typeof b.caller === "string" && b.caller.trim() ? b.caller.trim().slice(0, 40) : "another app";
+    return { name, atStart: name.charAt(0).toUpperCase() + name.slice(1) };
+  }
+
+  /** Sends a change of view to every open window, and says how many there are. */
+  function showInWindows(view: ViewCommand): number {
+    const windows = [...sockets].filter((ws) => ws.readyState === ws.OPEN && !renderSockets.has(ws));
+    const msg = JSON.stringify({ type: "view", view });
+    for (const ws of windows) ws.send(msg);
+    return windows.length;
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse, url: URL) {
     const json = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -415,10 +450,108 @@ export function createApp(opts: {
             const waiting = [...store.project.chat].reverse().find((c) => c.kind === "preview" && c.status === "proposed");
             if (!waiting) return fail(400, "There's no preview waiting to show");
           }
-          const windows = [...sockets].filter((ws) => ws.readyState === ws.OPEN && !renderSockets.has(ws));
-          const msg = JSON.stringify({ type: "view", view });
-          for (const ws of windows) ws.send(msg);
-          return json(200, { ok: true, windows: windows.length, shown: describeView(view) });
+          return json(200, { ok: true, windows: showInWindows(view), shown: describeView(view) });
+        }
+        // Another chat's tools, such as Crossband's, get every answer here.
+        // The app works it out from the design it has open, and its MCP
+        // server only relays it, so a new version reaches the chat as soon as
+        // it's running, with no restart of the chat app.
+        case "GET /api/mcp/status":
+          return json(200, { text: summarise(snapshot() as unknown as AppState) });
+        case "GET /api/mcp/design":
+          return json(200, { text: designText(snapshot() as unknown as AppState) });
+        case "GET /api/mcp/read": {
+          const what = url.searchParams.get("what") ?? "";
+          if (!(READ_PARTS as readonly string[]).includes(what)) return fail(400, `what is one of ${READ_PARTS.join(", ")}`);
+          return json(200, { text: readText(snapshot() as unknown as AppState, what as ReadPart, url.searchParams.get("part") ?? undefined) });
+        }
+        case "GET /api/mcp/colours":
+          return json(200, { text: colourCards() });
+        case "GET /api/mcp/sheets": {
+          const sheets = workshopDrawings(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          return json(200, { name: project.design.name, titles: sheets.map((x) => x.title) });
+        }
+        case "GET /api/mcp/sheet.png": {
+          const sheets = workshopDrawings(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          const n = Number(url.searchParams.get("n"));
+          const one = Number.isInteger(n) ? sheets[n - 1] : undefined;
+          if (!one) return fail(404, `${project.design.name}'s drawings have ${sheets.length} sheets, so there's no sheet ${url.searchParams.get("n")}.`);
+          const said = `Sheet ${n} of ${sheets.length} of the workshop drawings for ${project.design.name}: ${one.title}.`;
+          res.writeHead(200, { "content-type": "image/png", "x-sheet-said": encodeURIComponent(said) });
+          return res.end(sheetPng(one));
+        }
+        case "POST /api/mcp/params": {
+          const b = await body();
+          const caller = callerOf(b);
+          if (!Array.isArray(b.params) || !b.params.length) return fail(400, "params must be a list");
+          const plan = planParams(project.design, b.params as ParamChange[]);
+          if ("refused" in plan) return json(200, { text: `Nothing changed. ${plan.refused}` });
+          if (!plan.ops.length) return json(200, { text: `Nothing changed: ${listed(plan.unchanged)}.` });
+          const check = needsConfirming(plan.planned);
+          if (check.length && b.confirmed !== true) return json(200, { text: confirmText(check) });
+          const what = paramChangeLabel(plan.planned);
+          const before = project.design;
+          project.change("you", `${caller.atStart}: ${what}`, plan.ops);
+          broadcastState();
+          // The model has a new size, so the window brings all of it into view.
+          const windows = showInWindows(readViewCommand({ from: caller.name, fit: true, note: `${what}.` }));
+          return json(200, { text: paramChangeText(plan.planned, editSummary(before, project.design), plan.unchanged, windows) });
+        }
+        case "POST /api/mcp/finish": {
+          const b = await body();
+          const caller = callerOf(b);
+          const finish = String(b.finish ?? "");
+          const targets = Array.isArray(b.targets) ? b.targets.map(String) : [];
+          if (!targets.length) return fail(400, "targets must be a list");
+          const id = normaliseFinish(finish);
+          if (!id) return json(200, { text: `"${finish}" isn't a colour Woodchuck knows. Call woodchuck_colours for the list.` });
+          const what = targets.length > 3 ? `${targets.slice(0, 2).join(", ")} and ${targets.length - 2} more` : targets.join(", ");
+          try {
+            project.change("you", `${caller.atStart}: finish ${what} with ${finishLabel(id)}`, [{ op: "set_finish", targets, finish: id }]);
+          } catch (e) {
+            if (e instanceof OpError) return json(200, { text: `Woodchuck refused that: ${e.message}` });
+            throw e;
+          }
+          broadcastState();
+          // Colours only show in the Finished look, and the note names materials as the woodworker knows them.
+          const names = targets.map((t) => (t.startsWith("material:") ? `all of ${project.design.materials.find((m) => m.id === t.slice(9))?.name ?? t.slice(9)}` : t));
+          const shown = names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ");
+          const windows = showInWindows(
+            readViewCommand({ from: caller.name, look: "finished", note: `${id === "raw" ? "took the finish off" : "finished"} ${shown}${id === "raw" ? "" : ` with ${finishLabel(id)}`}.` }),
+          );
+          return json(200, {
+            text:
+              `Done: ${what} now ${id === "raw" ? "bare timber" : `finished with ${finishLabel(id)}`}. It's one change the woodworker can undo, and Woodchuck's Claude will be told.` +
+              (windows ? " The Woodchuck window shows it now." : " No Woodchuck window is open to show it; woodchuck_picture can draw it."),
+          });
+        }
+        case "POST /api/mcp/stock": {
+          const b = await body();
+          const caller = callerOf(b);
+          const design = project.design;
+          const plan = (d: typeof design) => cuttingPlanText(cutLayout(d, cutList(d, derive(d)))).join("\n");
+          const clear = (v: unknown) => (v === undefined ? undefined : v === null || (Array.isArray(v) && v.length === 0) ? null : v);
+          const fields = { owned: clear(b.owned), widths_mm: clear(b.widths_mm), lengths_mm: clear(b.lengths_mm), kerf_mm: b.kerf_mm };
+          const given = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+          if (!Object.keys(given).length) return json(200, { text: `The cutting plan for ${design.name}:\n${plan(design)}`, plan: true });
+          const op = { op: "set_stock", ...(b.material === undefined ? {} : { material: b.material }), ...given } as Op;
+          let next: typeof design;
+          try {
+            next = applyOp(design, op);
+          } catch (e) {
+            if (e instanceof OpError) return json(200, { text: `Nothing changed. ${e.message}` });
+            throw e;
+          }
+          const changes = diffDesigns(design, next);
+          if (!changes.length) return json(200, { text: `That's already set, so nothing changed. The cutting plan for ${design.name}:\n${plan(design)}`, plan: true });
+          const what = changes.join("; ");
+          project.change("you", `${caller.atStart}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`, [op]);
+          broadcastState();
+          const windows = showInWindows(readViewCommand({ from: caller.name, tab: "make", note: `${what}.` }));
+          return json(200, {
+            text: `Done: ${what}. It's one change the woodworker can undo.${windows ? " The Woodchuck window shows the Make tab." : ""} The cutting plan now:\n${plan(project.design)}`,
+            plan: true,
+          });
         }
         // What the open window shows right now, as pictures, for another chat
         // such as Crossband: the window is asked over its socket, and the
