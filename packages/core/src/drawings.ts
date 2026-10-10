@@ -17,7 +17,7 @@
 // the ends and the cutouts.
 
 import { runChecks } from "./checks.js";
-import { AXIS_INDEX, type Box, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
+import { AXIS_INDEX, DOMINO_MORTISE, type Box, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
 import { JOINT_LIBRARY } from "./joints.js";
 import { cutList, machiningText, machiningWith, roundCut, sideName, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
@@ -64,8 +64,12 @@ export interface SheetDim {
    * end it's on, such as top edge.
    */
   along: string;
-  /** An angle is a slope's, with its run along the part and its rise across it in values_mm. */
-  kind: "overall" | "chain" | "angle";
+  /**
+   * An angle is a slope's, with its run along the part and its rise across
+   * it in values_mm. The middle of a part laid out symmetrically is its
+   * distance from the left end.
+   */
+  kind: "overall" | "chain" | "angle" | "middle";
   values_mm: number[];
   /** The gaps between panels in a chain, in order. */
   openings_mm?: number[];
@@ -618,6 +622,9 @@ interface DetailItem {
   hi: number;
   ylo: number;
   yhi: number;
+  /** The places its chains give: its two edges, or a Domino mortise's centre. */
+  along: number[];
+  up: number[];
   /** It's cut into the face the view shows, rather than out of sight. */
   shows: boolean;
   /** It runs the part's whole length, so it crosses every detail. */
@@ -669,8 +676,8 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
   const spots = runs.map((r) => {
     const left = r.lo < join;
     const right = L - r.hi < join;
-    const along = uniqueSorted([...(left ? [0] : []), ...r.items.flatMap((i) => [i.lo, i.hi]), ...(right ? [L] : [])].map(roundCut));
-    const up = uniqueSorted([0, W, ...[...r.items, ...full].flatMap((i) => [i.ylo, i.yhi])].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut));
+    const along = uniqueSorted([...(left ? [0] : []), ...r.items.flatMap((i) => i.along), ...(right ? [L] : [])].map(roundCut));
+    const up = uniqueSorted([0, W, ...[...r.items, ...full].flatMap((i) => i.up)].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut));
     const shape = r.items.map((i) => [roundCut(i.lo - r.lo), roundCut(i.hi - r.lo), roundCut(i.ylo), roundCut(i.yhi), i.shows]);
     const key = JSON.stringify([left ? roundCut(r.lo) : null, right ? roundCut(L - r.hi) : null, shape]);
     return { lo: r.lo, hi: r.hi, left, right, along, up, key };
@@ -684,7 +691,9 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
     if (same) same.starts.push(sp.lo);
     else details.push({ ...sp, letter: String.fromCharCode(65 + details.length), starts: [sp.lo] });
   }
-  const mainX = chainX?.filter((p) => !picked.some((sp) => p > sp.lo + EPS && p <= sp.hi + EPS && p < L - EPS)) ?? null;
+  // The main view keeps the first place each spot gives, and its detail the rest.
+  const later = new Set(picked.flatMap((sp) => sp.along.filter((p) => p > EPS && p < L - EPS).slice(1)));
+  const mainX = chainX?.filter((p) => !later.has(p)) ?? null;
   return { mainX: mainX && mainX.length > 2 ? mainX : null, mainY: cy.includes(true) ? null : chainY, details };
 }
 
@@ -807,6 +816,8 @@ function positionsText(f: Frame): string {
 }
 
 const FASTENER_LABELS = new Set(["screw holes", "dowel holes", "pocket holes"]);
+/** A Domino mortise is set out by its centre, which the joiner lines up with a pencil mark. */
+const centred = (m: Machining) => m.label === DOMINO_MORTISE;
 const LEFT_STANDING = new Set(["tenon", "tongue"]);
 
 /**
@@ -1042,6 +1053,15 @@ function noteText(f: Frame, m: Machining, d: DeriveResult): string {
     return `${what}. Centres ${centres.join("; ")}.`;
   }
   const b = boxInFrame(f, m.region);
+  if (centred(m)) {
+    // Its centre, on the two ways across the cut. For a mortise in an end or an edge, how far in is the fence height.
+    const plunge = frameAxis(f, FACE_AXIS[m.face]);
+    const c = [0, 1, 2].map((i) => (b.min[i]! + b.max[i]!) / 2);
+    const words = [`${num(c[0]!)} along`, `${num(c[1]!)} up`, `${num(f.size.T - c[2]!)} in`];
+    const across = ([0, 1, 2] as const).filter((i) => i !== plunge);
+    const long = across.reduce((a, i) => (b.max[i]! - b.min[i]! > b.max[a]! - b.min[a]! ? i : a));
+    return `${what}. Centre at ${across.map((i) => words[i]).join(", ")}, its length running ${["along", "up", "through the thickness"][long]}.`;
+  }
   const near = b.max[2] >= f.size.T - EPS;
   const depth = near ? "" : `, ${num(f.size.T - b.max[2])} to ${num(f.size.T - b.min[2])} in`;
   return `${what}. At ${num(b.min[0])} to ${num(b.max[0])} along, ${num(b.min[1])} to ${num(b.max[1])} up${depth}.`;
@@ -1149,12 +1169,33 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   };
   const chainOf = (k: 0 | 1, full: number, more: number[] = []) => {
     const pts = [0, full, ...more];
-    for (const { b } of regions) if (b.max[k] - b.min[k] < full - EPS) pts.push(b.min[k], b.max[k]);
+    for (const { m, b } of regions) {
+      if (centred(m)) {
+        if (frameAxis(f, FACE_AXIS[m.face]) !== k) pts.push((b.min[k] + b.max[k]) / 2);
+      } else if (b.max[k] - b.min[k] < full - EPS) pts.push(b.min[k], b.max[k]);
+    }
     for (const h of holes) if (h.drill === 2) for (const c of h.at) pts.push(c[k]);
     const at = uniqueSorted(pts.filter((v) => v >= -EPS && v <= full + EPS).map(roundCut));
     return at.length > 2 ? at : null;
   };
-  const chainX = chainOf(0, L, shapeAt(0));
+  const firstX = chainOf(0, L, shapeAt(0));
+  // A layout spread symmetrically along the part is set out from its
+  // middle, so the sheet gives the end to the middle and the chain runs
+  // through it. Work only at the ends is set out from the ends.
+  const inner = (firstX ?? []).filter((p) => p > EPS && p < L - EPS);
+  const spread = inner.some((p) => p > L / 4 && p < (3 * L) / 4);
+  const middle = inner.length > 1 && spread && inner.every((p) => inner.some((q) => Math.abs(p + q - L) <= 0.1)) ? roundCut(L / 2) : null;
+  const chainX = firstX;
+  // The chain runs through the middle when it's a place already, or when both halves of the gap it splits read at 1:s.
+  const throughMiddle = (at: number[] | null, s: number) => {
+    if (middle === null) return at;
+    const pts = at ?? [0, L];
+    if (pts.some((p) => Math.abs(p - middle) <= 0.05)) return pts;
+    const before = Math.max(...pts.filter((p) => p < middle));
+    const after = Math.min(...pts.filter((p) => p > middle));
+    const reads = (gap: number) => textWidth_mm(num(roundCut(gap)), TEXT) <= gap / s - 1;
+    return reads(middle - before) && reads(after - middle) ? uniqueSorted([...pts, middle]) : at;
+  };
   const chainY = chainOf(1, W, shapeAt(1, (q) => q[0] <= L / 2));
   const rightEnd = shape ? uniqueSorted([0, W, ...shapeAt(1, (q) => q[0] > L / 2)].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut)) : [];
   const chainRight = rightEnd.length > 2 ? rightEnd : null;
@@ -1164,16 +1205,29 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const gapRight = chainRight ? dimMargin(1) + 3 : GAP;
   // Machining on the face view, for the details of spots too small to read.
   const items: DetailItem[] = [
-    ...regions.map(({ b }) => ({ lo: b.min[0], hi: b.max[0], ylo: b.min[1], yhi: b.max[1], shows: b.max[2] >= T - EPS, full: b.max[0] - b.min[0] >= L - EPS })),
-    ...holes.filter((h) => h.drill === 2).flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], shows: true, full: false }))),
+    ...regions.map(({ m, b }) => {
+      const plunge = frameAxis(f, FACE_AXIS[m.face]);
+      const mid = (k: 0 | 1) => (plunge === k ? [] : [(b.min[k] + b.max[k]) / 2]);
+      return {
+        lo: b.min[0],
+        hi: b.max[0],
+        ylo: b.min[1],
+        yhi: b.max[1],
+        along: centred(m) ? mid(0) : [b.min[0], b.max[0]],
+        up: centred(m) ? mid(1) : [b.min[1], b.max[1]],
+        shows: b.max[2] >= T - EPS,
+        full: b.max[0] - b.min[0] >= L - EPS,
+      };
+    }),
+    ...holes.filter((h) => h.drill === 2).flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], along: [c[0]], up: [c[1]], shows: true, full: false }))),
   ];
-  const layoutAt = (s: number, details: boolean) => {
+  const layoutAt = (s: number, details: boolean, mid: boolean) => {
     const plan = details && !shape ? planDetails(L, W, s, items, chainX, chainY) : null;
-    const cX = plan ? plan.mainX : chainX;
+    const cX = mid ? throughMiddle(plan ? plan.mainX : chainX, s) : plan ? plan.mainX : chainX;
     const cY = plan ? plan.mainY : chainY;
-    const marginTop = dimMargin((cX ? 1 : 0) + 1);
+    const marginTop = dimMargin((cX ? 1 : 0) + (mid ? 1 : 0) + 1);
     const marginLeft = Math.max(dimMargin((cY ? 1 : 0) + 1), dimMargin(1));
-    return { s, plan, chainX: cX, chainY: cY, marginTop, marginLeft, w: marginLeft + L / s + gapRight + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL };
+    return { s, plan, mid, chainX: cX, chainY: cY, marginTop, marginLeft, w: marginLeft + L / s + gapRight + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL };
   };
   const fits = (z: { w: number; h: number }) => z.w <= area.w && z.h <= bottom - top;
   // The largest scale that fits, with a row of details under the views
@@ -1182,9 +1236,11 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   let chosen: ReturnType<typeof layoutAt> | undefined;
   let shelf: ReturnType<typeof detailRow> = null;
   // The main view keeps the scale it would have, or goes one step smaller to make room.
-  const natural = DRAWING_SCALES.findIndex((scale) => fits(layoutAt(scale, false)));
+  const natural = DRAWING_SCALES.findIndex((scale) => fits(layoutAt(scale, false, false)));
+  // The middle's row is drawn only where it fits without making the sheet smaller.
+  const mid = middle !== null && natural >= 0 && fits(layoutAt(DRAWING_SCALES[natural]!, false, true));
   for (const scale of natural < 0 ? [] : DRAWING_SCALES.slice(natural, natural + 2)) {
-    const z = layoutAt(scale, true);
+    const z = layoutAt(scale, true, mid);
     if (!fits(z)) continue;
     if (!z.plan) {
       chosen = z;
@@ -1197,7 +1253,8 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     }
   }
   chosen ??= layoutAt(
-    pickScale((scale) => fits(layoutAt(scale, false))),
+    pickScale((scale) => fits(layoutAt(scale, false, false))),
+    false,
     false,
   );
   const { s, marginTop, marginLeft } = chosen;
@@ -1298,9 +1355,13 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     }),
     ...shaped.map((x) => face(x.at[0], x.at[1])),
   ];
+  // A balloon that would land on another steps along to the right, its leader still on its own machining.
+  const placed: [number, number][] = [];
   anchors.forEach((anchor, k) => {
-    const bx = anchor[0] + 4;
+    let bx = anchor[0] + 4;
     const by = anchor[1] - 4;
+    while (placed.some(([x, y]) => Math.hypot(x - bx, y - by) < 4.4)) bx += 4.4;
+    placed.push([bx, by]);
     pen.line(anchor[0], anchor[1], bx - 1.4, by + 1.4, FINE);
     pen.circle(bx, by, 2, { stroke_mm: THIN, fill: "#ffffff" });
     pen.text(bx, by + 0.8, String(k + 1), { size_mm: 2.2, anchor: "middle", bold: true });
@@ -1315,6 +1376,13 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     const values = gapsBetween(mainX);
     dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n++), mainX.map((x) => face(x, W)[0]), values);
     sheet.dims.push({ view: "face", along: "length", kind: "chain", values_mm: values });
+  }
+  if (chosen.mid && middle !== null) {
+    // The middle, given from the left end and marked across the face view, to set out from.
+    dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n++), [face(0, W)[0], face(middle, W)[0]], [middle]);
+    sheet.dims.push({ view: "face", along: "length", kind: "middle", values_mm: [middle] });
+    const [mx] = face(middle, W);
+    pen.line(mx, fy - 1.5, mx, fy + W / s + 1.5, FINE, true);
   }
   dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n), [face(0, W)[0], face(L, W)[0]], [row.length_mm]);
   sheet.dims.push({ view: "face", along: "length", kind: "overall", values_mm: [row.length_mm] });

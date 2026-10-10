@@ -248,15 +248,16 @@ describe("the workshop drawings of a shaped part", () => {
 // named each part's sides as they sit in the piece with #80. A narrow gap
 // at either end of a row writes its number past the end since #86. The
 // Domino example's mortises changed with #89, when every one in the host
-// took the play.
+// took the play. Since #92 a Domino mortise is placed by its centre, and a
+// part laid out evenly along its length by its middle.
 const BEFORE_SHAPES: Record<string, [string, string]> = {
-  "record console": ["c2e8d75fb9314e713793e0cc55aad873c40d7bcd1cc967784caf48a8efefffed", "88e730af44f47cfdac46d8c215e93d2b9e5a1f33a9e4d6c0a73853dc256afae0"],
+  "record console": ["c2e8d75fb9314e713793e0cc55aad873c40d7bcd1cc967784caf48a8efefffed", "e9da4ccbeaf36816e54470a497c6e3ec3835a4728d4a459ac48449b641a72d68"],
   butt: ["7247cd9ea1ca5482186c13ba2922a186ed4b2fb8b483748ea28cd347965d83b0", "b28cdac949601a7498398e43cb50272b6bfa96a3db778052e96cde4aa525b07c"],
   screws: ["80c80001aeb814d1522da28ab2a6f58e1810c3ea5a3f9dceb6184aaa2067e5bf", "6e49d048adeb827d2bd8bf8333c58f16b1b17b8203dad43eee0df62d5dca9ad4"],
   pocket_screws: ["579504124c9069ea76bce798f33c7192bbd38abad4673dd8ae8dd4a2f860309b", "1681ff29e53df68eaeb7591e600fb7230e3bfb75cce68d9f9286547bc74af5d8"],
   dowels: ["0c0a4b4f4380a39ccb0d1ba2415ecbebd90393c8b99710c345159e1fde911fba", "fb0ba7c4d4593ac2feb78e8e6c7b6f755d69aecbc5a68280639672253d3f0d33"],
   // Added with the joint, after shapes were drawn.
-  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "54f9370024c10ebe3c1864a5623abe18d1eb3173f13c5237f7a61a9fc5db72ae"],
+  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "635e24e654ef73cae0772eaa2ea7806c96f6bb3dc10dbaab4bdb171c63e91781"],
   dado: ["68d3800fbe2b97ccd10fa5144e851a6f9a799b760a3f5027cf81869fd55af310", "45c289c4373720568003dc50dfa342b06472c2b4bdee8424948f34c53510c983"],
   groove: ["5f4bbabe437e152dbd4b6fe2ad2854ac202ab14231be19a2bf57dc4e97d773ec", "8cc485cf6549f8851bade206e60728b02f113e7ccd8653306ae57399125b5d87"],
   rabbet: ["8166246aaa16084cfd00e3aa7010ec809511d0d5ba1224800eeb4571e130e593", "02a95e1e592b7e9948d6315ed980b153ad4151b91339c99140d1ff4e16f45637"],
@@ -264,7 +265,7 @@ const BEFORE_SHAPES: Record<string, [string, string]> = {
   // Added with the joint, after shapes were drawn.
   dado_rabbet: ["94dde0ba7aebd3eb1c63ae186c10183b72e6e8fd61dec69978c736fd73c6d595", "818a4a89df98e2039842820d1a11c98b8a094fc6a7b2b7582a625ad7692858da"],
   mortise_tenon: ["6db2fca2304fd851370cedb9f100cfda9f1d4ed0e588259609cd951a83408a77", "b67bedd57195ccea69cfaad374988784f97224b309308ad868323d95c5cdf746"],
-  half_lap: ["a5d3209d053cd81ff12af550185b21751a687d67f5a739f79d5ae256eed3d388", "cb38da1a7ce9a0efe56d83602173f22e55ef992f682e2051e21934082c6d0e35"],
+  half_lap: ["a5d3209d053cd81ff12af550185b21751a687d67f5a739f79d5ae256eed3d388", "d0970fdba68c8ce280fc58eaef261b48eb2064e960503a7c2a2fcbeebb2005cf"],
   box_joint: ["fec73086083b6fa9e781d5588388d310c88ab815d9e5e4ddf4586fdbd464ee34", "f2f9a60408e3b7628c3768addb4b2da5a9b694ef6ca94f87d4f7b3f33933dbce"],
   through_slot: ["c76c7ef6bbb6a76a811e341b39cf52ac606bf7d67e16c5286afa0a490c77b536", "4d52c1713439d3925ec56f70d2f04c193e8099a6c622cd2a5056fabea5c85e9c"],
 };
