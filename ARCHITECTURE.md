@@ -815,3 +815,8 @@ A chat app holds its turn while a tool runs, so no tool waits long. A
 request hands over within a few seconds, and a progress tool answers at
 once. Their results carry a background block, which lets the chat app
 watch a long build without waiting on it.
+
+The MCP server only relays, and the app works out every answer. A chat app
+keeps the server running for as long as it runs, so anything the server
+worked out itself would stay on old code after an update. With the app
+doing the work, an update reaches the chat as soon as the app runs it.

@@ -25,7 +25,22 @@ and the server's file:
 
 The server finds the app at `WOODCHUCK_URL`, and its view notes name
 `WOODCHUCK_CALLER`. [CONFIG.md](CONFIG.md) has both. Restart the chat app
-after changing the server, since it reads the tools when it starts.
+after changing a tool's name, description or inputs, since it reads the
+tools when it starts.
+
+## The server only relays
+
+Every answer comes from the running app. A summary of the design, a part
+sheet's notes, a change of size or colour and a sheet of the drawings as
+a picture are each worked out by the app, from the design it has open.
+The server passes each call on and hands back what the app says.
+
+A chat app keeps the server running for as long as it runs. An update to
+Woodchuck therefore reaches the chat as soon as the app is running it,
+with no restart of the chat app. The server keeps only its tools' inputs,
+which the chat app reads when it connects. It also writes the links,
+since it knows the address it reaches the app at. A test fails if it runs
+any other part of Woodchuck's woodworking code.
 
 Crossband reads the first 900 characters of a tool's description and
 drops the rest. Each description keeps within that, and a test holds it
