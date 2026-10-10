@@ -197,6 +197,27 @@ Each note gives where a cut starts and ends, along and up, which shows
 the way its long side runs. The cut list names a cut's side the same way,
 so a mortise in the end of a rail is in its end.
 
+## A spot too small to read is drawn again larger
+
+A part's sheet draws the whole part at one scale. On a long, narrow part
+that scale can leave a few millimetres of paper for a size whose number
+needs more. A number too wide for its gap is lifted clear of its
+neighbours, but two lifted in a row would print over each other. When
+the first two or last two gaps in a row are narrow, the outer number goes
+just past the end of the row instead.
+
+Narrow gaps side by side anywhere else make a crowded spot. The sheet
+circles each one on the face view with a letter, and draws it again
+under the views as a detail, such as "Detail A, 1:2". A detail has every
+size of its spot, measured from the same edges as the sheet, and break
+lines where it cuts the part off. Spots drawn the same share a detail,
+which says how many places it covers. The main view then keeps the
+overall sizes and where each spot starts.
+
+A detail takes the largest standard scale at which its numbers read and
+the row of details fits. The main view can go one scale smaller to make
+room. A sheet with no crowded spot is drawn as it was.
+
 ## Claude cuts a part with its own tools
 
 Claude slopes, tapers or chamfers an edge with `set_edge_cut`. It cuts a
