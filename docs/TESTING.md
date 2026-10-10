@@ -349,6 +349,12 @@ change the same way. A restore, a photo's removal and a blend wait for
 `confirmed`, a second restore finds the design already as that version,
 and the photo's lens and shadow reach the window the same each time.
 
+The read tool is held to the record console's right side, word for word,
+with its views and the sides it's measured from. It's held to narrowing by
+a part's id, a copy, a row number and a name, and to naming the parts when
+one isn't found. Each list it reads has a line pinned, the file reads back
+as the design, and two sends read the same and change nothing.
+
 The web tests hold Explode to its place in the toolbar, its key and the
 reasons it greys out, and a command from outside to the state it leaves.
 A joint's section shares the drawer's joint slot, beside a preview.

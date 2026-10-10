@@ -27,6 +27,7 @@ import {
   cuttingPlanText,
   derive,
   diffDesigns,
+  drillingList,
   FACE_AXIS,
   finishLabel,
   fmt,
@@ -36,6 +37,7 @@ import {
   OpError,
   ORBIT_SPEED,
   PALETTES,
+  partSheetTexts,
   refsOf,
   runChecks,
   SIDE_TABS,
@@ -266,6 +268,104 @@ export function designText(s: AppState): string {
   const issues = report.issues.map((i) => `- ${i.severity === "error" ? "Error" : "Warning"}: ${clip(i.message, 160)}`);
   lines.push(...capped(issues, DESIGN_LIMITS.problems));
   return lines.join("\n");
+}
+
+/** What woodchuck_read can read, each as the app shows it. */
+export const READ_PARTS = ["parts", "joints", "cut_list", "cutting_plan", "drilling", "hardware", "checks", "file"] as const;
+export type ReadPart = (typeof READ_PARTS)[number];
+
+/**
+ * One part of the open design in words, as the app shows it, so another
+ * chat can answer a question about it without guessing. A part's id, its
+ * cut-list row number or its name narrows the parts, joints, cut list and
+ * drilling list to it.
+ */
+export function readText(s: AppState, what: ReadPart, part?: string): string {
+  const design = s.design;
+  const d = derive(design);
+  const list = cutList(design, d);
+  const of = `${s.project.name}'s`;
+  // The part ids a narrowed read covers: a row's parts, or a part and its array copies.
+  const wanted = part?.trim().toLowerCase();
+  const ids = wanted
+    ? new Set([
+        ...list.rows.filter((r) => String(r.row) === wanted || r.name.toLowerCase() === wanted).flatMap((r) => r.parts),
+        ...d.parts.filter((p) => [p.id, p.source].some((id) => id.toLowerCase() === wanted)).map((p) => p.id),
+      ])
+    : null;
+  if (ids && !ids.size) return `There's no part "${part}" in ${s.project.name}. Parts, by id: ${listed([...new Set(d.parts.map((p) => p.source))], 40)}.`;
+  const covers = (partIds: string[]) => !ids || partIds.some((id) => ids.has(id));
+
+  switch (what) {
+    case "parts": {
+      const sheets = partSheetTexts(design, d, list).filter((t) => covers(t.parts));
+      if (!sheets.length) return `${s.project.name} has no parts to draw yet.`;
+      return [
+        `The part sheets in ${of} workshop drawings:`,
+        ...sheets.flatMap((t) => [
+          "",
+          `Sheet ${t.sheet}, part ${t.row}: ${t.name}. Make ${t.qty} (${t.parts.join(", ")}).`,
+          `${t.cut}, ${t.material}.`,
+          `Views: ${t.views.face}, ${t.views.edge} and ${t.views.end}.`,
+          ...(t.notes.length ? t.notes.map((n, i) => `${i + 1}. ${n}`) : ["No machining. Cut it to size."]),
+          t.positions,
+        ]),
+      ].join("\n");
+    }
+    case "joints": {
+      const joints = d.joints.filter((j) => covers([j.host, j.guest]));
+      if (!joints.length) return part ? `${part} has no joints.` : `${s.project.name} has no joints yet.`;
+      const notes = new Map(design.joints.map((j) => [j.id, j.note]));
+      return [
+        `${of} joints, by id:`,
+        ...joints.map((j) => {
+          const params = Object.entries(j.params).map(([k, v]) => `${k} ${fmt(v!)}`);
+          const lib = j.defaulted.length ? `, with ${listed(j.defaulted)} from the library` : "";
+          const note = notes.get(j.source);
+          return `- ${j.id}: ${j.type}, ${j.guest} into ${j.host}${params.length ? `; ${params.join(", ")}${lib}` : ""}.${note ? ` Note: ${note}` : ""}`;
+        }),
+      ].join("\n");
+    }
+    case "cut_list": {
+      const rows = list.rows.filter((r) => covers(r.parts));
+      if (!rows.length) return part ? `${part} isn't on the cut list.` : `${s.project.name} has nothing to cut yet.`;
+      return [
+        `${of} cut list, length × width × thickness in mm. A cut's (x, y, z) is its corner nearest the part's left, bottom and back, measured from that corner of the part. Read parts for where each cut starts and ends on its sheet.`,
+        ...rows.flatMap((r) => [
+          `${r.row}. ${r.name} ×${r.qty}: ${fmt(r.length_mm)} × ${fmt(r.width_mm)} × ${fmt(r.thickness_mm)}, ${r.material_name}${r.grain ? ", grain along the length" : ""}. Parts: ${r.parts.join(", ")}.`,
+          ...r.machining.map((m) => `  - ${m}`),
+          ...(r.shape ?? []).map((x) => `  - ${x}`),
+        ]),
+        ...(list.excluded.length ? [`Left off: ${list.excluded.map((x) => `${x.id} (${x.reason})`).join(", ")}.`] : []),
+      ].join("\n");
+    }
+    case "cutting_plan":
+      return [`${of} cutting plan:`, ...cuttingPlanText(cutLayout(design, list))].join("\n");
+    case "drilling": {
+      const rows = drillingList(design, d, list).filter((r) => covers(list.rows.find((x) => x.row === r.row)?.parts ?? []));
+      if (!rows.length) return part ? `${part} has no holes to drill.` : "There are no holes to drill.";
+      return [
+        `${of} drilling list. Centres are measured as on each part's sheet:`,
+        ...rows.map((r) => {
+          const depth = r.through ? "right through" : r.holes === "pocket holes" ? "set by the jig" : `${fmt(r.depth_mm)} deep`;
+          return `- ${r.row}. ${r.part} ×${r.qty}: ${r.count} ${r.holes} each for ${r.with}, Ø${fmt(r.diameter_mm)}, ${depth}, in the ${r.face}. Centres: ${r.centres.join("; ")}.`;
+        }),
+      ].join("\n");
+    }
+    case "hardware":
+      if (!list.hardware.length) return "There's no hardware to buy.";
+      return [`${of} hardware to buy:`, ...list.hardware.map((h) => `- ${h.name}: ${h.qty}${h.spec ? `, ${h.spec}` : ""}`)].join("\n");
+    case "checks": {
+      const report = runChecks(design, d);
+      const counts = `${plural(report.errors, "error")} and ${plural(report.warnings, "warning")}`;
+      return [
+        `Checks for ${s.project.name}: ${counts}, ${report.ready_to_cut ? "ready to cut" : "not ready to cut yet"}${report.issues.length ? ":" : "."}`,
+        ...report.issues.map((i) => `- ${i.severity === "error" ? "Error" : "Warning"}: ${i.message}`),
+      ].join("\n");
+    }
+    case "file":
+      return [`${of} file, as JSON:`, JSON.stringify(design)].join("\n");
+  }
 }
 
 /** A list of lines cut to a cap, with a last line saying how many more there are. */
@@ -1027,13 +1127,34 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Read the Woodchuck design",
       description:
-        "Read the open Woodchuck design at once, in short lines: its parameters with their values and formulas, its materials, its parts with their sizes in mm and any slopes, holes or notches, its overall size, its problems, and whether Woodchuck's Claude is busy or waiting for an answer. Call it before woodchuck_set_param to find the parameter that holds a size, and when the woodworker asks about sizes. It never changes anything.",
+        "Read the open Woodchuck design at once, in short lines: its parameters with their values and formulas, its materials, its parts with their sizes in mm and any slopes, holes or notches, its overall size, its problems, and whether Woodchuck's Claude is busy or waiting for an answer. Call it before woodchuck_set_param to find the parameter that holds a size, and when the woodworker asks about sizes. For joints, cuts and the drawings, use woodchuck_read. It never changes anything.",
       inputSchema: {},
     },
     async () => {
       warmUp();
       try {
         return text(designText(await getState()));
+      } catch (e) {
+        return unreachable(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "woodchuck_read",
+    {
+      title: "Read any part of the Woodchuck design",
+      description:
+        "Read part of the open Woodchuck design as text, as the app shows it. parts gives each part's sheet from the workshop drawings: its cut size, the side of the piece each view shows, each numbered machining note with where the cut starts and ends, and which end, edge and face those are measured from. joints lists each joint with its parts and settings. cut_list, cutting_plan, drilling and hardware give those lists, checks every problem, and file the design's own JSON. Give part, as a part's id, row number or name, to read just that part. Use it to answer where a cut is or which face it's in, rather than guessing. It never changes anything, so calling again is safe.",
+      inputSchema: {
+        what: z.enum(READ_PARTS).describe("Which part of the design to read"),
+        part: z.string().max(120).optional().describe("A part's id, cut-list row number or name, to read only that part. For parts, joints, cut_list and drilling"),
+      },
+    },
+    async ({ what, part }) => {
+      warmUp();
+      try {
+        return text(readText(await getState(), what, part));
       } catch (e) {
         return unreachable(e);
       }
