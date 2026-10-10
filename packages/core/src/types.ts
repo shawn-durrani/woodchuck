@@ -229,7 +229,7 @@ export interface Joint {
   guest: string;
   /** How far the guest goes into the host. Defaults come from the joint library. */
   depth?: string;
-  /** Extra width on the host's housing for an easy fit. */
+  /** Extra width on the host's housing for an easy fit. A Domino's play, in its loose piece's mortises. */
   fit?: string;
   /** Thickness of a tongue, a tenon or a Domino. */
   thickness?: string;
@@ -252,8 +252,18 @@ export interface Joint {
    * the guest's corner is notched to match.
    */
   stop?: Partial<Record<Face, string>>;
+  /**
+   * A Domino joint's loose piece, whose mortises are cut wider by the fit
+   * so the joint can be lined up at glue-up. The other piece's are as wide
+   * as the tenon and locate the joint. Left out, it's the host.
+   */
+  loose?: LoosePiece;
   note?: string;
 }
+
+/** The pieces of a joint a Domino's loose mortises can go in. */
+export const LOOSE_PIECES = ["host", "guest"] as const;
+export type LoosePiece = (typeof LOOSE_PIECES)[number];
 
 /**
  * Repeats parts along an axis. Copies are named `<id>#2`, `<id>#3` and so on;

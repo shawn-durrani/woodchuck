@@ -18,6 +18,7 @@ import {
   ID_PATTERN,
   JOINT_FAMILY,
   JOINT_TYPES,
+  LOOSE_PIECES,
   type ArrayPattern,
   type Axis,
   type AxisSpec,
@@ -29,6 +30,7 @@ import {
   type Hardware,
   type Joint,
   type JointType,
+  type LoosePiece,
   type Material,
   type MaterialStock,
   type OwnedStock,
@@ -750,7 +752,7 @@ function checkDomino(j: Joint) {
   if (!DOMINO_SIZES.some((s) => (t === undefined || s.thickness_mm === t) && (l === undefined || s.length_mm === l))) throw new OpError(noDomino(t, l));
   const fit = plain(j.fit);
   if (fit !== undefined && !DOMINO_PLAY_MM.includes(fit)) {
-    throw new OpError(`A Domino's fit is the joiner's width setting: 0 for a tight mortise, or 6 or 10 for play along the joint, not ${fit}`);
+    throw new OpError(`A Domino's fit is the joiner's width setting for the loose piece's mortises: 6 or 10 for play along the joint, or 0 for tight in both pieces, not ${fit}`);
   }
 }
 
@@ -785,8 +787,25 @@ function checkJoint(d: Design, op: Extract<Op, { op: "add_joint" }>): Joint {
   if (j.width !== undefined && j.fit !== undefined) throw new OpError("Give a groove its width or its fit, not both. The width is what the cutter makes, and fit is the play over the panel");
   const stop = checkStop(d, op.stop as unknown, id, type);
   if (stop) j.stop = stop;
+  const loose = checkLoose(op.loose as unknown, type);
+  if (loose) j.loose = loose;
   if (op.note) j.note = op.note;
   return j;
+}
+
+/**
+ * A Domino's loose piece, checked: the host or the guest, whose mortises
+ * take the fit as play. Only a Domino joint has one. The host is the
+ * default, so it's kept as no field at all, and a joint sent again with it
+ * written out or left out is the same joint.
+ */
+function checkLoose(raw: unknown, type: JointType): LoosePiece | undefined {
+  if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) return undefined;
+  if (type !== "domino") throw new OpError(`loose only applies to domino joints, not ${type}`);
+  if (!LOOSE_PIECES.includes(raw as LoosePiece)) {
+    throw new OpError(`loose names the piece whose Domino mortises get the play, "host" or "guest", not ${JSON.stringify(raw)}`);
+  }
+  return raw === "guest" ? "guest" : undefined;
 }
 
 /**

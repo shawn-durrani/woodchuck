@@ -31,6 +31,7 @@ import {
   type Joint,
   type JointFamily,
   type JointType,
+  type LoosePiece,
   type Material,
   type Panel,
   type Severity,
@@ -156,6 +157,8 @@ export interface DerivedJoint {
   params: Partial<Record<JointParam, number>>;
   /** A stopped housing's stops as given, worked out: how far short of each edge of the host. */
   stop_mm?: Partial<Record<Face, number>>;
+  /** A Domino joint's loose piece, whose mortises take the fit as play. */
+  loose?: LoosePiece;
   /** Which parameters came from the library rather than the design. */
   defaulted: JointParam[];
   features: JointFeature[];
@@ -1068,12 +1071,13 @@ interface DominoPlace {
 
 /**
  * A Domino joint: a pair of matching mortises for each tenon, one in each
- * part, centred on the guest's thickness. The guest's are cut tight, and so
- * is the host's nearest the front, top or right, which lines the joint up.
- * The host's others are longer by the fit, the play Festool's slot
- * principle leaves. Each mortise is machining of its own, so the cut list
- * and the drawings place every one. The tenon sits at the bottom of the
- * guest's mortise, where it's glued first.
+ * part, centred on the guest's thickness. Every mortise in the loose piece,
+ * the host unless the joint says the guest, is longer by the fit, cut on
+ * the joiner's wider setting so the parts can be lined up at glue-up. The
+ * other piece's are as wide as the tenon, which locates the joint. Each
+ * mortise is machining of its own, so the cut list and the drawings place
+ * every one, and the checks measure each as it's cut. The tenon sits at
+ * the bottom of the guest's mortise, where it's glued first.
  */
 function dominoDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, sh: JointShape | null, issues: DeriveIssue[], at: DominoPlace) {
   const p = dj.params;
@@ -1097,13 +1101,14 @@ function dominoDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, s
     box.max[AXIS_INDEX[axis]] = b;
     return box;
   };
-  const tight = centres.length - 1;
+  const hostPlay = dj.loose === "guest" ? 0 : play;
+  const guestPlay = dj.loose === "guest" ? play : 0;
+  const playOf = (slack: number) => (slack > 0 ? { play_mm: slack } : {});
   const inHost: Box[] = [];
   const inGuest: Box[] = [];
-  centres.forEach((c, k) => {
-    const slack = k === tight ? 0 : play;
-    const h = boxOf(c, W + slack, along(contact, contact - intoGuest * dh));
-    const g = boxOf(c, W, along(contact, contact + intoGuest * dg));
+  centres.forEach((c) => {
+    const h = boxOf(c, W + hostPlay, along(contact, contact - intoGuest * dh));
+    const g = boxOf(c, W + guestPlay, along(contact, contact + intoGuest * dg));
     inHost.push(h);
     inGuest.push(g);
     dj.features.push(
@@ -1112,8 +1117,8 @@ function dominoDetail(dj: DerivedJoint, host: DerivedPart, guest: DerivedPart, s
       { kind: "tongue", part: guest.id, box: boxOf(c, W, along(contact + intoGuest * dg, contact + intoGuest * (dg - size.length_mm))) },
     );
     const base = { joint: dj.id, type: dj.type, label: DOMINO_MORTISE };
-    host.machining.push({ ...base, with: guest.id, face: at.hostFace, depth_mm: dh, width_mm: T, length_mm: W + slack, ...(slack > 0 ? { play_mm: slack } : {}), region: h });
-    guest.machining.push({ ...base, with: host.id, face: at.guestFace, depth_mm: dg, width_mm: T, length_mm: W, region: g });
+    host.machining.push({ ...base, with: guest.id, face: at.hostFace, depth_mm: dh, width_mm: T, length_mm: W + hostPlay, ...playOf(hostPlay), region: h });
+    guest.machining.push({ ...base, with: host.id, face: at.guestFace, depth_mm: dg, width_mm: T, length_mm: W + guestPlay, ...playOf(guestPlay), region: g });
   });
 
   // Each mortise needs wood beside it along the joint, and none may run into the next.
@@ -1412,6 +1417,7 @@ export function derive(design: Design): DeriveResult {
         problems: [],
       };
       if (j.count !== undefined) dj.count = j.count;
+      if (j.type === "domino") dj.loose = j.loose === "guest" ? "guest" : "host";
       if (onCopy) dj.on_copy = true;
       joints.push(dj);
       const host = byId.get(dj.host);

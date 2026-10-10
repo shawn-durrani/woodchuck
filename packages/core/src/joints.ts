@@ -255,6 +255,9 @@ export function dominoDepthStops(thickness: number): number[] {
 /** The DF 500's mortise widths: as wide as the tenon, or 6 or 10 mm wider for play along the joint. */
 export const DOMINO_PLAY_MM: readonly number[] = [0, 6, 10];
 
+/** The play a Domino joint's loose piece gets when the joint gives no fit: the DF 500's middle setting. */
+export const DOMINO_DEFAULT_PLAY_MM = 6;
+
 /** The least wood a Domino's mortise leaves round it. */
 export const DOMINO_WALL_MM = 5;
 
@@ -291,10 +294,11 @@ export function noDomino(thickness?: number, length?: number): string {
  * thickest tenon up to a third of the stock comes first, then the longest
  * of that thickness. It's the first that leaves 5 mm of wood round both
  * mortises and that the DF 500 can cut, or the thickest when none does.
- * Three or more get play in the host, as Festool's slot principle does.
+ * The loose piece's mortises get the joiner's middle setting for play,
+ * however many Dominos there are.
  */
 function dominoAfter(p: Partial<Record<JointParam, number>>, c: JointContext): Partial<Record<JointParam, number>> {
-  const play = (p.count ?? 1) >= 3 ? 6 : 0;
+  const play = DOMINO_DEFAULT_PLAY_MM;
   let sizes = DOMINO_SIZES.filter((s) => (p.thickness === undefined || same(s.thickness_mm, p.thickness)) && (p.length === undefined || same(s.length_mm, p.length)));
   if (!sizes.length) return { fit: play, ...(p.length !== undefined ? { depth: p.length / 2 } : {}) };
   if (p.thickness === undefined) {
@@ -495,8 +499,9 @@ const ENTRIES: JointEntry[] = [
       },
       {
         name: "fit",
-        meaning: "Play along the joint in the host's mortises: 0 cuts them tight, and 6 or 10 is the DF 500's wider setting. The one nearest the front, top or right stays tight to line the joint up",
-        default: "6 for three or more Dominos, else 0",
+        meaning:
+          "Play along the joint in every mortise of the loose piece, which is the host unless the joint's loose says guest. 6 is the DF 500's middle setting and 10 its widest, and the play lets the parts be lined up at glue-up. The other piece's mortises are as wide as the tenon, which locates the joint. 0 cuts both pieces tight",
+        default: "6",
       },
     ],
     defaults: (c) => ({ count: Math.max(1, Math.round(c.guestWidth / 100)) }),
@@ -755,6 +760,11 @@ export const STOP_HELP =
   'It can stop short of one or both edges it runs between, so its end doesn\'t show on a visible edge: give stop, such as {"front": "10"}. ' +
   "The guest keeps its place and size, and its corner is notched to match. Cut it with a router and square the end with a chisel.";
 
+/** Which piece of a Domino joint takes the play, as Claude reads it in the library. */
+export const LOOSE_HELP =
+  'Give loose, "host" or "guest", for the piece whose mortises take the fit as play. It\'s the host when left out. ' +
+  "The other piece's mortises are as wide as the tenon and locate the joint. To change it on a joint, delete_joint it and add it again.";
+
 /** The library as Claude reads it. */
 export function describeJoints(homeWorkshopOnly = true) {
   return ENTRIES.filter((e) => !homeWorkshopOnly || e.home_workshop).map((e) => ({
@@ -769,5 +779,6 @@ export function describeJoints(homeWorkshopOnly = true) {
     changes_sizes: e.changes_sizes,
     params: e.params,
     ...(canStop(e.type) ? { stop: STOP_HELP } : {}),
+    ...(e.type === "domino" ? { loose: LOOSE_HELP } : {}),
   }));
 }
