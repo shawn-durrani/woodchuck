@@ -88,7 +88,7 @@ describe("workshop drawings", () => {
     const written = texts(bottom);
     expect(written).toContain("Make 1");
     expect(written).toContain("Cut to 2000 long × 520 wide × 30 thick");
-    expect(written).toContain("dado 30 wide × 10 deep × 511 long in the top face for partition. At 382 along, 9 up.");
+    expect(written).toContain("dado 30 wide × 10 deep × 511 long in the top face for partition. At 382 to 412 along, 9 to 520 up.");
     expect(dim(bottom, "face", "length", "overall")!.values_mm).toEqual([2000]);
     expect(dim(bottom, "face", "length", "chain")!.values_mm).toEqual([382, 30, 372, 30, 372, 30, 372, 30, 382]);
     expect(dim(bottom, "face", "width", "overall")!.values_mm).toEqual([520]);
@@ -122,9 +122,22 @@ describe("workshop drawings", () => {
 
   it("turns a part over so its machining faces up, as with the right side", () => {
     const right = sheets.find((s) => s.title === "Part 3: Right side")!;
-    expect(texts(right)).toContain("groove 9 wide × 10 deep × 370 long in the left face for back. At 30 along, 511 up.");
+    expect(texts(right)).toContain("groove 9 wide × 10 deep × 370 long in the left face for back. At 30 to 400 along, 511 to 520 up.");
     const left = sheets.find((s) => s.title === "Part 2: Left side")!;
-    expect(texts(left)).toContain("groove 9 wide × 10 deep × 370 long in the right face for back. At 30 along, 0 up.");
+    expect(texts(left)).toContain("groove 9 wide × 10 deep × 370 long in the right face for back. At 30 to 400 along, 0 to 9 up.");
+  });
+
+  it("names each view and the sides it measures from, so a part turned over reads the right way round", () => {
+    // Both sides' grooves sit at the back. The right side is turned over, so
+    // its back edge is at the top of its sheet, and each sheet says which
+    // edge it measures up from.
+    const right = texts(sheets.find((s) => s.title === "Part 3: Right side")!);
+    const left = texts(sheets.find((s) => s.title === "Part 2: Left side")!);
+    expect(right).toEqual(expect.arrayContaining(["Left face", "Front edge", "Top end"]));
+    expect(left).toEqual(expect.arrayContaining(["Right face", "Back edge", "Top end"]));
+    expect(right.join(" ")).toContain("Along is from the bottom end, up from the front edge and in from the left face.");
+    expect(left.join(" ")).toContain("Along is from the bottom end, up from the back edge and in from the right face.");
+    expect(right.concat(left)).not.toContain("Face");
   });
 
   it("lists the top's screw holes in the drilling list, with their centres", () => {
@@ -141,7 +154,7 @@ describe("workshop drawings", () => {
       diameter_mm: 4,
       depth_mm: 30,
       through: true,
-      face: "near face",
+      face: "top face",
     });
     expect(rows[1]!.centres.slice(0, 2)).toEqual(["417 along, 136.8 up", "417 along, 392.3 up"]);
     expect(rows[2]!.centres).toEqual(["15 along, 86.7 up", "15 along, 260 up", "15 along, 433.3 up"]);
@@ -153,8 +166,8 @@ describe("workshop drawings", () => {
     const dowels = jointExample("dowels");
     const rows = drillingList(dowels, derive(dowels));
     expect(rows.map((r) => [r.part, r.face, r.count, r.diameter_mm, r.depth_mm])).toEqual([
-      ["Top", "near face", 2, 8, 16],
-      ["Side", "right end", 2, 8, 16],
+      ["Top", "bottom face", 2, 8, 16],
+      ["Side", "top end", 2, 8, 16],
     ]);
     expect(rows[1]!.centres).toEqual(["45 up, 9 in", "135 up, 9 in"]);
     const pockets = jointExample("pocket_screws");

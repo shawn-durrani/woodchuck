@@ -231,7 +231,7 @@ export function Inspector({
           <div className="card-sub">Machining on this part</div>
           <ul>
             {d.machining.map((m, k) => (
-              <li key={`${m.joint}:${m.label}:${k}`}>{machiningText(m)}</li>
+              <li key={`${m.joint}:${m.label}:${k}`}>{machiningText(m, d, { at: false })}</li>
             ))}
           </ul>
         </>

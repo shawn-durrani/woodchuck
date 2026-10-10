@@ -48,7 +48,7 @@ export function explainPart(d: DeriveResult, id: string): string[] {
     const total = nominal + ext.reduce((s, e) => s + e.depth_mm, 0);
     lines.push(`Cut ${axisName(p, a)} ${fmt(total)} = visible ${fmt(nominal)} + ${extra}`);
   }
-  for (const m of p.machining) lines.push(machiningText(m));
+  for (const m of p.machining) lines.push(machiningText(m, p, { at: false }));
   for (const c of p.profile?.cuts ?? []) {
     lines.push(`Cut ${c.id}: ${c.text}`);
     lines.push(`  ${c.trace}`);

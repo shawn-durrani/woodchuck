@@ -186,6 +186,17 @@ hole's centre or corner in the sheet's own along and up. A part turned over
 for its machining turns its shape over too. The cutting layout still places
 the blanks, and draws each part's outline inside its own.
 
+## A part's sheet names its sides as they sit in the piece
+
+A part's sheet names each side by where it sits in the piece. Its three
+views are labelled with the face, edge and end they show, such as the
+bottom face and the front edge. Its legend says which end, edge and face
+along, up and in are measured from. A part turned over for its machining
+shows its edges the other way up, and its sheet names them as they are.
+Each note gives where a cut starts and ends, along and up, which shows
+the way its long side runs. The cut list names a cut's side the same way,
+so a mortise in the end of a rail is in its end.
+
 ## Claude cuts a part with its own tools
 
 Claude slopes, tapers or chamfers an edge with `set_edge_cut`. It cuts a

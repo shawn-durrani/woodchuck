@@ -8,7 +8,7 @@ import { fmt } from "./expr.js";
 import { dominoSize, housingWord, type JointParam } from "./joints.js";
 import { cornerName, shapeKey } from "./profile.js";
 import { isRunner } from "./runners.js";
-import type { Design } from "./types.js";
+import { FACE_AXIS, type Design, type Face } from "./types.js";
 
 export interface CutRow {
   row: number;
@@ -55,29 +55,43 @@ function counted(count: number | undefined, noun: string): string {
   return `${count ?? "?"} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-/** One line of workshop instructions for a piece of machining. */
-export function machiningText(m: Machining, part?: DerivedPart): string {
+/**
+ * A part's face as the woodworker names it, by where it sits in the piece:
+ * its top face, its front edge or its left end.
+ */
+export function sideName(part: Pick<DerivedPart, "grain_axis" | "width_axis">, face: Face): string {
+  const a = FACE_AXIS[face];
+  return `${face} ${a === part.grain_axis ? "end" : a === part.width_axis ? "edge" : "face"}`;
+}
+
+/**
+ * One line of workshop instructions for a piece of machining. Given its
+ * part, it names the side the cut goes into as that part's end, edge or
+ * face, and says where the cut starts unless `at` is false.
+ */
+export function machiningText(m: Machining, part?: DerivedPart, { at = true }: { at?: boolean } = {}): string {
   const n = (v: number) => fmt(r1(v));
-  const where = part
+  const side = (face: Face) => (part ? sideName(part, face) : `${face} face`);
+  const where = part && at
     ? ` at (${(["x", "y", "z"] as const).map((a) => n(m.region.min[AXIS_INDEX[a]]! - part.box.min[AXIS_INDEX[a]]!)).join(",")})`
     : "";
   switch (m.label) {
     case "screw holes":
-      return `${counted(m.count, "screw hole")}, ${n(m.diameter_mm ?? 4)} mm, through the ${m.face} face for ${m.with}`;
+      return `${counted(m.count, "screw hole")}, ${n(m.diameter_mm ?? 4)} mm, through the ${side(m.face)} for ${m.with}`;
     case "pocket holes":
-      return `${counted(m.count, "pocket hole")} in the ${m.face} face, screwing into ${m.with}`;
+      return `${counted(m.count, "pocket hole")} in the ${side(m.face)}, screwing into ${m.with}`;
     case "dowel holes":
-      return `${counted(m.count, "dowel hole")}, ${n(m.diameter_mm ?? 8)} mm × ${n(m.depth_mm)} deep, in the ${m.face} face for ${m.with}`;
+      return `${counted(m.count, "dowel hole")}, ${n(m.diameter_mm ?? 8)} mm × ${n(m.depth_mm)} deep, in the ${side(m.face)} for ${m.with}`;
     case "through slot":
       return `through slot ${n(m.width_mm)} × ${n(m.length_mm)}, right through ${n(m.depth_mm)}, for ${m.with}${where}`;
     case "open slot":
       return `open slot (bridle) ${n(m.width_mm)} × ${n(m.length_mm)} from the ${m.open_end ?? "?"} end, right through ${n(m.depth_mm)}, for ${m.with}${where}`;
     case "half lap":
-      return `half lap ${n(m.width_mm)} × ${n(m.length_mm)} × ${n(m.depth_mm)} deep in the ${m.face} face for ${m.with}${where}`;
+      return `half lap ${n(m.width_mm)} × ${n(m.length_mm)} × ${n(m.depth_mm)} deep in the ${side(m.face)} for ${m.with}${where}`;
     case "box joint fingers":
       return `${counted(m.count, "box joint slot")}, ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep, for ${m.with}`;
     case DOMINO_MORTISE:
-      return `Domino mortise ${n(m.width_mm)} wide × ${n(m.length_mm)} long × ${n(m.depth_mm)} deep, ${m.play_mm ? `${n(m.play_mm)} mm play` : "tight"}, in the ${m.face} face for ${m.with}${where}`;
+      return `Domino mortise ${n(m.width_mm)} wide × ${n(m.length_mm)} long × ${n(m.depth_mm)} deep, ${m.play_mm ? `${n(m.play_mm)} mm play` : "tight"}, in the ${side(m.face)} for ${m.with}${where}`;
     case "tenon":
     case "tongue":
       return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end${m.flush ? `, flush with the ${m.flush} face` : ""}, into ${m.with}`;
@@ -85,7 +99,7 @@ export function machiningText(m: Machining, part?: DerivedPart): string {
       return `notch ${n(m.length_mm)} × ${n(m.width_mm)} out of the ${cornerName(m.corner ? [m.corner, m.face] : [m.face])} corner, to fit the stopped ${housingWord(m.type)} in ${m.with}${where}`;
     default: {
       const stopped = m.stop_mm ? `, stopped ${stopWords(m.stop_mm)}` : "";
-      return `${m.label} ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep × ${n(m.length_mm)} long in the ${m.face} face for ${m.with}${where}${stopped}`;
+      return `${m.label} ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep × ${n(m.length_mm)} long in the ${side(m.face)} for ${m.with}${where}${stopped}`;
     }
   }
 }

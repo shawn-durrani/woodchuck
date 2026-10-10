@@ -64,6 +64,9 @@ plan views are held to the side's true outline from each side, to holes
 drawn open by the even-odd rule, and to walls hidden behind wood left out.
 The workshop drawings are held to the slope's angle, the height at each
 end, each hole's place and size, and a part turned over for its machining.
+The record console's two sides have their grooves at the back. One is
+turned over, so the tests hold each sheet to naming its views and the edge
+it measures up from.
 The views, the drawings and their PDF of every example with no cuts have to
 match fixed digests.
 

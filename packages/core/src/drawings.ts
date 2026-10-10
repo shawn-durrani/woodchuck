@@ -19,12 +19,12 @@
 import { runChecks } from "./checks.js";
 import { AXIS_INDEX, type Box, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
 import { JOINT_LIBRARY } from "./joints.js";
-import { cutList, machiningText, machiningWith, roundCut, type CutList, type CutRow } from "./cutlist.js";
+import { cutList, machiningText, machiningWith, roundCut, sideName, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
 import { cutLayout, ripped, rowBoards, type CutLayout, type StockPiece } from "./layout.js";
 import { cutOutline } from "./profile.js";
 import { signedArea, sliceIntervals, type Loop, type Pt } from "./shape.js";
-import { AXES, FACE_AXIS, FACE_IS_MAX, type Axis, type Design, type Face } from "./types.js";
+import { AXES, AXIS_FACES, FACE_AXIS, FACE_IS_MAX, type Axis, type Design, type Face } from "./types.js";
 import { HARDWARE_MATERIAL, hardwareParts, paintOrder, partFaces, projectPoint, type ViewName } from "./views.js";
 
 export type Paper = "A4" | "A3";
@@ -109,7 +109,7 @@ export interface DrillRow {
   depth_mm: number;
   /** True when the hole runs right through the part. */
   through: boolean;
-  /** In the part drawing's words, such as "near face" or "left end". */
+  /** The side it's drilled into, as the part sits in the piece, such as "top face" or "left end". */
   face: string;
   /** Each hole's centre on the part drawing, such as "409 along, 132 up". */
   centres: string[];
@@ -564,8 +564,9 @@ function pickScale(fits: (scale: number) => boolean): number {
  * A part laid flat on the bench. X runs along its length from the left end,
  * Y up its width from the bottom edge, and Z up through its thickness from
  * the face underneath. The face you look down on is the one with the most
- * machining, so a part is turned over end to end when its work is
- * underneath.
+ * machining, so a part is rolled over along its length when its work is
+ * underneath. That swaps which edge is nearest you, so the sheet names each
+ * side by where it sits in the piece.
  */
 interface Frame {
   part: DerivedPart;
@@ -614,13 +615,25 @@ function frameAxis(f: Frame, a: Axis): 0 | 1 | 2 {
   return a === f.L ? 0 : a === f.W ? 1 : 2;
 }
 
-/** A world face in the part drawing's words. */
-function faceName(f: Frame, face: Face): string {
-  const a = FACE_AXIS[face];
-  const max = FACE_IS_MAX[face];
-  if (a === f.L) return max ? "right end" : "left end";
-  if (a === f.W) return max !== f.flip ? "top edge" : "bottom edge";
-  return max !== f.flip ? "near face" : "far face";
+/** The face of the piece at one side of the drawn part: the low or high side of its length (0), width (1) or thickness (2). */
+function frameFace(f: Frame, k: 0 | 1 | 2, high: boolean): Face {
+  const axis = [f.L, f.W, f.T][k]!;
+  return AXIS_FACES[axis][(k === 0 ? high : high !== f.flip) ? 1 : 0];
+}
+
+/** Each view's side of the piece, named as it sits there: the face view's face, the edge view's edge and the end view's end. */
+function viewSides(f: Frame) {
+  return {
+    face: frameFace(f, 2, true),
+    edge: frameFace(f, 1, false),
+    end: frameFace(f, 0, true),
+  };
+}
+
+/** Where a part sheet measures from, named as the part sits in the piece. */
+function positionsText(f: Frame): string {
+  const side = (k: 0 | 1 | 2, high: boolean) => sideName(f.part, frameFace(f, k, high));
+  return `Along is from the ${side(0, false)}, up from the ${side(1, false)} and in from the ${side(2, true)}.`;
 }
 
 const FASTENER_LABELS = new Set(["screw holes", "dowel holes", "pocket holes"]);
@@ -669,7 +682,6 @@ function centreText(f: Frame, drill: 0 | 1 | 2, c: Vec3): string {
   return `${num(c[1])} up, ${inFrom} in`;
 }
 
-const POSITIONS = "Along is from the left end, up from the bottom edge and in from the near face, on the face view.";
 
 // ---------------------------------------------------------------------------
 // A part's shape, on its sheet
@@ -774,7 +786,7 @@ function shapeInFrame(f: Frame): FrameShape | null {
     const [from, to] = turned ? [b, a] : [a, b];
     const out: P = [(to[1] - from[1]) / l, (from[0] - to[0]) / l];
     const [left, right] = a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]) ? [a, b] : [b, a];
-    slopes.push({ a: left, b: right, side: faceName(f, face), angle_deg: (Math.atan(rise / run) * 180) / Math.PI, run_mm: run, rise_mm: rise, out });
+    slopes.push({ a: left, b: right, side: sideName(p, face), angle_deg: (Math.atan(rise / run) * 180) / Math.PI, run_mm: run, rise_mm: rise, out });
   });
   return { outline, holes, loops: [outline, ...holes.map((h) => h.pts)], corners: cornersOf(outline), slopes };
 }
@@ -851,9 +863,9 @@ function seenLines(s: FrameShape, look: 0 | 1): number[] {
   return uniqueSorted(out);
 }
 
-/** What to cut, in the cut list's words, and where on this drawing. */
+/** What to cut, in the cut list's words, and where it runs on this drawing, from one side to the other on each axis. */
 function noteText(f: Frame, m: Machining, d: DeriveResult): string {
-  const what = machiningText({ ...m, with: machiningWith(m) });
+  const what = machiningText({ ...m, with: machiningWith(m) }, f.part, { at: false });
   if (FASTENER_LABELS.has(m.label)) {
     const drill = frameAxis(f, FACE_AXIS[m.face]);
     const centres = centresInFrame(f, m, d).map((c) => centreText(f, drill, c));
@@ -861,9 +873,8 @@ function noteText(f: Frame, m: Machining, d: DeriveResult): string {
   }
   const b = boxInFrame(f, m.region);
   const near = b.max[2] >= f.size.T - EPS;
-  const far = b.min[2] <= EPS;
-  const depth = near ? "" : far ? ", on the far face" : `, ${num(f.size.T - b.max[2])} in`;
-  return `${what}. At ${num(b.min[0])} along, ${num(b.min[1])} up${depth}.`;
+  const depth = near ? "" : `, ${num(f.size.T - b.max[2])} to ${num(f.size.T - b.min[2])} in`;
+  return `${what}. At ${num(b.min[0])} to ${num(b.max[0])} along, ${num(b.min[1])} to ${num(b.max[1])} up${depth}.`;
 }
 
 function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
@@ -897,7 +908,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const noteW = area.w - 8;
   const noteLines = notes.map((n) => wrap(n, noteW, TEXT));
   const standing = part.machining.some((m) => LEFT_STANDING.has(m.label)) ? " An outline at an end is a tenon or tongue." : "";
-  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${POSITIONS}`, area.w, TEXT);
+  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${positionsText(f)}`, area.w, TEXT);
   const notesH = (notes.length ? 5 + noteLines.reduce((s, l) => s + l.length * 3.6 + 0.8, 0) : 5) + legend.length * 3.6 + 2;
   const bottom = area.y + area.h - notesH;
 
@@ -947,8 +958,8 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const ny = fy;
 
   // Paper positions for each view. The face view is X across and Y up. The
-  // edge view looks at the bottom edge, with the near face at the top. The
-  // end view looks at the right end, with the near face on the left.
+  // edge view looks at the face view's bottom edge, with the face at the
+  // top. The end view looks at the right end, with the face on the left.
   const face = (x: number, y: number): [number, number] => [fx + x / s, fy + (W - y) / s];
   const edge = (x: number, zz: number): [number, number] => [ex + x / s, ey + (T - zz) / s];
   const end = (zz: number, y: number): [number, number] => [nx + (T - zz) / s, ny + (W - y) / s];
@@ -999,12 +1010,12 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
       }
     }
   }
+  const looks = viewSides(f);
   for (const h of holes) {
     const r = Math.max(0.6, h.m.diameter_mm ?? 4) / 2 / s;
-    const name = faceName(f, h.m.face);
+    const shows = h.m.face === (h.drill === 2 ? looks.face : h.drill === 1 ? looks.edge : looks.end);
     for (const c of h.at) {
       const [x, y] = h.drill === 2 ? face(c[0], c[1]) : h.drill === 1 ? edge(c[0], c[2]) : end(c[2], c[1]);
-      const shows = h.drill === 2 ? name === "near face" : h.drill === 1 ? name === "bottom edge" : name === "right end";
       pen.circle(x, y, Math.max(r, 0.4), shows ? { stroke_mm: THIN, fill: "#ffffff" } : { stroke_mm: FINE, dashed: true });
       if (shows) {
         pen.line(x - r - 0.6, y, x + r + 0.6, y, FINE);
@@ -1069,10 +1080,14 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   dimRow(pen, "left", ex, rowAt(ex, "left", 0), [edge(0, 0)[1], edge(0, T)[1]], [row.thickness_mm]);
   sheet.dims.push({ view: "edge", along: "thickness", kind: "overall", values_mm: [row.thickness_mm] });
 
-  const label = (x: number, y: number, text: string) => pen.text(x, y, text, { size_mm: 3, anchor: "middle", bold: true });
-  label(fx + L / s / 2, fy + W / s + 5.5, "Face");
-  label(ex + L / s / 2, ey + T / s + 5.5, "Edge");
-  label(nx + T / s / 2, ny + W / s + 5.5, "End");
+  // Each view is named for the side of the piece it shows, so a part rolled over can't be read the wrong way round.
+  const label = (x: number, y: number, face: Face) => {
+    const text = sideName(part, face);
+    pen.text(x, y, text[0]!.toUpperCase() + text.slice(1), { size_mm: 3, anchor: "middle", bold: true });
+  };
+  label(fx + L / s / 2, fy + W / s + 5.5, looks.face);
+  label(ex + L / s / 2, ey + T / s + 5.5, looks.edge);
+  label(nx + T / s / 2, ny + W / s + 5.5, looks.end);
 
   // Notes and the legend.
   let y = bottom + 4;
@@ -1236,7 +1251,7 @@ export function drillingList(design: Design, d: DeriveResult, list: CutList = cu
       const drillAxis = FACE_AXIS[m.face];
       const drill = frameAxis(f, drillAxis);
       const extent = [f.size.L, f.size.W, f.size.T][drill]!;
-      const face = faceName(f, m.face);
+      const face = sideName(part, m.face);
       const other = machiningWith(m);
       const diameter_mm = roundCut(m.diameter_mm ?? 4);
       const depth_mm = roundCut(m.depth_mm);
@@ -1277,7 +1292,7 @@ function drillingSheets(rows: DrillRow[], paper: Paper, sheetOf: Map<number, num
     "Drilling list",
     [
       "Every screw, dowel and pocket hole, from each part's machining. Sizes are in mm, to 0.1 mm as in the cut list.",
-      `Centres are measured on each part's sheet. ${POSITIONS}`,
+      "Centres are measured as on each part's sheet, from the end, edge and face it names.",
     ],
     [
       { head: "Part", weight: 24 },
