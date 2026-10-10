@@ -71,6 +71,8 @@ export interface SheetDim {
   openings_mm?: number[];
   /** A slope's angle to the edge or end it was cut from. */
   angle_deg?: number;
+  /** The n in 1:n, for a detail drawn larger than its sheet. */
+  scale?: number;
 }
 
 export interface Sheet {
@@ -299,18 +301,63 @@ function dimRow(pen: Pen, side: Side, edge_mm: number, line_mm: number, at_mm: n
       pen.line(line_mm - 1, p + 1, line_mm + 1, p - 1, OUTLINE);
     }
   }
-  let lifted = false;
+  const places = numberPlaces(at_mm, values_mm);
   values_mm.forEach((v, i) => {
     const text = num(v);
-    const a = at_mm[i]!;
-    const b = at_mm[i + 1]!;
-    const narrow = textWidth_mm(text, TEXT) > Math.abs(b - a) - 1;
-    const lift = narrow && !lifted ? 3 : 0;
-    lifted = lift > 0;
-    const mid = (a + b) / 2;
+    const { place } = places[i]!;
+    const lift = place === "lift" ? 3 : 0;
+    let mid = (at_mm[i]! + at_mm[i + 1]!) / 2;
+    if (place === "before" || place === "after") {
+      // Written just past the row's end, with the line run out under it.
+      const [from, toward] = place === "before" ? [at_mm[0]!, at_mm[1]!] : [at_mm[at_mm.length - 1]!, at_mm[at_mm.length - 2]!];
+      const out = from > toward ? 1 : -1;
+      const w = textWidth_mm(text, TEXT);
+      mid = from + out * (1.2 + w / 2);
+      const tip = from + out * (1.7 + w);
+      if (across) pen.line(from, line_mm, tip, line_mm);
+      else pen.line(line_mm, from, line_mm, tip);
+    }
     if (across) pen.text(mid, line_mm - 1 - lift, text, { anchor: "middle" });
     else pen.text(line_mm - 1 - lift, mid, text, { anchor: "middle", vertical: true });
   });
+}
+
+/** Where a number goes in its row: on the line, lifted clear of its neighbours, or just past either end. */
+type NumberPlace = "on" | "lift" | "before" | "after";
+
+/**
+ * Where a row of dimensions puts each number. One too wide for its gap is
+ * lifted clear of its neighbours, but never two in a row. When the first
+ * or last two gaps are both narrow, the outer one's number goes past the
+ * row's end. Two narrow gaps in a row anywhere else are crowded, and their
+ * numbers print over each other.
+ */
+function numberPlaces(at_mm: number[], values_mm: number[]): { place: NumberPlace; crowded: boolean }[] {
+  const n = values_mm.length;
+  const narrow = values_mm.map((v, i) => textWidth_mm(num(v), TEXT) > Math.abs(at_mm[i + 1]! - at_mm[i]!) - 1);
+  const out = values_mm.map(() => ({ place: "on" as NumberPlace, crowded: false }));
+  if (n > 1 && narrow[0] && narrow[1]) out[0]!.place = "before";
+  if (n > 2 && narrow[n - 1] && narrow[n - 2]) out[n - 1]!.place = "after";
+  let lifted = false;
+  for (let i = 0; i < n; i++) {
+    if (!narrow[i] || out[i]!.place !== "on") {
+      lifted = false;
+      continue;
+    }
+    if (lifted) {
+      out[i]!.crowded = out[i - 1]!.crowded = true;
+      lifted = false;
+    } else {
+      out[i]!.place = "lift";
+      lifted = true;
+    }
+  }
+  return out;
+}
+
+/** True when a row of dimensions, at these places on paper, prints a number over another. */
+function crowdedRow(at_mm: number[]): boolean {
+  return numberPlaces(at_mm, gapsBetween(at_mm)).some((p) => p.crowded);
 }
 
 /** Rounded points along a run, each once. */
@@ -554,6 +601,129 @@ function corners(b: Box): Vec3[] {
 /** The largest standard scale that fits, or the smallest when none does. */
 function pickScale(fits: (scale: number) => boolean): number {
   return DRAWING_SCALES.find(fits) ?? DRAWING_SCALES[DRAWING_SCALES.length - 1]!;
+}
+
+// ---------------------------------------------------------------------------
+// Details
+// ---------------------------------------------------------------------------
+
+/** Machining this close on paper is one spot, drawn in one detail. */
+const DETAIL_JOIN_MM = 8;
+/** The wood a detail shows past its machining, on paper. */
+const DETAIL_PAD_MM = 6;
+
+/** A piece of machining on a part's face view, in mm along and up the part. */
+interface DetailItem {
+  lo: number;
+  hi: number;
+  ylo: number;
+  yhi: number;
+  /** It's cut into the face the view shows, rather than out of sight. */
+  shows: boolean;
+  /** It runs the part's whole length, so it crosses every detail. */
+  full: boolean;
+}
+
+/**
+ * A spot on a part whose sizes are too small to read at the sheet's scale,
+ * drawn again larger. Spots drawn the same share one detail.
+ */
+interface Detail {
+  letter: string;
+  lo: number;
+  hi: number;
+  /** It runs to the part's left or right end, which the detail then shows. */
+  left: boolean;
+  right: boolean;
+  /** The places along the part and up its width that the detail's chains give. */
+  along: number[];
+  up: number[];
+  /** Where each spot drawn this way starts along the part. */
+  starts: number[];
+  key: string;
+}
+
+/**
+ * Which spots a part sheet draws again as details at scale 1:s, and the
+ * chains its main view keeps, or null when every number reads where it is.
+ * A crowded width chain sends every spot to a detail, and the main view
+ * keeps the overall width. A crowded length chain sends the spots it
+ * touches. The main view keeps where each of those starts.
+ */
+function planDetails(L: number, W: number, s: number, items: DetailItem[], chainX: number[] | null, chainY: number[] | null) {
+  const crowded = (at: number[] | null) => (at ? numberPlaces(at.map((v) => v / s), gapsBetween(at)).map((p) => p.crowded) : []);
+  const cx = crowded(chainX);
+  const cy = crowded(chainY);
+  if (!cx.includes(true) && !cy.includes(true)) return null;
+  const join = DETAIL_JOIN_MM * s;
+  const runs: { lo: number; hi: number; items: DetailItem[] }[] = [];
+  for (const it of items.filter((i) => !i.full).sort((a, b) => a.lo - b.lo)) {
+    const last = runs[runs.length - 1];
+    if (last && it.lo - last.hi < join) {
+      last.hi = Math.max(last.hi, it.hi);
+      last.items.push(it);
+    } else runs.push({ lo: it.lo, hi: it.hi, items: [it] });
+  }
+  const full = items.filter((i) => i.full);
+  if (!runs.length && full.length) runs.push({ lo: 0, hi: 0, items: [] });
+  const spots = runs.map((r) => {
+    const left = r.lo < join;
+    const right = L - r.hi < join;
+    const along = uniqueSorted([...(left ? [0] : []), ...r.items.flatMap((i) => [i.lo, i.hi]), ...(right ? [L] : [])].map(roundCut));
+    const up = uniqueSorted([0, W, ...[...r.items, ...full].flatMap((i) => [i.ylo, i.yhi])].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut));
+    const shape = r.items.map((i) => [roundCut(i.lo - r.lo), roundCut(i.hi - r.lo), roundCut(i.ylo), roundCut(i.yhi), i.shows]);
+    const key = JSON.stringify([left ? roundCut(r.lo) : null, right ? roundCut(L - r.hi) : null, shape]);
+    return { lo: r.lo, hi: r.hi, left, right, along, up, key };
+  });
+  const touches = (sp: (typeof spots)[number], p: number) => (p >= sp.lo - EPS && p <= sp.hi + EPS) || (p <= EPS && sp.left) || (p >= L - EPS && sp.right);
+  const picked = cy.includes(true) ? spots : spots.filter((sp) => cx.some((c, i) => c && (touches(sp, chainX![i]!) || touches(sp, chainX![i + 1]!))));
+  if (!picked.length) return null;
+  const details: Detail[] = [];
+  for (const sp of picked) {
+    const same = details.find((x) => x.key === sp.key);
+    if (same) same.starts.push(sp.lo);
+    else details.push({ ...sp, letter: String.fromCharCode(65 + details.length), starts: [sp.lo] });
+  }
+  const mainX = chainX?.filter((p) => !picked.some((sp) => p > sp.lo + EPS && p <= sp.hi + EPS && p < L - EPS)) ?? null;
+  return { mainX: mainX && mainX.length > 2 ? mainX : null, mainY: cy.includes(true) ? null : chainY, details };
+}
+
+/** What a detail's label says. */
+const detailLabel = (dt: Detail, ds: number) => `Detail ${dt.letter}, 1:${ds}${dt.starts.length > 1 ? `, ${dt.starts.length} places` : ""}`;
+
+/** Where a detail runs along the part at 1:ds, and the room it takes on paper. */
+function detailBox(dt: Detail, ds: number, L: number, W: number) {
+  const pad = DETAIL_PAD_MM * ds;
+  const w0 = dt.left ? 0 : Math.max(0, dt.lo - pad);
+  const w1 = dt.right ? L : Math.min(L, dt.hi + pad);
+  const top = dt.along.length > 1 ? dimMargin(1) : 2;
+  const left = dimMargin(1);
+  const face = (w1 - w0) / ds;
+  // The label starts at the detail's left edge, clear of its width chain.
+  const w = left + Math.max(face, textWidth_mm(detailLabel(dt, ds), 3, true)) + 4;
+  return { w0, w1, top, left, face, w, h: top + W / ds + LABEL };
+}
+
+/**
+ * The scale for a sheet's row of details: the largest, drawn bigger than
+ * the sheet, at which every number in them reads and the row fits the room
+ * left. One that fits with a crowded number is the fallback, and null means
+ * no scale fits.
+ */
+function detailRow(details: Detail[], s: number, L: number, W: number, room_w: number, room_h: number) {
+  let fallback: ReturnType<typeof rowAt> | null = null;
+  function rowAt(ds: number) {
+    const boxes = details.map((dt) => detailBox(dt, ds, L, W));
+    return { ds, boxes, w: boxes.reduce((t, b) => t + b.w, 0) + 10 * (boxes.length - 1), h: Math.max(...boxes.map((b) => b.h)) };
+  }
+  for (const ds of DRAWING_SCALES.filter((x) => x < s)) {
+    const r = rowAt(ds);
+    if (r.w > room_w || r.h > room_h) continue;
+    const reads = details.every((dt) => !crowdedRow(dt.along.map((v) => v / ds)) && !crowdedRow(dt.up.map((v) => v / ds)));
+    if (reads) return r;
+    fallback ??= r;
+  }
+  return fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -990,16 +1160,53 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const chainRight = rightEnd.length > 2 ? rightEnd : null;
 
   const GAP = 10;
-  const marginTop = dimMargin((chainX ? 1 : 0) + 1);
-  const marginLeft = Math.max(dimMargin((chainY ? 1 : 0) + 1), dimMargin(1));
   // The right end's chain sits between the face view and the end view.
   const gapRight = chainRight ? dimMargin(1) + 3 : GAP;
-  const size = (s: number) => ({ w: marginLeft + L / s + gapRight + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL });
-  const s = pickScale((scale) => size(scale).w <= area.w && size(scale).h <= bottom - top);
+  // Machining on the face view, for the details of spots too small to read.
+  const items: DetailItem[] = [
+    ...regions.map(({ b }) => ({ lo: b.min[0], hi: b.max[0], ylo: b.min[1], yhi: b.max[1], shows: b.max[2] >= T - EPS, full: b.max[0] - b.min[0] >= L - EPS })),
+    ...holes.filter((h) => h.drill === 2).flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], shows: true, full: false }))),
+  ];
+  const layoutAt = (s: number, details: boolean) => {
+    const plan = details && !shape ? planDetails(L, W, s, items, chainX, chainY) : null;
+    const cX = plan ? plan.mainX : chainX;
+    const cY = plan ? plan.mainY : chainY;
+    const marginTop = dimMargin((cX ? 1 : 0) + 1);
+    const marginLeft = Math.max(dimMargin((cY ? 1 : 0) + 1), dimMargin(1));
+    return { s, plan, chainX: cX, chainY: cY, marginTop, marginLeft, w: marginLeft + L / s + gapRight + T / s + 2, h: marginTop + W / s + GAP + T / s + LABEL };
+  };
+  const fits = (z: { w: number; h: number }) => z.w <= area.w && z.h <= bottom - top;
+  // The largest scale that fits, with a row of details under the views
+  // where numbers would print over each other, at the largest scale that
+  // leaves room for them.
+  let chosen: ReturnType<typeof layoutAt> | undefined;
+  let shelf: ReturnType<typeof detailRow> = null;
+  // The main view keeps the scale it would have, or goes one step smaller to make room.
+  const natural = DRAWING_SCALES.findIndex((scale) => fits(layoutAt(scale, false)));
+  for (const scale of natural < 0 ? [] : DRAWING_SCALES.slice(natural, natural + 2)) {
+    const z = layoutAt(scale, true);
+    if (!fits(z)) continue;
+    if (!z.plan) {
+      chosen = z;
+      break;
+    }
+    shelf = detailRow(z.plan.details, scale, L, W, area.w, bottom - top - z.h - GAP);
+    if (shelf) {
+      chosen = z;
+      break;
+    }
+  }
+  chosen ??= layoutAt(
+    pickScale((scale) => fits(layoutAt(scale, false))),
+    false,
+  );
+  const { s, marginTop, marginLeft } = chosen;
+  const mainX = chosen.chainX;
+  const mainY = chosen.chainY;
   sheet.scale = s;
-  const z = size(s);
-  const fx = area.x + marginLeft + Math.max(0, (area.w - z.w) / 2);
-  const fy = top + marginTop + Math.max(0, (bottom - top - z.h) / 2);
+  const groupH = chosen.h + (shelf ? GAP + shelf.h : 0);
+  const fx = area.x + marginLeft + Math.max(0, (area.w - chosen.w) / 2);
+  const fy = top + marginTop + Math.max(0, (bottom - top - groupH) / 2);
   const ex = fx;
   const ey = fy + W / s + GAP;
   const nx = fx + L / s + gapRight;
@@ -1104,17 +1311,17 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const faceTop = fy;
   const faceLeft = fx;
   let n = 0;
-  if (chainX) {
-    const values = gapsBetween(chainX);
-    dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n++), chainX.map((x) => face(x, W)[0]), values);
+  if (mainX) {
+    const values = gapsBetween(mainX);
+    dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n++), mainX.map((x) => face(x, W)[0]), values);
     sheet.dims.push({ view: "face", along: "length", kind: "chain", values_mm: values });
   }
   dimRow(pen, "above", faceTop, rowAt(faceTop, "above", n), [face(0, W)[0], face(L, W)[0]], [row.length_mm]);
   sheet.dims.push({ view: "face", along: "length", kind: "overall", values_mm: [row.length_mm] });
   n = 0;
-  if (chainY) {
-    const values = gapsBetween(chainY);
-    dimRow(pen, "left", faceLeft, rowAt(faceLeft, "left", n++), chainY.map((y) => face(0, y)[1]), values);
+  if (mainY) {
+    const values = gapsBetween(mainY);
+    dimRow(pen, "left", faceLeft, rowAt(faceLeft, "left", n++), mainY.map((y) => face(0, y)[1]), values);
     sheet.dims.push({ view: "face", along: "width", kind: "chain", values_mm: values });
   }
   dimRow(pen, "left", faceLeft, rowAt(faceLeft, "left", n), [face(0, 0)[1], face(0, W)[1]], [row.width_mm]);
@@ -1136,6 +1343,75 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   label(fx + L / s / 2, fy + W / s + 5.5, looks.face);
   label(ex + L / s / 2, ey + T / s + 5.5, looks.edge);
   label(nx + T / s / 2, ny + W / s + 5.5, looks.end);
+
+  // Each detail: the spot drawn larger in a row under the views, with all
+  // its sizes, and a dashed circle and its letter round each place on the
+  // face view it shows.
+  if (chosen.plan && shelf) {
+    const ds = shelf.ds;
+    let x = area.x + Math.max(0, (area.w - shelf.w) / 2);
+    const rowTop = fy - marginTop + chosen.h + GAP;
+    chosen.plan.details.forEach((dt, i) => {
+      const box = shelf!.boxes[i]!;
+      const dx = x + box.left;
+      const dy = rowTop + box.top;
+      const at = (xx: number, yy: number): [number, number] => [dx + (xx - box.w0) / ds, dy + (W - yy) / ds];
+      const [x0, y0] = at(box.w0, W);
+      const [x1, y1] = at(box.w1, 0);
+      pen.line(x0, y0, x1, y0, OUTLINE);
+      pen.line(x0, y1, x1, y1, OUTLINE);
+      const side = (xx: number, whole: boolean) => {
+        if (whole) return pen.line(xx, y0, xx, y1, OUTLINE);
+        // A break line where the detail cuts the part off.
+        const m = (y0 + y1) / 2;
+        const a = Math.min(1.5, (y1 - y0) / 4);
+        pen.line(xx, y0 - 1, xx, m - a, THIN);
+        pen.line(xx, m - a, xx + 1.2, m - a / 3, THIN);
+        pen.line(xx + 1.2, m - a / 3, xx - 1.2, m + a / 3, THIN);
+        pen.line(xx - 1.2, m + a / 3, xx, m + a, THIN);
+        pen.line(xx, m + a, xx, y1 + 1, THIN);
+      };
+      side(x0, box.w0 <= EPS);
+      side(x1, box.w1 >= L - EPS);
+      for (const pass of [false, true]) {
+        for (const { m, b } of regions) {
+          if ((b.max[2] >= T - EPS) !== pass) continue;
+          const lo = Math.max(b.min[0], box.w0);
+          const hi = Math.min(b.max[0], box.w1);
+          if (hi - lo < EPS) continue;
+          const standing = LEFT_STANDING.has(m.label);
+          pen.rect(...rectOf(at(lo, b.min[1]), at(hi, b.max[1])), pass ? { stroke_mm: standing ? OUTLINE : THIN, ...(standing ? {} : { fill: CUT_AWAY }) } : { stroke_mm: FINE, dashed: true });
+        }
+      }
+      for (const h of holes) {
+        if (h.drill !== 2) continue;
+        const shows = h.m.face === looks.face;
+        for (const c of h.at) {
+          if (c[0] < box.w0 - EPS || c[0] > box.w1 + EPS) continue;
+          const [cx, cy] = at(c[0], c[1]);
+          pen.circle(cx, cy, Math.max(0.4, Math.max(0.6, h.m.diameter_mm ?? 4) / 2 / ds), shows ? { stroke_mm: THIN, fill: "#ffffff" } : { stroke_mm: FINE, dashed: true });
+        }
+      }
+      if (dt.along.length > 1) {
+        const values = gapsBetween(dt.along);
+        dimRow(pen, "above", y0, y0 - DIM_FIRST, dt.along.map((v) => at(v, W)[0]), values);
+        sheet.dims.push({ view: `detail ${dt.letter}`, along: "length", kind: "chain", values_mm: values, scale: ds });
+      }
+      const ups = gapsBetween(dt.up);
+      dimRow(pen, "left", x0, x0 - DIM_FIRST, dt.up.map((v) => at(box.w0, v)[1]), ups);
+      sheet.dims.push({ view: `detail ${dt.letter}`, along: "width", kind: "chain", values_mm: ups, scale: ds });
+      pen.text(x0, y1 + 5.5, detailLabel(dt, ds), { size_mm: 3, bold: true });
+      for (const st of dt.starts) {
+        const a0 = dt.left ? 0 : st;
+        const a1 = dt.right ? L : st + dt.hi - dt.lo;
+        const [cx, cy] = face((a0 + a1) / 2, W / 2);
+        const r = Math.max(3, Math.hypot((a1 - a0) / s, W / s) / 2 + 1.5);
+        pen.circle(cx, cy, r, { stroke_mm: FINE, dashed: true });
+        pen.text(cx + r + 0.8, cy + 1, dt.letter, { size_mm: 3, bold: true });
+      }
+      x += box.w + GAP;
+    });
+  }
 
   // Notes and the legend.
   let y = bottom + 4;

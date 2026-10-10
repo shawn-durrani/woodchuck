@@ -94,25 +94,26 @@ describe("the drawings PDF", () => {
 
 // The PDF of every example, as main wrote it before shapes were drawn. The
 // drawings gained the cutting plan and the cut list's Board column with #78,
-// and named each part's sides as they sit in the piece with #80.
+// and named each part's sides as they sit in the piece with #80. A narrow
+// gap at either end of a row writes its number past the end since #86.
 const BEFORE_SHAPES: Record<string, string> = {
-  "record console": "ae72befd22dc9c4a79721ae711cb5237be62f3e2a34f9366deb30ef44fd77b09",
+  "record console": "92453dd1db3408727fe81f9d35c8e67e2f8e9aed1b5b668e45ff63b542280c35",
   butt: "e9629fa333142c64ba52a3f2bba474f5026a710145e60da8ce60b3d73fdae830",
   screws: "ce206032ca47506c07879a1703a76d05a5a83a046dd3a7912e39c0a5ad0ae889",
   pocket_screws: "3209c886b2591ef45146ec84a5d75ce45382aa55754542d4d1aa11f28332bf3f",
   dowels: "ffdfa3bf62672f222be29393bb6c0e12459decc62f890bb8cc987f2c6a8a49ed",
   // Added with the joint, after shapes were drawn.
-  domino: "7b58d029cd9114cb1fba7a15074490be1b05bb15d0d8748cd9b06176594d81e5",
+  domino: "93fd1e216e8ede1e6e4bc79b021971935a21ec757f16bee2e690652bdf137294",
   dado: "cf68edb11e2fb40ff1a2475ece4b98e5f42bf3b8edb4fe61e38843957a62a52e",
-  groove: "9634c408c380a69bdbfc1ea10384cb7a4bdcc3cf83a7d735df2d0e18661f9687",
+  groove: "c6fb06fcfff8103fcc7e8a268fa8caed598d6ea150ab3d3dfaa9283b1dff00dc",
   rabbet: "4bbdb1b2d9a242313fa4411ad9a93457a465f39414be6e08a2d68d727af0acc2",
   tongue: "f8664d44315162cd9f38721935dcfb29de8aa65b634ab252f7aa81e976372b8c",
   // Added with the joint, after shapes were drawn.
   dado_rabbet: "bbf3d20679d9b0408864e4d7b94a6aa72633d7604f21adb8d304a55337663095",
-  mortise_tenon: "bb58e4e59e491f900f88fd24ced29c8bcd9c6e5273414e686c2bdf046d213327",
+  mortise_tenon: "1a324cc4e6b71f8df91ae87e8c4e1373d3f12c17dbd0e8035d89f2d4a5ad229d",
   half_lap: "4ea7edb65591a4a381a32b62550d098d845045b4f81416d60a169f27e7e4ea40",
   box_joint: "fca517d06aac7e821db09010fc4689e5586c65c7a3d6e000376673f5b9a091c8",
-  through_slot: "f518d18f28182dceebac7d83a6c3ac15426712ae4486b80efb71920ea2006a97",
+  through_slot: "8426c1235bbf5b204c1eda2d2af7d7c6a541a67de24eb33988aa03910465593f",
 };
 
 describe("drawings of a design with no cuts", () => {
