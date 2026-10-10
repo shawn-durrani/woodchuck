@@ -95,7 +95,9 @@ describe("the drawings PDF", () => {
 // The PDF of every example, as main wrote it before shapes were drawn. The
 // drawings gained the cutting plan and the cut list's Board column with #78,
 // and named each part's sides as they sit in the piece with #80. A narrow
-// gap at either end of a row writes its number past the end since #86.
+// gap at either end of a row writes its number past the end since #86. The
+// Domino example's mortises changed with #89, when every one in the host
+// took the play.
 const BEFORE_SHAPES: Record<string, string> = {
   "record console": "92453dd1db3408727fe81f9d35c8e67e2f8e9aed1b5b668e45ff63b542280c35",
   butt: "e9629fa333142c64ba52a3f2bba474f5026a710145e60da8ce60b3d73fdae830",
@@ -103,7 +105,7 @@ const BEFORE_SHAPES: Record<string, string> = {
   pocket_screws: "3209c886b2591ef45146ec84a5d75ce45382aa55754542d4d1aa11f28332bf3f",
   dowels: "ffdfa3bf62672f222be29393bb6c0e12459decc62f890bb8cc987f2c6a8a49ed",
   // Added with the joint, after shapes were drawn.
-  domino: "93fd1e216e8ede1e6e4bc79b021971935a21ec757f16bee2e690652bdf137294",
+  domino: "fb5bbffa538eef91fa542eadef4ac7a81b7c410e47a35f00a0c774365c103d1d",
   dado: "cf68edb11e2fb40ff1a2475ece4b98e5f42bf3b8edb4fe61e38843957a62a52e",
   groove: "c6fb06fcfff8103fcc7e8a268fa8caed598d6ea150ab3d3dfaa9283b1dff00dc",
   rabbet: "4bbdb1b2d9a242313fa4411ad9a93457a465f39414be6e08a2d68d727af0acc2",

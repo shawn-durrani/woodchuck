@@ -373,11 +373,15 @@ centred on the guest's thickness.
 The host's mortise goes half the tenon's length deep, or less to leave 5 mm
 of the host behind it. The guest's takes the rest of the tenon, at the next
 depth the DF 500 stops at. Those are 12, 15, 20, 25 and 28 mm, and only the
-first three with the 5 mm cutter. The 4 mm cutter cuts 10 mm. The guest's
-mortises are as wide as the tenon, and so is the host's nearest the front,
-top or right, which lines the parts up. The fit makes the host's others 6
-or 10 mm wider for play, the way Festool lines up a long joint. Three or
-more Dominos get 6 mm unless the joint gives a fit.
+first three with the 5 mm cutter. The 4 mm cutter cuts 10 mm.
+
+One piece of each joint is loose. Every mortise in it is cut on the
+joiner's wider setting, longer along the joint by the fit, so you can line
+the parts up at glue-up. Every mortise in the other piece is as wide as the
+tenon, which locates the joint. The loose piece is the host unless the
+joint's `loose` says the guest. The fit is 6 mm, the DF 500's middle
+setting, however many Dominos there are. A joint can give 10 for the
+widest setting, or 0 to cut both pieces tight.
 
 Each mortise is machining of its own, so the cut list places every one and
 the workshop drawings dimension it. The see-through view draws each mortise
@@ -393,7 +397,8 @@ mortise that comes out of a part is an error too. The same goes for one
 that runs into the next, into another joint's machining or into a cut.
 Under 5 mm of wood behind a mortise, beside it or between two is a warning,
 and so is a depth the machine has no stop for. A Domino more than half the
-stock's thickness is a warning as well, since about a third is usual.
+stock's thickness is a warning as well, since about a third is usual. Each
+check measures a mortise at the length it's cut, play and all.
 
 ## Your own wood is cut first
 

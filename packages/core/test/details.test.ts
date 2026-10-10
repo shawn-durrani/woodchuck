@@ -2,7 +2,8 @@
 // small sizes on top of each other. Where a row of dimensions would, the
 // part's sheet draws that spot again larger as a detail. The frame is
 // invented: rails 1500 long and 45 wide in 19 mm pine, with a stile at
-// each end and three braces between, each on one Domino.
+// each end and three braces between, each on one Domino. Since #89 the
+// rails are each joint's loose piece, so their mortises are 24.8 long.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -47,13 +48,13 @@ describe("details of the spots too small to read", () => {
     expect(top.scale).toBe(10);
     // The main view keeps where each spot starts, and its overall width.
     expect(chains(top)).toEqual([
-      { view: "face", along: "length", values_mm: [7, 373.6, 360, 360, 387.4, 12] },
+      { view: "face", along: "length", values_mm: [7, 370.6, 360, 360, 390.4, 12] },
       { view: "detail A", along: "length", values_mm: [7, 5], scale: 2 },
-      { view: "detail A", along: "width", values_mm: [13.1, 18.8, 13.1], scale: 2 },
-      { view: "detail B", along: "length", values_mm: [18.8], scale: 2 },
+      { view: "detail A", along: "width", values_mm: [10.1, 24.8, 10.1], scale: 2 },
+      { view: "detail B", along: "length", values_mm: [24.8], scale: 2 },
       { view: "detail B", along: "width", values_mm: [29, 5, 11], scale: 2 },
       { view: "detail C", along: "length", values_mm: [5, 7], scale: 2 },
-      { view: "detail C", along: "width", values_mm: [13.1, 18.8, 13.1], scale: 2 },
+      { view: "detail C", along: "width", values_mm: [10.1, 24.8, 10.1], scale: 2 },
     ]);
     expect(top.dims).toContainEqual({ view: "face", along: "width", kind: "overall", values_mm: [45] });
     // The three braces' mortises are drawn the same, so they share one detail, circled three times.

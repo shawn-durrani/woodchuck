@@ -296,11 +296,18 @@ to buy.
 The core tests join an invented bedside carcass in 18 mm ply with Dominos,
 and a face frame's rail to its stile. The size, count, depths and play the
 joint picks for itself are pinned, and so is every mortise's place in both
-parts. Each pair is held to lining up, the front one to being tight and the
-others to their 6 mm of play. No part changes size, and the carcass has no
-problem. The cut list places every mortise, and the hardware list buys each
-size as its library part, counted from the joints and from an array's
-copies.
+parts. Each pair is held to lining up, with 6 mm of play in every one of
+the host's mortises and none in the guest's. No part changes size, and the
+carcass has no problem. The cut list places every mortise, and the hardware
+list buys each size as its library part, counted from the joints and from
+an array's copies.
+
+A single Domino gets its 6 mm of play in the host too. The tests move the
+play to the guest with `loose`, cut both pieces tight with a fit of 0, and
+take the widest setting with 10. The tenons to buy stay the same, and the
+checks measure the guest's longer mortises against its edges and each
+other. The edit refuses `loose` on any other joint, or as anything but host
+or guest, and a changed `loose` takes adding the joint again.
 
 Each check has its words pinned. A mortise can leave too little wood behind
 it or come out the far side, sit too near an edge or too near the next, or
@@ -312,10 +319,13 @@ refuses a size Festool doesn't make and a fit that isn't a joiner setting.
 The worked example builds with no problem, and its drawings are held to
 each mortise in their chains and notes.
 
-The server tests pin `add_joint`'s words about when to use a Domino. A
-scripted Claude reads the joint library, opens the Domino's worked example
-and builds the carcass in two lists of edits with no problem and one undo.
-Its cut list has the tenons to buy, and a Domino Festool doesn't make is
+The server tests pin `add_joint`'s words about when to use a Domino and
+which piece takes its play. A scripted Claude reads the joint library,
+opens the Domino's worked example and builds the carcass in two lists of
+edits with no problem and one undo. Its cut list has the tenons to buy, and
+a Domino Festool doesn't make is refused. Another puts the play in the
+carcass sides with `loose`, and hears why `loose` on a dowel joint, a
+part's id given as its value and a changed joint sent again are each
 refused. A test holds the library's Domino files to the joint's sizes and
 their sources to Festool's own sites.
 

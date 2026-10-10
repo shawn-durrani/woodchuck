@@ -1,8 +1,11 @@
 // Issue #63: a Domino joint cuts matching mortises in both parts for a
-// bought beech tenon, and lists the tenons on the hardware list. The
-// pieces are invented: a bedside carcass in 18 mm ply, 450 wide, 500 tall
-// and 300 deep, with its top on the sides and its bottom between them,
-// and a face frame whose 60 mm rail meets a 45 mm stile.
+// bought beech tenon, and lists the tenons on the hardware list. Issue #89:
+// every mortise in the loose piece, the host unless the joint says the
+// guest, takes the fit as play, 6 mm unless the joint gives one, and the
+// other piece's are tight. The pieces are invented: a bedside carcass in
+// 18 mm ply, 450 wide, 500 tall and 300 deep, with its top on the sides and
+// its bottom between them, and a face frame whose 60 mm rail meets a 45 mm
+// stile.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -98,8 +101,8 @@ describe("Dominos in a carcass", () => {
     expect(r.joints.find((j) => j.id === "bottom_l")!.params).toEqual({ thickness: 5, count: 4, length: 30, depth: 12, fit: 6 });
   });
 
-  it("cut matching mortises in both parts, with the front one tight", () => {
-    // The top's three: two with 6 mm of play, and the front one as long as the tenon is wide.
+  it("cut matching mortises in both parts, with play in every one of the host's", () => {
+    // The top's three, each 6 mm longer than the tenon is wide, the front one too.
     expect(regions(d, "top", "top_l")).toEqual([
       [
         [6, 500, 37.1],
@@ -110,8 +113,8 @@ describe("Dominos in a carcass", () => {
         [12, 512, 162.9],
       ],
       [
-        [6, 500, 240.1],
-        [12, 512, 259.9],
+        [6, 500, 237.1],
+        [12, 512, 262.9],
       ],
     ]);
     // The side's top end takes the rest of each tenon, tight, centred on its 18 mm.
@@ -134,13 +137,13 @@ describe("Dominos in a carcass", () => {
       [12, 5, 24.8, 6],
       [12, 5, 24.8, 6],
       [12, 5, 24.8, 6],
-      [12, 5, 18.8, 0],
+      [12, 5, 24.8, 6],
     ]);
     expect(side.map((m) => [m.region.min[2], m.region.max[2]])).toEqual([
       [25.1, 49.9],
       [100.1, 124.9],
       [175.1, 199.9],
-      [253.1, 271.9],
+      [250.1, 274.9],
     ]);
     const bottom = r.byId.get("bottom")!.machining.filter((m) => m.joint === "bottom_l");
     expect(bottom.map((m) => [m.region.min, m.region.max])).toEqual([
@@ -197,6 +200,7 @@ describe("Dominos in a carcass", () => {
       "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right end for side_r at (394,6.5,28.1)",
     ]);
     expect(rows.find((x) => x.parts.includes("top"))!.machining).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side_l at (6,0,37.1)");
+    expect(rows.find((x) => x.parts.includes("top"))!.machining).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side_l at (6,0,237.1)");
   });
 
   it("list the tenons to buy, as library parts counted from the joints", () => {
@@ -240,11 +244,12 @@ describe("a Domino in a face frame", () => {
   it("goes half its length into the stile's edge and half into the rail's end", () => {
     const d = frame(20);
     const j = derive(d).joints[0]!;
-    expect(j.params).toEqual({ count: 1, thickness: 6, length: 40, depth: 20, fit: 0 });
+    // One Domino gets play in the host too, so the stile's mortise is 6 mm longer than the rail's.
+    expect(j.params).toEqual({ count: 1, thickness: 6, length: 40, depth: 20, fit: 6 });
     expect(regions(d, "stile", "rail_l")).toEqual([
       [
-        [25, 320.1, 7],
-        [45, 339.9, 13],
+        [25, 317.1, 7],
+        [45, 342.9, 13],
       ],
     ]);
     expect(regions(d, "rail", "rail_l")).toEqual([
@@ -271,11 +276,16 @@ describe("a Domino in a face frame", () => {
       "Joint rail_l: a Domino mortise breaks out of rail's bottom edge. Use fewer Dominos or a smaller size",
       "Joint rail_l: 4 Dominos don't fit along the joint, since their mortises in rail run into each other. Use fewer",
     ]);
-    expect(problems(frame(20, { count: 2 }))).toEqual([]);
+    // Two fit, though the play in the stile's mortises leaves thin wood between them, and tight ones leave enough.
+    expect(problems(frame(20, { count: 2 }))).toEqual([
+      "Joint rail_l: 4.2 mm of stile is left between two Domino mortises, and wood that thin breaks out. Leave at least 5 mm, with fewer Dominos",
+    ]);
+    expect(problems(frame(20, { count: 2, fit: "0" }))).toEqual([]);
   });
 
   it("warns of a mortise near an edge, and of thin wood between two", () => {
     expect(problems(frame(20, { count: 2, thickness: "8" }))).toEqual([
+      "Joint rail_l: 2.1 mm of stile is left between two Domino mortises, and wood that thin breaks out. Leave at least 5 mm, with fewer Dominos",
       "Joint rail_l: a Domino mortise is 4.05 mm from rail's bottom edge, and wood that thin breaks out. Leave at least 5 mm, with fewer Dominos or a smaller size",
     ]);
     expect(problems(frame(20, { count: 3, thickness: "4" }))).toContainEqual(
@@ -363,11 +373,96 @@ describe("a Domino's checks", () => {
       "There's no Domino 5 mm thick and 40 mm long for the DF 500. Its beech tenons are 4 × 20, 5 × 30, 6 × 40, 8 × 40, 8 × 50 and 10 × 50 mm, thickness by length",
     );
     expect(add({ length: "35" })).toThrow("There's no Domino 35 mm long for the DF 500");
-    expect(add({ fit: "3" })).toThrow("A Domino's fit is the joiner's width setting: 0 for a tight mortise, or 6 or 10 for play along the joint, not 3");
+    expect(add({ fit: "3" })).toThrow("A Domino's fit is the joiner's width setting for the loose piece's mortises: 6 or 10 for play along the joint, or 0 for tight in both pieces, not 3");
     expect(add({ shoulder: "5" })).toThrow("shoulder only applies to tongue, dado_rabbet and mortise_tenon joints");
     expect(() => applyOp(build(carcass), { op: "add_joint", id: "j", type: "screws", host: "side_l", guest: "bottom", thickness: "5" })).toThrow(
       "thickness only applies to tongue, dado_rabbet, mortise_tenon and domino joints",
     );
+  });
+});
+
+describe("a Domino's loose piece", () => {
+  /** The face frame's mortises, in the stile and then the rail, as [length, play]. */
+  const cuts = (d: Design) => {
+    const r = derive(d);
+    return ["stile", "rail"].map((p) => r.byId.get(p)!.machining.map((m) => [m.length_mm, m.play_mm ?? 0]));
+  };
+  const lines = (d: Design) => cutList(d, derive(d)).rows.map((x) => x.machining);
+
+  it("is the host when the joint leaves it out, so one Domino's host mortise is 6 mm longer and its guest's tight", () => {
+    const d = frame(20);
+    expect(d.joints[0]!.loose).toBeUndefined();
+    expect(derive(d).joints[0]!.loose).toBe("host");
+    expect(cuts(d)).toEqual([[[25.8, 6]], [[19.8, 0]]]);
+    expect(lines(d)).toEqual([
+      ["Domino mortise 6 wide × 25.8 long × 20 deep, 6 mm play, in the right edge for rail at (25,317.1,7)"],
+      ["Domino mortise 6 wide × 19.8 long × 20 deep, tight, in the left end for stile at (0,20.1,7)"],
+    ]);
+  });
+
+  it("goes in the guest when the joint says so, with the host's mortise tight and the tenons to buy the same", () => {
+    const d = frame(20, { loose: "guest" });
+    const r = derive(d);
+    expect(d.joints[0]!.loose).toBe("guest");
+    expect(r.joints[0]!.loose).toBe("guest");
+    expect(cuts(d)).toEqual([[[19.8, 0]], [[25.8, 6]]]);
+    expect(regions(d, "rail", "rail_l")).toEqual([
+      [
+        [45, 317.1, 7],
+        [65, 342.9, 13],
+      ],
+    ]);
+    // The tenon is as it was, centred in both mortises.
+    expect(r.joints[0]!.features.find((f) => f.kind === "tongue")!.box).toEqual({ min: [25, 320.1, 7], max: [65, 339.9, 13] });
+    expect(lines(d)).toEqual([
+      ["Domino mortise 6 wide × 19.8 long × 20 deep, tight, in the right edge for rail at (25,320.1,7)"],
+      ["Domino mortise 6 wide × 25.8 long × 20 deep, 6 mm play, in the left end for stile at (0,17.1,7)"],
+    ]);
+    expect(cutList(d, r).hardware).toEqual(cutList(frame(20), derive(frame(20))).hardware);
+    expect(problems(d)).toEqual([]);
+  });
+
+  it("puts the play in every mortise of a carcass bottom that's the guest", () => {
+    const d = bottomWith({ thickness: "5", count: 4, loose: "guest" });
+    const r = derive(d);
+    const mortises = (part: string) => r.byId.get(part)!.machining.map((m) => [m.length_mm, m.play_mm ?? 0]);
+    expect(mortises("side_l")).toEqual(Array(4).fill([18.8, 0]));
+    expect(mortises("bottom")).toEqual(Array(4).fill([24.8, 6]));
+    expect(cutList(d, r).rows.find((x) => x.parts.includes("bottom"))!.machining[0]).toBe(
+      "Domino mortise 5 wide × 24.8 long × 20 deep, 6 mm play, in the left end for side_l at (0,6.5,100.1)",
+    );
+    expect(problems(d)).toEqual([]);
+  });
+
+  it("is tight in both pieces with a fit of 0, and on the widest setting with 10", () => {
+    expect(cuts(frame(20, { fit: "0" }))).toEqual([[[19.8, 0]], [[19.8, 0]]]);
+    expect(cuts(frame(20, { fit: "0", loose: "guest" }))).toEqual([[[19.8, 0]], [[19.8, 0]]]);
+    expect(cuts(frame(20, { fit: "10" }))).toEqual([[[29.8, 10]], [[19.8, 0]]]);
+    expect(cuts(frame(20, { fit: "10", loose: "guest" }))).toEqual([[[19.8, 0]], [[29.8, 10]]]);
+    expect(lines(frame(20, { fit: "10" }))[0]).toEqual(["Domino mortise 6 wide × 29.8 long × 20 deep, 10 mm play, in the right edge for rail at (25,315.1,7)"]);
+  });
+
+  it("is checked as it's cut, so play in the guest brings its mortises nearer its edge and each other", () => {
+    expect(problems(frame(20, { count: 2, thickness: "8", loose: "guest" }))).toEqual([
+      "Joint rail_l: a Domino mortise is 1.05 mm from rail's bottom edge, and wood that thin breaks out. Leave at least 5 mm, with fewer Dominos or a smaller size",
+      "Joint rail_l: 2.1 mm of rail is left between two Domino mortises, and wood that thin breaks out. Leave at least 5 mm, with fewer Dominos",
+    ]);
+  });
+
+  it("is refused on another joint and as anything but host or guest, and changes by adding the joint again", () => {
+    expect(() => applyOp(build(carcass), { op: "add_joint", id: "j", type: "dowels", host: "side_l", guest: "bottom", loose: "guest" })).toThrow(
+      "loose only applies to domino joints, not dowels",
+    );
+    expect(() => bottomWith({ loose: "side_l" })).toThrow('loose names the piece whose Domino mortises get the play, "host" or "guest", not "side_l"');
+    const again = (loose: string): Op => ({ op: "add_joint", id: "rail_l", type: "domino", host: "stile", guest: "rail", loose } as Op);
+    expect(() => applyOp(frame(20), again("guest"))).toThrow(/^Joint "rail_l" already exists, and this one differs in loose\. .* To change it, delete_joint it and add it again/);
+    // The host is the default, so naming it is the same joint as leaving it out.
+    const plain = frame(20);
+    expect(applyOp(plain, again("host"))).toBe(plain);
+    const flipped = applyOps(frame(20), [{ op: "delete_joint", id: "rail_l" }, again("guest")]);
+    expect(cuts(flipped)).toEqual([[[19.8, 0]], [[25.8, 6]]]);
+    // The same joint sent again changes nothing.
+    expect(applyOp(flipped, again("guest"))).toBe(flipped);
   });
 });
 
@@ -391,7 +486,7 @@ describe("the Domino's worked example", () => {
     // The top is turned over for its mortises, so its front is at the bottom of its face view, and the sheet says so.
     expect(texts("Part 1: Top")).toEqual(expect.arrayContaining(["Bottom face", "Front edge", "Right end"]));
     expect(texts("Part 1: Top").join(" ")).toContain("Along is from the left end, up from the front edge and in from the bottom face.");
-    expect(sheet("Part 1: Top").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [40.1, 19.8, 77.2, 25.8, 74.2, 25.8, 37.1] });
+    expect(sheet("Part 1: Top").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [37.1, 25.8, 74.2, 25.8, 74.2, 25.8, 37.1] });
     expect(texts("Part 1: Top")).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side. At 6 to 12 along, 137.1 to 162.9 up.");
     expect(sheets.find((s) => s.kind === "hardware")!.marks.some((m) => m.kind === "text" && m.text === "Festool DOMINO tenon, beech, 6 × 40 mm")).toBe(true);
   });

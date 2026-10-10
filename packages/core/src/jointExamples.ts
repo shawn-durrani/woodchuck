@@ -56,8 +56,9 @@ function sideAndShelf(y: AxisSpec): Op[] {
 
 /**
  * A plywood carcass side under its top, 300 mm deep, so the usual count of
- * Dominos is three. The front one is cut tight and the two behind it get
- * the joiner's play, the way Festool lines up a long joint.
+ * Dominos is three. The side's mortises are cut tight to locate the joint,
+ * and the top's get the joiner's play, so the two can be lined up at
+ * glue-up.
  */
 function carcassCorner(): Op[] {
   return [
