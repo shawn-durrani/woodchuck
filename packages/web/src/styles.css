@@ -1403,6 +1403,15 @@ li.version {
   gap: 4px;
   white-space: nowrap;
 }
+/* The drawings' machining notes, off unless ticked */
+.drawings-notes {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
 
 /* A part whose pull request was closed without merging: its note and the two ways forward */
 .pr-note.closed {

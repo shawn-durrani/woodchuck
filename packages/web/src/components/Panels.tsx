@@ -263,12 +263,34 @@ function StatusPicker({ r }: { r: ServerState["tool_requests"][number] }) {
   );
 }
 
-/** Where the workshop drawings download from, on a paper. */
-export const drawingsUrl = (paper: Paper) => `/api/drawings.pdf?paper=${paper}`;
+/** Where the workshop drawings download from, on a paper, with each part sheet's machining notes when asked. */
+export const drawingsUrl = (paper: Paper, notes = false) => `/api/drawings.pdf?paper=${paper}${notes ? "&notes=1" : ""}`;
 export const drawingsNote = (slug: string, paper: Paper) => savedNote(`the workshop drawings on ${paper}`, `${slug}-drawings.pdf`);
 
-/** The workshop drawings' download, with the paper beside it. Most home printers take A4, and A3 draws the general arrangement larger. */
-export function DrawingsLink({ slug, paper, onPaper, onSaved, big = false, empty = false }: { slug: string; paper: Paper; onPaper: (p: Paper) => void; onSaved: (text: string) => void; big?: boolean; empty?: boolean }) {
+/**
+ * The workshop drawings' download, with the paper and the notes beside it.
+ * Most home printers take A4, and A3 draws the general arrangement larger.
+ * The machining notes are left off unless ticked, which leaves room for the details.
+ */
+export function DrawingsLink({
+  slug,
+  paper,
+  onPaper,
+  notes,
+  onNotes,
+  onSaved,
+  big = false,
+  empty = false,
+}: {
+  slug: string;
+  paper: Paper;
+  onPaper: (p: Paper) => void;
+  notes: boolean;
+  onNotes: (on: boolean) => void;
+  onSaved: (text: string) => void;
+  big?: boolean;
+  empty?: boolean;
+}) {
   const tip = "Plans, a drawing of each part, and the cut, drilling and hardware lists, to print at 100%";
   return (
     <span className="cut-drawings">
@@ -277,7 +299,7 @@ export function DrawingsLink({ slug, paper, onPaper, onSaved, big = false, empty
           Workshop drawings (PDF)
         </button>
       ) : (
-        <a className={`button${big ? " primary-link" : ""}`} href={drawingsUrl(paper)} title={tip} onClick={() => onSaved(drawingsNote(slug, paper))}>
+        <a className={`button${big ? " primary-link" : ""}`} href={drawingsUrl(paper, notes)} title={tip} onClick={() => onSaved(drawingsNote(slug, paper))}>
           Workshop drawings (PDF)
         </a>
       )}
@@ -285,6 +307,10 @@ export function DrawingsLink({ slug, paper, onPaper, onSaved, big = false, empty
         <option value="A4">A4</option>
         <option value="A3">A3</option>
       </select>
+      <label className="drawings-notes" title="Each part sheet's numbered notes on what to cut. Left off, the sheet has more room for its details.">
+        <input type="checkbox" checked={notes} onChange={(e) => onNotes(e.target.checked)} />
+        With notes
+      </label>
     </span>
   );
 }
@@ -304,6 +330,8 @@ export function ViewsPanel({
   slug,
   paper,
   onPaper,
+  notes,
+  onNotes,
   onSaved,
   empty,
 }: {
@@ -314,6 +342,8 @@ export function ViewsPanel({
   slug: string;
   paper: Paper;
   onPaper: (p: Paper) => void;
+  notes: boolean;
+  onNotes: (on: boolean) => void;
   onSaved: (text: string) => void;
   empty: boolean;
 }) {
@@ -353,7 +383,7 @@ export function ViewsPanel({
             </button>
           ))}
         </div>
-        <DrawingsLink slug={slug} paper={paper} onPaper={onPaper} onSaved={onSaved} big empty={empty} />
+        <DrawingsLink slug={slug} paper={paper} onPaper={onPaper} notes={notes} onNotes={onNotes} onSaved={onSaved} big empty={empty} />
       </div>
       <div className="plan-sheet" ref={sheet}>
         {size && <img src={`/api/views/${view}.svg?w=${size.w}&h=${size.h}&v=${version}${xray ? "&xray=1" : ""}&${colours}`} alt={`The ${label.toLowerCase()} drawing`} />}

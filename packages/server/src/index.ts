@@ -468,11 +468,11 @@ export function createApp(opts: {
         case "GET /api/mcp/colours":
           return json(200, { text: colourCards() });
         case "GET /api/mcp/sheets": {
-          const sheets = workshopDrawings(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          const sheets = workshopDrawings(project.design, derive(project.design), { ...paperOf(url.searchParams.get("paper")), notes: url.searchParams.get("notes") === "1" });
           return json(200, { name: project.design.name, titles: sheets.map((x) => x.title) });
         }
         case "GET /api/mcp/sheet.png": {
-          const sheets = workshopDrawings(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          const sheets = workshopDrawings(project.design, derive(project.design), { ...paperOf(url.searchParams.get("paper")), notes: url.searchParams.get("notes") === "1" });
           const n = Number(url.searchParams.get("n"));
           const one = Number.isInteger(n) ? sheets[n - 1] : undefined;
           if (!one) return fail(404, `${project.design.name}'s drawings have ${sheets.length} sheets, so there's no sheet ${url.searchParams.get("n")}.`);
@@ -931,7 +931,7 @@ export function createApp(opts: {
           return json(200, { ok: true, closed });
         }
         case "GET /api/drawings.pdf": {
-          const sheets = workshopDrawings(project.design, derive(project.design), paperOf(url.searchParams.get("paper")));
+          const sheets = workshopDrawings(project.design, derive(project.design), { ...paperOf(url.searchParams.get("paper")), notes: url.searchParams.get("notes") === "1" });
           res.writeHead(200, {
             "content-type": "application/pdf",
             "content-disposition": `attachment; filename="${project.slug}-drawings.pdf"`,

@@ -49,7 +49,7 @@ const rack: Op[] = [
   ]),
 ];
 
-const sheetsOf = (d: Design) => workshopDrawings(d, derive(d), { date: "10 October 2026" });
+const sheetsOf = (d: Design, notes = false) => workshopDrawings(d, derive(d), { date: "10 October 2026", notes });
 const texts = (s: Sheet) => s.marks.flatMap((m) => (m.kind === "text" ? [m.text] : []));
 const chains = (s: Sheet) => s.dims.filter((x) => x.kind === "chain").map(({ view, along, values_mm, scale }) => ({ view, along, values_mm, ...(scale ? { scale } : {}) }));
 
@@ -61,13 +61,17 @@ describe("details of the spots too small to read", () => {
     const rail = sheet("Part 1: Rail");
     expect(rail.scale).toBe(10);
     // Each pair of housings is 6, 4 and 6 mm, too small to read at 1:10. The main view keeps where each pair starts.
+    // Issue #96: with the notes left off, the detail has room to draw full size.
     expect(chains(rail)).toEqual([
       { view: "face", along: "length", values_mm: [370, 360, 360, 410] },
-      { view: "detail A", along: "length", values_mm: [6, 4, 6], scale: 5 },
-      { view: "detail A", along: "width", values_mm: [45], scale: 5 },
+      { view: "detail A", along: "length", values_mm: [6, 4, 6], scale: 1 },
+      { view: "detail A", along: "width", values_mm: [45], scale: 1 },
     ]);
-    // The three pairs are drawn the same, so they share one detail, circled three times.
-    expect(texts(rail)).toContain("Detail A, 1:5, 3 places");
+    // The three pairs are drawn the same, so they share one detail, circled three times, with what's cut there under it.
+    expect(texts(rail)).toEqual(expect.arrayContaining(["Detail A, 1:1, 3 places", "dado 6 wide, 6.5 deep"]));
+    // The notes are left off unless asked for, and so are their balloons.
+    expect(texts(rail)).not.toContain("Machining");
+    expect(sheetsOf(applyOps(emptyDesign("Record rack"), rack), true).find((x) => x.title === "Part 1: Rail")!.marks.some((m) => m.kind === "text" && m.text === "Machining")).toBe(true);
     expect(texts(rail).filter((t) => t === "A")).toHaveLength(3);
     expect(rail.marks.filter((m) => m.kind === "circle" && m.dashed)).toHaveLength(3);
   });
@@ -101,28 +105,39 @@ describe("a long rail set out by its Dominos' centres, from its middle", () => {
   const sheets = sheetsOf(applyOps(emptyDesign("Hall frame"), frame));
   const sheet = (title: string) => sheets.find((s) => s.title === title)!;
 
-  it("places each mortise by its centre, with the rail's middle to set out from", () => {
+  it("places each mortise by its centre, with the rail's middle to set out from, and zooms every Domino", () => {
     const top = sheet("Part 1: Top rail");
     // A stile's mortise 9.5 in from each end, and the braces 360 apart either side of the middle.
+    // The width's three small gaps side by side are cramped, so the details give them.
     expect(chains(top)).toEqual([
       { view: "face", along: "length", values_mm: [9.5, 380.5, 360, 360, 380.5, 9.5] },
-      { view: "face", along: "width", values_mm: [22.5, 9, 13.5] },
+      { view: "detail A", along: "length", values_mm: [9.5], scale: 2 },
+      { view: "detail A", along: "width", values_mm: [22.5, 22.5], scale: 2 },
+      { view: "detail B", along: "width", values_mm: [31.5, 13.5], scale: 2 },
+      { view: "detail C", along: "length", values_mm: [9.5], scale: 2 },
+      { view: "detail C", along: "width", values_mm: [22.5, 22.5], scale: 2 },
     ]);
     expect(top.dims).toContainEqual({ view: "face", along: "length", kind: "middle", values_mm: [750] });
-    expect(top.dims.some((x) => x.view.startsWith("detail"))).toBe(false);
-    expect(texts(top)).toContain("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the bottom face for brace_1. Centre at 390 along, 31.5 from the face edge, its length running along.");
   });
 
-  it("measures the bottom rail's centres up from its own back edge", () => {
+  it("says under each Domino's detail how to set the joiner up for it", () => {
+    // Issue #96: the fence goes on the nearer face, at the height to dial in.
+    const top = texts(sheet("Part 1: Top rail"));
+    expect(top).toEqual(expect.arrayContaining(["Detail B, 1:2, 3 places", "Domino 5 × 24.8, 12 deep, 6 mm play.", "Fence on the back edge at 13.5"]));
+    expect(top.join(" ")).toContain("Fence on the left end at 9.5, centre line at 22.5 from the face edge");
+  });
+
+  it("measures the bottom rail's details up from its own back edge", () => {
     // The top rail is turned over for its mortises, so its width runs up from the front.
-    expect(chains(sheet("Part 2: Bottom rail"))).toContainEqual({ view: "face", along: "width", values_mm: [13.5, 9, 22.5] });
+    expect(chains(sheet("Part 2: Bottom rail"))).toContainEqual({ view: "detail B", along: "width", values_mm: [13.5, 31.5], scale: 2 });
   });
 
-  it("gives the same brace mortise the same place on both rails, from their face edge", () => {
-    // Issue #94: the rails are drawn opposite ways round, but both are measured from their front, their face edge.
-    const note = (title: string) => texts(sheet(title)).find((t) => t.includes("for brace_1."))!;
-    expect(note("Part 2: Bottom rail")).toBe("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the top face for brace_1. Centre at 390 along, 31.5 from the face edge, its length running along.");
-    expect(note("Part 1: Top rail").split(". Centre")[1]).toBe(note("Part 2: Bottom rail").split(". Centre")[1]);
+  it("gives the same brace mortise the same setup on both rails", () => {
+    // Issue #94: the rails are drawn opposite ways round, but both are set out the same.
+    const noted = sheetsOf(applyOps(emptyDesign("Hall frame"), frame), true);
+    const note = (title: string) => texts(noted.find((x) => x.title === title)!).find((t) => t.includes("for brace_1."))!;
+    expect(note("Part 2: Bottom rail")).toBe("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the top face for brace_1. Fence on the back edge at 13.5, centre line at 390 along.");
+    expect(note("Part 1: Top rail").split(". Fence")[1]).toBe(note("Part 2: Bottom rail").split(". Fence")[1]);
     expect(texts(sheet("Part 1: Top rail"))).toContain("Face side: the top face. Face edge: the front edge.");
   });
 

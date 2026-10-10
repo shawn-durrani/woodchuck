@@ -81,7 +81,11 @@ notes, and to the middle they're set out from. The Domino tests hold a
 joint's tight and loose mortises to sharing their centres. The rule for a
 part's face side and face edge is held on invented boxes, and the hall
 frame's two rails are held to giving the same brace mortise the same
-place from their face edge.
+place from their face edge. With the notes left off, the record rack's
+detail is held to drawing full size with a caption of what's cut. Each of
+the hall frame's Domino details is held to its fence face and height. The
+drawings tool and the window's tick are held to putting the notes on, the
+same each time they're asked.
 Every example's part sheets are held to no text printed over other text,
 and to no two narrow gaps side by side in a row, except at either end.
 The views, the drawings and their PDF of every example with no cuts have to

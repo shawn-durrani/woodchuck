@@ -287,7 +287,7 @@ describe("pictures of a stopped housing", () => {
 
   it("sizes the stop on the side's sheet and the notch on the shelf's", () => {
     const d = wallShelf({ front: "10" });
-    const sheets = workshopDrawings(d, derive(d), { date: "5 October 2026" });
+    const sheets = workshopDrawings(d, derive(d), { date: "5 October 2026", notes: true });
     const sheet = (title: string) => sheets.find((s) => s.title.endsWith(title))!;
     const texts = (title: string) => sheet(title).marks.flatMap((m) => (m.kind === "text" ? [m.text] : []));
     expect(sheet("Left side").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [230, 10] });

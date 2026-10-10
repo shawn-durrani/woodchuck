@@ -239,6 +239,10 @@ export function App() {
   const [planView, setPlanView] = useKept<PlanView>("woodchuck.planView", "front");
   /** The paper for the workshop drawings, wherever you download them. */
   const [paper, setPaper] = useKept<Paper>("woodchuck.paper", "A4");
+  // The drawings' machining notes, off unless ticked.
+  const [drawingNotes, setDrawingNotes] = useKept<"on" | "off">("woodchuck.drawingNotes", "off");
+  const notes = drawingNotes === "on";
+  const onNotes = (on: boolean) => setDrawingNotes(on ? "on" : "off");
   /** The toolbar menu or the design menu that's open, if any. Only one opens at a time. */
   const [menu, setMenu] = useState<ToolbarMenu | "design">(null);
   /** The Passkeys section, for a browser signed in over the tailnet. */
@@ -964,7 +968,7 @@ export function App() {
   };
   const saveDrawings = () => {
     const a = document.createElement("a");
-    a.href = drawingsUrl(paper);
+    a.href = drawingsUrl(paper, notes);
     a.click();
     note(drawingsNote(state.project.slug, paper));
   };
@@ -1309,6 +1313,8 @@ export function App() {
               slug={state.project.slug}
               paper={paper}
               onPaper={setPaper}
+              notes={notes}
+              onNotes={onNotes}
               onSaved={note}
               empty={empty}
             />
@@ -1387,7 +1393,7 @@ export function App() {
             onShowFinished={() => setLook("finished")}
           />
         )}
-        {tab === "make" && <MakeTab state={state} view={makeView} onView={setMakeView} paper={paper} onPaper={setPaper} onSaved={note} onSelect={select} />}
+        {tab === "make" && <MakeTab state={state} view={makeView} onView={setMakeView} paper={paper} onPaper={setPaper} notes={notes} onNotes={onNotes} onSaved={note} onSelect={select} />}
         {tab === "check" && <CheckTab state={state} onShowMe={showMe} onAsk={askClaude} />}
         {tab === "history" && <HistoryTab state={state} />}
         {allPage && <AllPage state={state} section={allPage.section} onClose={() => setAllPage(null)} />}

@@ -28,7 +28,7 @@ const dim = (s: Sheet, view: string, along: string, kind: "overall" | "chain") =
 describe("workshop drawings", () => {
   const design = build();
   const d = derive(design);
-  const sheets = workshopDrawings(design, d, { date: "3 October 2026" });
+  const sheets = workshopDrawings(design, d, { date: "3 October 2026", notes: true });
 
   it("draws the general arrangement on A4 at 1:20, with 2040 overall and five 372 openings", () => {
     const ga = sheets[0]!;

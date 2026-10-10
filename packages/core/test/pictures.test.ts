@@ -192,7 +192,7 @@ const texts = (s: Sheet) => s.marks.flatMap((m) => (m.kind === "text" ? [m.text]
 describe("the workshop drawings of a shaped part", () => {
   const design = tray();
   const d = derive(design);
-  const sheets = workshopDrawings(design, d, { date: "5 October 2026" });
+  const sheets = workshopDrawings(design, d, { date: "5 October 2026", notes: true });
   const sheet = (name: string) => sheets.find((s) => s.kind === "part" && s.title.endsWith(name))!;
 
   it("size a slope's angle and the height left at the right end", () => {
@@ -250,25 +250,27 @@ describe("the workshop drawings of a shaped part", () => {
 // Domino example's mortises changed with #89, when every one in the host
 // took the play. Since #92 a Domino mortise is placed by its centre, and a
 // part laid out evenly along its length by its middle. Since #94 each part
-// sheet names its face side and face edge and measures from them.
+// sheet names its face side and face edge and measures from them. Since
+// #96 the notes are left off unless asked, a V marks the face edge, and
+// every Domino gets a detail with its machine setup.
 const BEFORE_SHAPES: Record<string, [string, string]> = {
-  "record console": ["c2e8d75fb9314e713793e0cc55aad873c40d7bcd1cc967784caf48a8efefffed", "a657c1626646624998709cd39ce1e38747dfdca005db615090a6baedd45d9528"],
-  butt: ["7247cd9ea1ca5482186c13ba2922a186ed4b2fb8b483748ea28cd347965d83b0", "54847c0a0fa13364bcd9d5dabeef5ba54a945afe54d9c23be540689fbac436dc"],
-  screws: ["80c80001aeb814d1522da28ab2a6f58e1810c3ea5a3f9dceb6184aaa2067e5bf", "2b414ca3b57e1f46e6c65fd7de259b0f161c4335cdb4901b2403ca1d1ee063ff"],
-  pocket_screws: ["579504124c9069ea76bce798f33c7192bbd38abad4673dd8ae8dd4a2f860309b", "8a46dbeede7b81530ac5a7fa84e1a6714fe250c6738a8e429e50d0b44717b02f"],
-  dowels: ["0c0a4b4f4380a39ccb0d1ba2415ecbebd90393c8b99710c345159e1fde911fba", "f55a7f7d65219a96c2b2a8d8bd690ffc1f443e13f88157eea300e72fd85d0875"],
+  "record console": ["c2e8d75fb9314e713793e0cc55aad873c40d7bcd1cc967784caf48a8efefffed", "123cfbf1a442b33a0312571d2c43986d300e6943929a9aebb58e329e1a654b00"],
+  butt: ["7247cd9ea1ca5482186c13ba2922a186ed4b2fb8b483748ea28cd347965d83b0", "9b477fa608f3d7fe70f3bedf1dc4fd9fdd38ed32e321770911497ab2e3b97632"],
+  screws: ["80c80001aeb814d1522da28ab2a6f58e1810c3ea5a3f9dceb6184aaa2067e5bf", "3abcd906f43e46b78020899437ee7ea246420e3ec20654ab4e71abe5d3754921"],
+  pocket_screws: ["579504124c9069ea76bce798f33c7192bbd38abad4673dd8ae8dd4a2f860309b", "4fee21709f5ab536126c42f92c1cdea19ff1a0155f4a41ca1570a3c2990a1107"],
+  dowels: ["0c0a4b4f4380a39ccb0d1ba2415ecbebd90393c8b99710c345159e1fde911fba", "4fb2647f9d9e7cd6334e4a5a3fc3ea460c048f8fee8e4b2cdbaa124a0c3aadcb"],
   // Added with the joint, after shapes were drawn.
-  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "bf45a68e9e2382358cedb5698a7686d4baf9be2adc3df84fff998aafeaf8841b"],
-  dado: ["68d3800fbe2b97ccd10fa5144e851a6f9a799b760a3f5027cf81869fd55af310", "acf562b0cd366c218dd17d1a190c8531751b6348b8ad932e81c871327d2a9f72"],
-  groove: ["5f4bbabe437e152dbd4b6fe2ad2854ac202ab14231be19a2bf57dc4e97d773ec", "ed90050df9f1f1d1c0e3802ca0ada3423085451a0439b6f983db4624b71470b6"],
-  rabbet: ["8166246aaa16084cfd00e3aa7010ec809511d0d5ba1224800eeb4571e130e593", "9582681bc85e2c32571ff1ac85c951c1fd3a3dc72b76951d3fcb3a190c752b21"],
-  tongue: ["b21ea74097ee2200876f66074e78786ef80440a202aeacd27bda7c44b5543054", "f3d1705c5470566915f98ca9a6dafe8f92a4d3c9949e4531049dae1623ccd565"],
+  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "0f275f2f75bcb5c0de1ec17fa9aecaaa1b0570373ff33f99372aaa3aca297548"],
+  dado: ["68d3800fbe2b97ccd10fa5144e851a6f9a799b760a3f5027cf81869fd55af310", "cceef1323896a845d6a2048ac7b13f04b64ff9aa3aedb56e2d37686e3ee626fa"],
+  groove: ["5f4bbabe437e152dbd4b6fe2ad2854ac202ab14231be19a2bf57dc4e97d773ec", "c80988ca25b9ccdc8827e6a2fe998e95cd7cf2a810ed4d04dad32b8ed1e5ef15"],
+  rabbet: ["8166246aaa16084cfd00e3aa7010ec809511d0d5ba1224800eeb4571e130e593", "f218ed69fc0e675d9b242e2ed9cc0172476545668568394b1fcf0f3e526d63fa"],
+  tongue: ["b21ea74097ee2200876f66074e78786ef80440a202aeacd27bda7c44b5543054", "0849198977fae69d62bcece2d3b953afe96f05adf7deac5f7964f28c559a0363"],
   // Added with the joint, after shapes were drawn.
-  dado_rabbet: ["94dde0ba7aebd3eb1c63ae186c10183b72e6e8fd61dec69978c736fd73c6d595", "15f9b5bf5fab1ff1f685a9457c4177b0ec34d182813f34f3d4a309a8c2119ae1"],
-  mortise_tenon: ["6db2fca2304fd851370cedb9f100cfda9f1d4ed0e588259609cd951a83408a77", "a777eb2f792ca517214e27b89a0cc3595c89558921bf16872eb356d62058d8b1"],
-  half_lap: ["a5d3209d053cd81ff12af550185b21751a687d67f5a739f79d5ae256eed3d388", "9ac4493b00071d383b7deff7aa40f8e184bbde36f55e2bdc77da5952f64d4637"],
-  box_joint: ["fec73086083b6fa9e781d5588388d310c88ab815d9e5e4ddf4586fdbd464ee34", "1cd2ec6421950e89f478dd7035979d4873540531d13295f1147fe3ce87210ce2"],
-  through_slot: ["c76c7ef6bbb6a76a811e341b39cf52ac606bf7d67e16c5286afa0a490c77b536", "732feefa2a6b6b11a06771901c9772bcee4c4d4bf3686745b521af7c3ce05bf2"],
+  dado_rabbet: ["94dde0ba7aebd3eb1c63ae186c10183b72e6e8fd61dec69978c736fd73c6d595", "a87da142c06172d2c1f53fdadbe8faecd8f6efc63559c6bebdb09e27937efcef"],
+  mortise_tenon: ["6db2fca2304fd851370cedb9f100cfda9f1d4ed0e588259609cd951a83408a77", "d7b991cdf91188e07c679ae826d31ccbf3087e27fbc81c52eb1c77759ed01b37"],
+  half_lap: ["a5d3209d053cd81ff12af550185b21751a687d67f5a739f79d5ae256eed3d388", "0fad32e28724530510fb4b3a36ac2e5177e07e216d9eee6f669dc1059249ed8b"],
+  box_joint: ["fec73086083b6fa9e781d5588388d310c88ab815d9e5e4ddf4586fdbd464ee34", "1db8a300f3e9ed3708387ffc506e7439b0cc6764de60c797c0056ad525a86202"],
+  through_slot: ["c76c7ef6bbb6a76a811e341b39cf52ac606bf7d67e16c5286afa0a490c77b536", "5b6b9002a0ba4eac6e61fae7c95afcc3bedbae020ba10c02e10b0a885fd75a83"],
 };
 
 describe("designs with no cuts", () => {
