@@ -140,6 +140,12 @@ follow these steps.
 4. Ask `/api/health` every few seconds until it answers. If it doesn't
    within a few minutes, look at the log.
 
+A chat app that runs Woodchuck's MCP server, such as Crossband, needs no
+restart for an update. The server passes every call to the app, so the
+new version answers as soon as it's running. Restart the chat app only
+when a tool's name, description or inputs have changed, since it reads
+them when it starts. [MCP.md](MCP.md) has more.
+
 Keep a script like this outside Woodchuck, as a program of its own that
 you choose to run.
 

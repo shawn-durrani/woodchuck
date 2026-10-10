@@ -65,30 +65,32 @@ drawn open by the even-odd rule, and to walls hidden behind wood left out.
 The workshop drawings are held to the slope's angle, the height at each
 end, each hole's place and size, and a part turned over for its machining.
 The record console's two sides have their grooves at the back. One is
-turned over, so the tests hold each sheet to naming its views and the edge
-it measures up from.
+turned over, and the tests hold both sheets to naming their views and to
+giving the grooves the same place from their face edge, the front.
 
 ### Details and centres on a part's sheet
 
 An invented record rack's rail, 1500 long and 45 wide with three pairs of
 fins housed 4 mm apart, holds the details of spots too small to read. Its
 sheet is held to the detail's chains and scale, to the three pairs sharing
-one detail, and to the main view keeping where each pair starts. The
-record console's drawer side holds a narrow gap's number written past the
-end of its row. An invented hall frame holds Domino mortises set out by
-their centres. Its rails are held to each centre on the chains and in the
-notes, and to the middle they're set out from. The Domino tests hold a
-joint's tight and loose mortises to sharing their centres. The rule for a
-part's face side and face edge is held on invented boxes, and the hall
-frame's two rails are held to giving the same brace mortise the same
-place from their face edge. With the notes left off, the record rack's
-detail is held to drawing full size with a caption of what's cut. Each of
-the hall frame's Domino details is held to its fence face and height. The
-drawings tool and the window's tick are held to putting the notes on, the
-same each time they're asked. The hall frame's Domino settings sheet is
-held to every group's tenon, depth, width setting, fence and centre lines.
-Every example's part sheets are held to no text printed over other text,
-and to no two narrow gaps side by side in a row, except at either end.
+one detail, and to the main view keeping where each pair starts. With the
+notes left off, its detail is held to drawing full size with a caption of
+what's cut. The record console's drawer side holds a narrow gap's number
+written past the end of its row.
+
+An invented hall frame holds Domino mortises set out by their centres. Its
+rails are held to each centre on the chains and in the notes, and to the
+middle they're set out from. Each of its Domino details is held to its
+fence face and height, and its Domino settings sheet to every group's
+tenon, depth, width setting, fence and centre lines. Its two rails are
+held to giving the same brace mortise the same setup. The Domino tests
+hold a joint's tight and loose mortises to sharing their centres.
+
+The rule for a part's face side and face edge is held on invented boxes.
+The drawings tool and the window's tick are held to putting the notes on,
+the same each time they're asked. Every example's part sheets are held to
+no text printed over other text, and to no two narrow gaps side by side
+in a row, except at either end.
 The views, the drawings and their PDF of every example with no cuts have to
 match fixed digests.
 
@@ -330,8 +332,10 @@ the stock is too thick. A depth the DF 500 has no stop for, a guest mortise
 it can't reach, a size or a fit from a parameter that it can't cut, a cut
 into a mortise and a mortise into a dado each have theirs too. The edit
 refuses a size Festool doesn't make and a fit that isn't a joiner setting.
-The worked example builds with no problem, and its drawings are held to
-each mortise in their chains and notes.
+The worked example builds with no problem. Its drawings are held to each
+mortise's centre in their chains, and its notes to the joiner's fence face
+and height and the pencil centre line. The cut list names each width
+setting tight, middle or widest.
 
 The server tests pin `add_joint`'s words about when to use a Domino and
 which piece takes its play. A scripted Claude reads the joint library,

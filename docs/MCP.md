@@ -140,10 +140,14 @@ front, 10.4°`. Holes, notches and corners cut off are counted, such as
 `woodchuck_read` gives another chat anything the app shows about the
 design, as text. Its `what` picks which part to read.
 
-- `parts` gives each part's sheet from the workshop drawings. That's its
-  cut size, the side of the piece each view shows and every numbered
-  note. Each note says where its cut starts and ends, and the sheet says
-  which end, edge and face those are measured from.
+- `parts` gives each part's sheet from the workshop drawings, notes and
+  all, even when the PDF leaves them off. That's its cut size, its face
+  side and face edge, the side of the piece each view shows and every
+  numbered note.
+  - Each note places its cut along from an end, and across and through
+    from the face edge and face side.
+  - A Domino's note gives the face the joiner's fence sits on, the height
+    to dial in and its pencil centre line.
 - `joints` lists each joint by id, with the two parts it joins and its
   settings, and says which came from the joint library.
 - `cut_list`, `cutting_plan`, `drilling` and `hardware` give those lists.

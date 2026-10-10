@@ -182,8 +182,8 @@ PDF to the same bytes.
 The workshop drawings draw the shape you cut, tongues and all, with its
 holes. A part's sheet sizes each slope's angle and the wood left at each
 end, and places and sizes each hole. Its notes give a slope's two ends and a
-hole's centre or corner in the sheet's own along and up. A part turned over
-for its machining turns its shape over too. The cutting layout still places
+hole's centre or corners, along from an end and across from the face edge.
+A part turned over for its machining turns its shape over too. The cutting layout still places
 the blanks, and draws each part's outline inside its own.
 
 ## A part's sheet names its sides as they sit in the piece
@@ -204,9 +204,13 @@ A part whose front is an edge has that as its face edge, and its top
 face, or its outside face when it stands upright, as its face side. A
 face edge is straight, so an edge a slope cuts gives way to the one
 opposite. The sheet names both beside the material, and the views that
-show them say so. Each note gives a cut's place along from the end the
-sheet names, across from the face edge and through from the face side.
-Two matching parts drawn opposite ways round then read the same numbers.
+show them say so. Every place on the sheet is along from the end it
+names, across from the face edge and through from the face side. Two
+matching parts drawn opposite ways round then read the same numbers. A
+Domino's fence height is the one exception, since the fence sits on the
+nearer face, as
+[a Domino mortise is set out by its centre](#a-domino-mortise-is-set-out-by-its-centre)
+says.
 
 ## A spot too small to read is drawn again larger
 
@@ -219,21 +223,25 @@ just past the end of the row instead.
 
 Narrow gaps side by side anywhere else make a crowded spot, and so do
 three or more in a row anywhere, since their ticks crowd even with the
-numbers moved clear. The sheet
-circles each one on the face view with a letter, and draws it again
-under the views as a detail, such as "Detail A, 1:2". A detail has every
-size of its spot, measured from the same edges as the sheet, and break
-lines where it cuts the part off. Spots drawn the same share a detail,
-which says how many places it covers. The main view then keeps the
-overall sizes and where each spot starts.
+numbers moved clear. The sheet circles each one on the face view with a
+letter, and draws it again under the views as a detail, such as "Detail
+A, 1:2". A detail has every size of its spot, measured from the same
+edges as the sheet, and break lines where it cuts the part off. Spots
+drawn the same share a detail, which says how many places it covers. The
+main view then keeps the overall sizes and where each spot starts.
 
 A detail takes the largest standard scale at which its numbers read and
 the row of details fits. The main view can go one scale smaller to make
-room. A sheet with no crowded spot is drawn as it was.
+room. Every Domino mortise gets a detail too, crowded or not, so its
+machine setup is always on the sheet. A sheet with neither is drawn as
+it was.
 
 Under each detail's label, a short line says what's cut there, such as a
-housing's width and depth. A V marks the face edge on the face view and
-on each detail, the way it's marked on the wood.
+housing's width and depth. A Domino's detail has a line for each setting
+instead, which
+[a Domino mortise is set out by its centre](#a-domino-mortise-is-set-out-by-its-centre)
+covers. A V marks the face edge on the face view and on each
+detail, the way it's marked on the wood.
 
 ## The notes are there when asked
 
@@ -261,9 +269,11 @@ A sheet with no room for its details keeps its notes, which say the same.
 A Domino settings sheet lists every group of mortises set up the same
 way, with the part, how many, the settings and the centre lines, to keep
 beside the machine.
+
 The loose and tight mortises of a joint differ in length but share a
 centre, so the two pieces read the same numbers. The cut list gives a
-Domino mortise's centre too.
+Domino mortise's centre too, and names its width setting tight, middle or
+widest.
 
 Work spread evenly along a part is set out from its middle. When every
 place along the part has a twin the same distance from the other end, and
@@ -439,7 +449,8 @@ setting, however many Dominos there are. A joint can give 10 for the
 widest setting, or 0 to cut both pieces tight.
 
 Each mortise is machining of its own, so the cut list places every one and
-the workshop drawings dimension it. The see-through view draws each mortise
+the workshop drawings dimension it. Each part's sheet gives its setup in a
+detail, and the Domino settings sheet lists them all. The see-through view draws each mortise
 in red and each tenon as a block. The tenons go on the hardware list as
 their library parts, counted from the joints, so an array's copies add
 theirs. They never go in the design's own hardware, which keeps the count
