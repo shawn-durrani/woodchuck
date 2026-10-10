@@ -252,7 +252,9 @@ describe("the workshop drawings of a shaped part", () => {
 // part laid out evenly along its length by its middle. Since #94 each part
 // sheet names its face side and face edge and measures from them. Since
 // #96 the notes are left off unless asked, a V marks the face edge, and
-// every Domino gets a detail with its machine setup.
+// every Domino gets a detail with its machine setup. Since #98 the Domino
+// example's drawings name its settings in Festool's words and list them on
+// a sheet of their own.
 const BEFORE_SHAPES: Record<string, [string, string]> = {
   "record console": ["c2e8d75fb9314e713793e0cc55aad873c40d7bcd1cc967784caf48a8efefffed", "123cfbf1a442b33a0312571d2c43986d300e6943929a9aebb58e329e1a654b00"],
   butt: ["7247cd9ea1ca5482186c13ba2922a186ed4b2fb8b483748ea28cd347965d83b0", "9b477fa608f3d7fe70f3bedf1dc4fd9fdd38ed32e321770911497ab2e3b97632"],
@@ -260,14 +262,14 @@ const BEFORE_SHAPES: Record<string, [string, string]> = {
   pocket_screws: ["579504124c9069ea76bce798f33c7192bbd38abad4673dd8ae8dd4a2f860309b", "4fee21709f5ab536126c42f92c1cdea19ff1a0155f4a41ca1570a3c2990a1107"],
   dowels: ["0c0a4b4f4380a39ccb0d1ba2415ecbebd90393c8b99710c345159e1fde911fba", "4fb2647f9d9e7cd6334e4a5a3fc3ea460c048f8fee8e4b2cdbaa124a0c3aadcb"],
   // Added with the joint, after shapes were drawn.
-  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "0f275f2f75bcb5c0de1ec17fa9aecaaa1b0570373ff33f99372aaa3aca297548"],
+  domino: ["c3ceb112931e849d0b2cf7b662ca9325e9c6ba6c928214105e0f62b684cb9ac2", "8a59b2baed4b0072f182189e44e14bbaae867c834e4f3413bd4eb685e05c397e"],
   dado: ["68d3800fbe2b97ccd10fa5144e851a6f9a799b760a3f5027cf81869fd55af310", "cceef1323896a845d6a2048ac7b13f04b64ff9aa3aedb56e2d37686e3ee626fa"],
   groove: ["5f4bbabe437e152dbd4b6fe2ad2854ac202ab14231be19a2bf57dc4e97d773ec", "c80988ca25b9ccdc8827e6a2fe998e95cd7cf2a810ed4d04dad32b8ed1e5ef15"],
   rabbet: ["8166246aaa16084cfd00e3aa7010ec809511d0d5ba1224800eeb4571e130e593", "f218ed69fc0e675d9b242e2ed9cc0172476545668568394b1fcf0f3e526d63fa"],
   tongue: ["b21ea74097ee2200876f66074e78786ef80440a202aeacd27bda7c44b5543054", "0849198977fae69d62bcece2d3b953afe96f05adf7deac5f7964f28c559a0363"],
   // Added with the joint, after shapes were drawn.
   dado_rabbet: ["94dde0ba7aebd3eb1c63ae186c10183b72e6e8fd61dec69978c736fd73c6d595", "a87da142c06172d2c1f53fdadbe8faecd8f6efc63559c6bebdb09e27937efcef"],
-  mortise_tenon: ["6db2fca2304fd851370cedb9f100cfda9f1d4ed0e588259609cd951a83408a77", "d7b991cdf91188e07c679ae826d31ccbf3087e27fbc81c52eb1c77759ed01b37"],
+  mortise_tenon: ["6db2fca2304fd851370cedb9f100cfda9f1d4ed0e588259609cd951a83408a77", "c02c7e121dba2d4e69b220013fb111df2b5e3032499d7360133a0ad8d02785c3"],
   half_lap: ["a5d3209d053cd81ff12af550185b21751a687d67f5a739f79d5ae256eed3d388", "0fad32e28724530510fb4b3a36ac2e5177e07e216d9eee6f669dc1059249ed8b"],
   box_joint: ["fec73086083b6fa9e781d5588388d310c88ab815d9e5e4ddf4586fdbd464ee34", "1db8a300f3e9ed3708387ffc506e7439b0cc6764de60c797c0056ad525a86202"],
   through_slot: ["c76c7ef6bbb6a76a811e341b39cf52ac606bf7d67e16c5286afa0a490c77b536", "5b6b9002a0ba4eac6e61fae7c95afcc3bedbae020ba10c02e10b0a885fd75a83"],

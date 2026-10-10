@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOps,
   derive,
+  dominoList,
   emptyDesign,
   jointExample,
   JOINT_TYPES,
@@ -123,8 +124,9 @@ describe("a long rail set out by its Dominos' centres, from its middle", () => {
   it("says under each Domino's detail how to set the joiner up for it", () => {
     // Issue #96: the fence goes on the nearer face, at the height to dial in.
     const top = texts(sheet("Part 1: Top rail"));
-    expect(top).toEqual(expect.arrayContaining(["Detail B, 1:2, 3 places", "Domino 5 × 24.8, 12 deep, 6 mm play.", "Fence on the back edge at 13.5"]));
-    expect(top.join(" ")).toContain("Fence on the left end at 9.5, centre line at 22.5 from the face edge");
+    expect(top).toEqual(expect.arrayContaining(["Detail B, 1:2, 3 places", "Domino 5 × 30", "Depth 12, width middle", "Fence on the back edge at 13.5"]));
+    // A stile's mortise runs across the rail, so its pencil centre line goes in too.
+    expect(top).toEqual(expect.arrayContaining(["Fence on the left end at 9.5", "Centre line at 22.5 from the face edge"]));
   });
 
   it("measures the bottom rail's details up from its own back edge", () => {
@@ -136,9 +138,29 @@ describe("a long rail set out by its Dominos' centres, from its middle", () => {
     // Issue #94: the rails are drawn opposite ways round, but both are set out the same.
     const noted = sheetsOf(applyOps(emptyDesign("Hall frame"), frame), true);
     const note = (title: string) => texts(noted.find((x) => x.title === title)!).find((t) => t.includes("for brace_1."))!;
-    expect(note("Part 2: Bottom rail")).toBe("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the top face for brace_1. Fence on the back edge at 13.5, centre line at 390 along.");
+    expect(note("Part 2: Bottom rail")).toBe("Domino mortise 5 wide × 24.8 long × 12 deep, width middle, in the top face for brace_1. Fence on the back edge at 13.5, centre line at 390 along.");
     expect(note("Part 1: Top rail").split(". Fence")[1]).toBe(note("Part 2: Bottom rail").split(". Fence")[1]);
     expect(texts(sheet("Part 1: Top rail"))).toContain("Face side: the top face. Face edge: the front edge.");
+  });
+
+  it("lists every Domino on one sheet, grouped by how the joiner is set, in Festool's words", () => {
+    // Issue #98: the depth stop, the width dial and the fence, for the whole piece on one page.
+    const d = applyOps(emptyDesign("Hall frame"), frame);
+    expect(dominoList(d, derive(d)).map((r) => [r.part, r.count, r.tenon, r.depth_mm, r.width, r.fence, r.height_mm, r.centres])).toEqual([
+      ["Top rail", 1, "5 × 30", 12, "middle", "left end", 9.5, "22.5 from the face edge"],
+      ["Top rail", 1, "5 × 30", 12, "middle", "right end", 9.5, "22.5 from the face edge"],
+      ["Top rail", 3, "5 × 30", 12, "middle", "back edge", 13.5, "390, 750, 1110 along"],
+      ["Bottom rail", 1, "5 × 30", 12, "middle", "left end", 9.5, "22.5 from the face edge"],
+      ["Bottom rail", 1, "5 × 30", 12, "middle", "right end", 9.5, "22.5 from the face edge"],
+      ["Bottom rail", 3, "5 × 30", 12, "middle", "back edge", 13.5, "390, 750, 1110 along"],
+      ["Stile", 2, "5 × 30", 20, "tight", "left face", 9.5, "22.5 from the face edge"],
+      ["Brace", 2, "5 × 30", 20, "tight", "front face", 9.5, "20 from the face edge"],
+    ]);
+    const sheet = sheetsOf(d).find((x) => x.kind === "domino")!;
+    expect(sheet.title).toBe("Domino settings");
+    expect(texts(sheet)).toEqual(expect.arrayContaining(["Tenon", "Depth", "Width", "Fence on", "Height", "back edge", "13.5", "390, 750, 1110 along"]));
+    // A piece with no Dominos has no such sheet.
+    expect(sheetsOf(applyOps(emptyDesign("Record rack"), rack)).some((x) => x.kind === "domino")).toBe(false);
   });
 
   it("gives a part with work only at its ends no middle", () => {
