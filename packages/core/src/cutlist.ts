@@ -8,7 +8,7 @@ import { fmt } from "./expr.js";
 import { dominoSize, housingWord, type JointParam } from "./joints.js";
 import { cornerName, shapeKey } from "./profile.js";
 import { isRunner } from "./runners.js";
-import { FACE_AXIS, type Design, type Face } from "./types.js";
+import { FACE_AXIS, FACE_IS_MAX, type Design, type Face } from "./types.js";
 
 export interface CutRow {
   row: number;
@@ -72,9 +72,15 @@ export function sideName(part: Pick<DerivedPart, "grain_axis" | "width_axis">, f
 export function machiningText(m: Machining, part?: DerivedPart, { at = true }: { at?: boolean } = {}): string {
   const n = (v: number) => fmt(r1(v));
   const side = (face: Face) => (part ? sideName(part, face) : `${face} face`);
-  const where = part && at
-    ? ` at (${(["x", "y", "z"] as const).map((a) => n(m.region.min[AXIS_INDEX[a]]! - part.box.min[AXIS_INDEX[a]]!)).join(",")})`
-    : "";
+  // A cut is placed by its corner nearest the part's left, bottom and back. A
+  // Domino mortise is set out by its centre, so it's placed by the middle of its mouth.
+  const place = (a: "x" | "y" | "z") => {
+    const i = AXIS_INDEX[a];
+    const [lo, hi] = [m.region.min[i]! - part!.box.min[i]!, m.region.max[i]! - part!.box.min[i]!];
+    if (m.label !== DOMINO_MORTISE) return lo;
+    return FACE_AXIS[m.face] === a ? (FACE_IS_MAX[m.face] ? hi : lo) : (lo + hi) / 2;
+  };
+  const where = part && at ? ` ${m.label === DOMINO_MORTISE ? "centred at" : "at"} (${(["x", "y", "z"] as const).map((a) => n(place(a))).join(",")})` : "";
   switch (m.label) {
     case "screw holes":
       return `${counted(m.count, "screw hole")}, ${n(m.diameter_mm ?? 4)} mm, through the ${side(m.face)} for ${m.with}`;

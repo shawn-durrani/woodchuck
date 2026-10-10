@@ -218,6 +218,25 @@ A detail takes the largest standard scale at which its numbers read and
 the row of details fits. The main view can go one scale smaller to make
 room. A sheet with no crowded spot is drawn as it was.
 
+## A Domino mortise is set out by its centre
+
+A Domino joiner lines up on a pencil mark at the centre of its mortise,
+and its fence height is the distance from the face to the cutter's centre.
+A part's sheet places each Domino mortise the same way, by its centre, on
+its chains and in its note. The note says which way the mortise's length
+runs. For a mortise in an end or an edge, it gives how far in the centre
+sits, which is the fence height. The loose and tight mortises of a joint
+differ in length but share a centre, so the two pieces read the same
+numbers. The cut list gives a Domino mortise's centre too.
+
+Work spread evenly along a part is set out from its middle. When every
+place along the part has a twin the same distance from the other end, and
+some sit in its middle half, the sheet gives the end to the middle and
+marks it across the face view. The chain runs through the middle when
+both halves of the gap it splits read. The middle's row is left out when
+it would make the sheet smaller. Work only at the ends is set out from
+the ends.
+
 ## Claude cuts a part with its own tools
 
 Claude slopes, tapers or chamfers an edge with `set_edge_cut`. It cuts a

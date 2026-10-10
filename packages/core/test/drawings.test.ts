@@ -90,7 +90,9 @@ describe("workshop drawings", () => {
     expect(written).toContain("Cut to 2000 long × 520 wide × 30 thick");
     expect(written).toContain("dado 30 wide × 10 deep × 511 long in the top face for partition. At 382 to 412 along, 9 to 520 up.");
     expect(dim(bottom, "face", "length", "overall")!.values_mm).toEqual([2000]);
-    expect(dim(bottom, "face", "length", "chain")!.values_mm).toEqual([382, 30, 372, 30, 372, 30, 372, 30, 382]);
+    // The partitions sit evenly about the middle, so the chain runs through it, and the sheet gives the end to the middle.
+    expect(dim(bottom, "face", "length", "chain")!.values_mm).toEqual([382, 30, 372, 30, 186, 186, 30, 372, 30, 382]);
+    expect(bottom.dims).toContainEqual({ view: "face", along: "length", kind: "middle", values_mm: [1000] });
     expect(dim(bottom, "face", "width", "overall")!.values_mm).toEqual([520]);
     expect(dim(bottom, "edge", "thickness", "overall")!.values_mm).toEqual([30]);
   });

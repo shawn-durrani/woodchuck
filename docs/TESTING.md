@@ -68,11 +68,17 @@ The record console's two sides have their grooves at the back. One is
 turned over, so the tests hold each sheet to naming its views and the edge
 it measures up from.
 
-An invented hall frame, with rails 1500 long and 45 wide, holds the
-details of spots too small to read. The rails' sheets are held to each
-detail's chains and scale, to the braces' three spots sharing one detail,
-and to the main view keeping where each spot starts. The record console's
-drawer side holds a narrow gap's number written past the end of its row.
+### Details and centres on a part's sheet
+
+An invented record rack's rail, 1500 long and 45 wide with three pairs of
+fins housed 4 mm apart, holds the details of spots too small to read. Its
+sheet is held to the detail's chains and scale, to the three pairs sharing
+one detail, and to the main view keeping where each pair starts. The
+record console's drawer side holds a narrow gap's number written past the
+end of its row. An invented hall frame holds Domino mortises set out by
+their centres. Its rails are held to each centre on the chains and in the
+notes, and to the middle they're set out from. The Domino tests hold a
+joint's tight and loose mortises to sharing their centres.
 Every example's part sheets are held to no text printed over other text,
 and to no two narrow gaps side by side in a row, except at either end.
 The views, the drawings and their PDF of every example with no cuts have to

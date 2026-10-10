@@ -284,7 +284,7 @@ export function readText(s: AppState, what: ReadPart, part?: string): string {
       const rows = list.rows.filter((r) => covers(r.parts));
       if (!rows.length) return part ? `${part} isn't on the cut list.` : `${s.project.name} has nothing to cut yet.`;
       return [
-        `${of} cut list, length × width × thickness in mm. A cut's (x, y, z) is its corner nearest the part's left, bottom and back, measured from that corner of the part. Read parts for where each cut starts and ends on its sheet.`,
+        `${of} cut list, length × width × thickness in mm. A cut's (x, y, z) is its corner nearest the part's left, bottom and back, and a Domino mortise's is the middle of its mouth, measured from that corner of the part. Read parts for where each cut starts and ends on its sheet.`,
         ...rows.flatMap((r) => [
           `${r.row}. ${r.name} ×${r.qty}: ${fmt(r.length_mm)} × ${fmt(r.width_mm)} × ${fmt(r.thickness_mm)}, ${r.material_name}${r.grain ? ", grain along the length" : ""}. Parts: ${r.parts.join(", ")}.`,
           ...r.machining.map((m) => `  - ${m}`),
