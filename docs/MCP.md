@@ -48,12 +48,12 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_redo` | Puts back the change undone last, named by its number. |
 | `woodchuck_designs` | Lists, opens, starts, copies, renames, stars and deletes designs, as the design menu does, and links to the open one's file. |
 | `woodchuck_history` | Lists the design's saved versions by id, or restores one after the woodworker's yes. |
-| `woodchuck_drawings` | Links to the workshop drawings as a PDF, on A4 or A3, to the cutting plan on its own, and to the cut list as a spreadsheet file. |
+| `woodchuck_drawings` | Lists the workshop drawings by sheet, on A4 or A3, and sends one sheet back as a picture. It links to the drawings as a PDF, the cutting plan on its own and the cut list as a spreadsheet file. |
 | `woodchuck_stock` | Reads the cutting plan board by board, or sets the boards and sheets the woodworker already has, the widths and lengths the yard sells and the saw kerf, as one undo step. |
 | `woodchuck_photo` | Works the room photo bar: shows the design in its photo and sets the lens and shadow. The AI blend and removing the photo wait for the woodworker's yes. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
 | `woodchuck_read` | Reads any part of the design as the app shows it: each part's sheet from the workshop drawings, the joints, the cut list, the cutting plan, the drilling and hardware lists, every check, or the design's file. |
-| `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns the picture to look at with a link to it. |
+| `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns the picture to look at. |
 | `woodchuck_screenshot` | Returns what the open window shows right now, as pictures to look at, with a line saying what they show. |
 
 ## Sending a call twice
@@ -255,10 +255,20 @@ three steps and any messages Claude hasn't read yet. Its `state` names
 ## Pictures
 
 `woodchuck_picture` asks the server for a picture, which it draws by
-opening its own page in a headless Chrome. The tool returns the picture
-and a markdown line that shows it. A chat app that drops images from tools
-can still show it, when its model puts that line in a reply. The link
-points at this computer, so it loads only here.
+opening its own page in a headless Chrome. The picture comes back in the
+tool's result, and a chat app that keeps a tool's pictures, as Crossband
+does, shows it to everyone in the chat. The tool also gives the picture's
+link. A link to 127.0.0.1 opens only on this computer, and it shows as a
+broken image anywhere else. The tool tells the calling model to leave
+such a link out of its reply. When `WOODCHUCK_URL` names an address other
+devices can reach, the tool offers a markdown line for a chat app that
+can't show a tool's pictures.
+
+`woodchuck_drawings` lists the workshop drawings by sheet number. It
+sends one sheet back as a picture when `sheet` names it, drawn the same
+way as the PDF. Its links to the PDF, the cutting plan and the cut list say
+when they open only on this computer. `woodchuck_read` gives the part
+sheets in words.
 
 `woodchuck_screenshot` shows the calling model what the woodworker sees.
 The server asks the open window over its socket, and the window answers
