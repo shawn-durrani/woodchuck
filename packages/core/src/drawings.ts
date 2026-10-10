@@ -877,9 +877,57 @@ function noteText(f: Frame, m: Machining, d: DeriveResult): string {
   return `${what}. At ${num(b.min[0])} to ${num(b.max[0])} along, ${num(b.min[1])} to ${num(b.max[1])} up${depth}.`;
 }
 
+/** A part's sheet in words, for a reader with no drawing to look at. */
+export interface PartSheetText {
+  /** The sheet's number in the workshop drawings. */
+  sheet: number;
+  row: number;
+  name: string;
+  qty: number;
+  parts: string[];
+  /** Such as "Cut to 400 long × 520 wide × 30 thick". */
+  cut: string;
+  material: string;
+  /** The side of the piece each view shows, such as "bottom face", "front edge" and "right end". */
+  views: { face: string; edge: string; end: string };
+  /** One line per piece of machining, then one for each slope and hole, numbered as on the sheet. */
+  notes: string[];
+  /** Which end, edge and face along, up and in are measured from. */
+  positions: string;
+}
+
+/** The words on a part's sheet: its cut size, the side each view shows, its notes and where they're measured from. */
+function sheetWords(row: CutRow, d: DeriveResult, sheet: number): PartSheetText {
+  const part = d.byId.get(row.parts[0]!)!;
+  const f = frameOf(part);
+  const shape = shapeInFrame(f);
+  const looks = viewSides(f);
+  return {
+    sheet,
+    row: row.row,
+    name: row.name,
+    qty: row.qty,
+    parts: row.parts,
+    cut: `Cut to ${fmt(row.length_mm)} long × ${fmt(row.width_mm)} wide × ${fmt(row.thickness_mm)} thick`,
+    material: `${row.material_name}${row.grain ? ", grain along the length" : ""}`,
+    views: { face: sideName(part, looks.face), edge: sideName(part, looks.edge), end: sideName(part, looks.end) },
+    notes: [...part.machining.map((m) => noteText(f, m, d)), ...(shape ? shapeNotes(shape).map((x) => x.text) : [])],
+    positions: positionsText(f),
+  };
+}
+
+/**
+ * Each part sheet of the workshop drawings in words, in sheet order, so a
+ * chat with no drawing can read what each sheet says.
+ */
+export function partSheetTexts(design: Design, d: DeriveResult, list: CutList = cutList(design, d)): PartSheetText[] {
+  return list.rows.map((row, i) => sheetWords(row, d, i + 2));
+}
+
 function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const part = d.byId.get(row.parts[0]!)!;
   const f = frameOf(part);
+  const words = sheetWords(row, d, 0);
   const { L, W, T } = f.size;
   const area = drawingArea(paper);
   const sheet = blankSheet("part", `Part ${row.row}: ${row.name}`, paper, 1);
@@ -893,9 +941,9 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   pen.text(area.x + area.w, hy, `Make ${row.qty}`, { size_mm: 5, bold: true, anchor: "end" });
   hy += 6.5;
   // The cut list's own numbers, so the two can't disagree.
-  pen.text(hx, hy, `Cut to ${fmt(row.length_mm)} long × ${fmt(row.width_mm)} wide × ${fmt(row.thickness_mm)} thick`, { size_mm: 3.5 });
+  pen.text(hx, hy, words.cut, { size_mm: 3.5 });
   hy += 5;
-  pen.text(hx, hy, clip(`${row.material_name}${row.grain ? ", grain along the length" : ""}`, area.w, 3), { size_mm: 3 });
+  pen.text(hx, hy, clip(words.material, area.w, 3), { size_mm: 3 });
   hy += 4.5;
   pen.text(hx, hy, clip(`Parts: ${row.parts.join(", ")}`, area.w, TEXT), { colour: GREY });
   const top = hy + 4;
@@ -904,11 +952,11 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   // slope and hole the part's cuts make, under the views.
   const shape = shapeInFrame(f);
   const shaped = shape ? shapeNotes(shape) : [];
-  const notes = [...part.machining.map((m) => noteText(f, m, d)), ...shaped.map((x) => x.text)];
+  const notes = words.notes;
   const noteW = area.w - 8;
   const noteLines = notes.map((n) => wrap(n, noteW, TEXT));
   const standing = part.machining.some((m) => LEFT_STANDING.has(m.label)) ? " An outline at an end is a tenon or tongue." : "";
-  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${positionsText(f)}`, area.w, TEXT);
+  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${words.positions}`, area.w, TEXT);
   const notesH = (notes.length ? 5 + noteLines.reduce((s, l) => s + l.length * 3.6 + 0.8, 0) : 5) + legend.length * 3.6 + 2;
   const bottom = area.y + area.h - notesH;
 

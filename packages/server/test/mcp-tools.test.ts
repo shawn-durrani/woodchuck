@@ -303,6 +303,19 @@ describe("woodchuck_set_param and woodchuck_design", () => {
     expect(tools.find((t) => t.name === "woodchuck_design")!.description).toMatch(/never changes anything/);
   });
 
+  it("reads any part of the design, the same each time it's asked, and changes nothing", async () => {
+    const { tools } = await client.listTools();
+    const read = tools.find((t) => t.name === "woodchuck_read")!;
+    expect(read.description).toMatch(/never changes anything, so calling again is safe/);
+    expect(Object.keys(read.inputSchema.properties!)).toEqual(["what", "part"]);
+    const before = await state();
+    const first = await tool("woodchuck_read", { what: "parts", part: "right_side" });
+    expect(first.text).toContain("Along is from the bottom end, up from the front edge and in from the left face.");
+    expect((await tool("woodchuck_read", { what: "parts", part: "right_side" })).text).toBe(first.text);
+    expect((await tool("woodchuck_read", { what: "joints" })).text).toMatch(/^Record console's joints, by id:\n- bottom_in_left: rabbet, bottom into left_side/);
+    expect((await state()).history).toEqual(before.history);
+  });
+
   it("reads the design in a few short lines, with its parameters and sizes", async () => {
     const r = await tool("woodchuck_design");
     expect(r.ms).toBeLessThan(2000);

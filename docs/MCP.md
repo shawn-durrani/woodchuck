@@ -52,6 +52,7 @@ there. The finer points of a tool go in the descriptions of its inputs.
 | `woodchuck_stock` | Reads the cutting plan board by board, or sets the boards and sheets the woodworker already has, the widths and lengths the yard sells and the saw kerf, as one undo step. |
 | `woodchuck_photo` | Works the room photo bar: shows the design in its photo and sets the lens and shadow. The AI blend and removing the photo wait for the woodworker's yes. |
 | `woodchuck_design` | Reads the design in short lines: its parameters, materials, parts with their sizes in mm and their shapes, overall size and problems. |
+| `woodchuck_read` | Reads any part of the design as the app shows it: each part's sheet from the workshop drawings, the joints, the cut list, the cutting plan, the drilling and hardware lists, every check, or the design's file. |
 | `woodchuck_picture` | Draws the design, or a waiting preview, in the Finished look, and returns the picture to look at with a link to it. |
 | `woodchuck_screenshot` | Returns what the open window shows right now, as pictures to look at, with a line saying what they show. |
 
@@ -118,6 +119,27 @@ A part with cuts has its shape on its line too. A slope gives its two ends
 and its angle, such as `top sloped from 150 at the back to 80 at the
 front, 10.4°`. Holes, notches and corners cut off are counted, such as
 `2 holes, 1 notch`.
+
+## Reading the whole design
+
+`woodchuck_read` gives another chat anything the app shows about the
+design, as text. Its `what` picks which part to read.
+
+- `parts` gives each part's sheet from the workshop drawings. That's its
+  cut size, the side of the piece each view shows and every numbered
+  note. Each note says where its cut starts and ends, and the sheet says
+  which end, edge and face those are measured from.
+- `joints` lists each joint by id, with the two parts it joins and its
+  settings, and says which came from the joint library.
+- `cut_list`, `cutting_plan`, `drilling` and `hardware` give those lists.
+- `checks` gives every problem in full, where `woodchuck_design` stops at
+  a cap.
+- `file` gives the design's own JSON.
+
+`part` narrows the parts, joints, cut list and drilling list to one part.
+It takes a part's id, an array copy such as `shelf#2`, a row number from
+the cut list or a row's name. A chat asked where a cut is, or which face
+it's in, reads the answer here instead of guessing.
 
 ## Turning the model while you talk
 
