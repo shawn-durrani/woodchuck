@@ -78,7 +78,7 @@ describe("machining, counted properly", () => {
     expect(list.rows.find((r) => r.name === "Top")!.machining[0]).toMatch(/^1 screw hole, 4 mm, through the top face for side/);
     expect(cutListCsv(list)).toContain("1 screw hole, 4 mm");
     expect(cutListCsv(list)).not.toContain("1 screw holes");
-    const notes = workshopDrawings(design, d, { date: "4 October 2026" }).flatMap((s) => s.marks.flatMap((m) => (m.kind === "text" ? [m.text] : [])));
+    const notes = workshopDrawings(design, d, { date: "4 October 2026", notes: true }).flatMap((s) => s.marks.flatMap((m) => (m.kind === "text" ? [m.text] : [])));
     expect(notes.join("\n")).toContain("1 screw hole, 4 mm");
     expect(notes.join("\n")).not.toContain("1 screw holes");
   });

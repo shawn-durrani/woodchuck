@@ -74,12 +74,12 @@ export function pictureText(name: string, preview: boolean, url: string, local: 
 }
 
 /** The workshop drawings by sheet, with links to print them. */
-export function drawingsText(name: string, titles: string[], paper: string, base: string, local: boolean): string {
+export function drawingsText(name: string, titles: string[], paper: string, base: string, local: boolean, notes = false): string {
   return [
     `Workshop drawings for ${name}, on ${paper}, in ${titles.length} sheets:`,
     ...titles.map((t, i) => `- Sheet ${i + 1}: ${t}`),
     "Give sheet, by its number, to get that sheet as a picture. woodchuck_read with what parts gives the part sheets' words.",
-    `To print at 100%: ${base}/api/drawings.pdf?paper=${paper}`,
+    `To print at 100%: ${base}/api/drawings.pdf?paper=${paper}${notes ? "&notes=1" : ""}`,
     `Cutting plan alone, to print and take to the saw: ${base}/api/cutting-plan.pdf?paper=${paper}`,
     `Cut list, as a spreadsheet file: ${base}/api/cutlist.csv`,
     ...(local ? [LOCAL_LINKS] : []),
@@ -739,24 +739,25 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Woodchuck's workshop drawings",
       description:
-        "List the open design's workshop drawings by sheet: the general arrangement, a sheet for each part, then the cut list, cutting plan, drilling and hardware lists. Give sheet, by its number, to get that sheet as a picture to look at, which a chat that shows a tool's pictures shows the woodworker too. woodchuck_read gives the part sheets in words. It also links to the drawings as a PDF to print at 100%, the cutting plan alone and the cut list as a spreadsheet file. It only reads, so calling again is safe.",
+        "List the open design's workshop drawings by sheet: the general arrangement, a sheet for each part, then the cut list, cutting plan, drilling and hardware lists. Give sheet, by its number, to get that sheet as a picture to look at, which a chat that shows a tool's pictures shows the woodworker too. A part sheet leaves its machining notes off unless notes is true. woodchuck_read gives the part sheets in words. It also links to the drawings as a PDF to print at 100%, the cutting plan alone and the cut list as a spreadsheet file. It only reads, so calling again is safe.",
       inputSchema: {
         paper: z.enum(["A4", "A3"]).optional().describe("The paper the drawings are laid out on. A4 when left out"),
         sheet: z.number().int().min(1).optional().describe("A sheet's number, from the list, to get that sheet as a picture"),
+        notes: z.boolean().optional().describe("true puts each part sheet's numbered machining notes on, as the window's With notes tick does"),
       },
     },
-    async ({ paper, sheet }) => {
+    async ({ paper, sheet, notes }) => {
       warmUp();
       try {
         const on = paper ?? "A4";
         if (sheet === undefined) {
-          const r = await fetch(`${BASE}/api/mcp/sheets?paper=${on}`);
+          const r = await fetch(`${BASE}/api/mcp/sheets?paper=${on}${notes ? "&notes=1" : ""}`);
           if (!r.ok) throw new Error(`Woodchuck answered ${r.status}`);
           const j = (await r.json()) as { name: string; titles: string[] };
-          return text(drawingsText(j.name, j.titles, on, BASE, LOCAL));
+          return text(drawingsText(j.name, j.titles, on, BASE, LOCAL, notes === true));
         }
         // The app draws the sheet, the same way as the PDF.
-        const r = await fetch(`${BASE}/api/mcp/sheet.png?paper=${on}&n=${sheet}`);
+        const r = await fetch(`${BASE}/api/mcp/sheet.png?paper=${on}&n=${sheet}${notes ? "&notes=1" : ""}`);
         if (r.status === 404) return text(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `There's no sheet ${sheet}.`);
         if (!r.ok) throw new Error(`Woodchuck answered ${r.status}`);
         const png = Buffer.from(await r.arrayBuffer()).toString("base64");

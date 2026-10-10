@@ -173,7 +173,7 @@ describe("a joint on one copy of an array", () => {
   });
 
   it("draws shelf#2 on a sheet of its own, and drills the divider for shelf#1", () => {
-    const sheets = workshopDrawings(design, d, { date: "6 October 2026" });
+    const sheets = workshopDrawings(design, d, { date: "6 October 2026", notes: true });
     expect(sheets.filter((s) => s.kind === "part").map((s) => s.title)).toEqual([
       "Part 1: Left side",
       "Part 2: Right side",

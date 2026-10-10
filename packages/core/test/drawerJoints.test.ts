@@ -143,7 +143,7 @@ describe("an invented drawer box with its bottom in grooves", () => {
 
   it("dimensions each groove and rabbet on the workshop drawings", () => {
     const d = box();
-    const sheets = workshopDrawings(d, derive(d), { date: "6 October 2026" });
+    const sheets = workshopDrawings(d, derive(d), { date: "6 October 2026", notes: true });
     const sheet = (title: string) => sheets.find((s) => s.title === title)!;
     const notes = (title: string) => sheet(title).marks.flatMap((m) => (m.kind === "text" && /^(groove|rabbet)/.test(m.text) ? [m.text] : []));
     // The side: the groove is 10 up and 6 wide, and runs its whole length.

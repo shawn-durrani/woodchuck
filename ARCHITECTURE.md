@@ -217,7 +217,9 @@ neighbours, but two lifted in a row would print over each other. When
 the first two or last two gaps in a row are narrow, the outer number goes
 just past the end of the row instead.
 
-Narrow gaps side by side anywhere else make a crowded spot. The sheet
+Narrow gaps side by side anywhere else make a crowded spot, and so do
+three or more in a row anywhere, since their ticks crowd even with the
+numbers moved clear. The sheet
 circles each one on the face view with a letter, and draws it again
 under the views as a detail, such as "Detail A, 1:2". A detail has every
 size of its spot, measured from the same edges as the sheet, and break
@@ -229,16 +231,34 @@ A detail takes the largest standard scale at which its numbers read and
 the row of details fits. The main view can go one scale smaller to make
 room. A sheet with no crowded spot is drawn as it was.
 
+Under each detail's label, a short line says what's cut there, such as a
+housing's width and depth. A V marks the face edge on the face view and
+on each detail, the way it's marked on the wood.
+
+## The notes are there when asked
+
+Each part sheet can end with numbered notes, one line per cut, with
+balloons tying each cut on the face view to its note. They're left off
+unless asked, which leaves their room to the details. The With notes tick
+beside the drawings download asks for them, and so does `notes` on the
+PDF's address or on the drawings tool another chat calls. The part sheets
+another chat reads in words always have their notes.
+
 ## A Domino mortise is set out by its centre
 
 A Domino joiner lines up on a pencil mark at the centre of its mortise,
 and its fence height is the distance from the face to the cutter's centre.
 A part's sheet places each Domino mortise the same way, by its centre, on
-its chains and in its note. The note says which way the mortise's length
-runs. For a mortise in an end or an edge, it gives how far in the centre
-sits, which is the fence height. The loose and tight mortises of a joint
-differ in length but share a centre, so the two pieces read the same
-numbers. The cut list gives a Domino mortise's centre too.
+its chains. Every Domino mortise gets a detail, and the line under it says
+how to set the joiner up. That gives the tenon's size, the depth and the
+play, then the face the fence sits on and the height to dial in. The
+fence goes on the nearer face across the cutter, since it only reaches so
+far, or the face side or face edge when they're as near. Where the
+mortise runs across the part, the line also gives its pencil centre line.
+A sheet with no room for its details keeps its notes, which say the same.
+The loose and tight mortises of a joint differ in length but share a
+centre, so the two pieces read the same numbers. The cut list gives a
+Domino mortise's centre too.
 
 Work spread evenly along a part is set out from its middle. When every
 place along the part has a twin the same distance from the other end, and

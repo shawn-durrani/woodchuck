@@ -98,6 +98,8 @@ export interface DrawingOptions {
   date?: string;
   /** The paper for every sheet. A4 when left out, since most home printers take it. */
   paper?: Paper;
+  /** Each part sheet's numbered machining notes and their balloons. Left off unless asked, to leave room for the details. */
+  notes?: boolean;
 }
 
 /** One kind of hole in one cut-list row's part. */
@@ -356,6 +358,8 @@ function numberPlaces(at_mm: number[], values_mm: number[]): { place: NumberPlac
       lifted = true;
     }
   }
+  // Three or more narrow gaps side by side are cramped even with their numbers moved clear.
+  for (let i = 0; i + 2 < n; i++) if (narrow[i] && narrow[i + 1] && narrow[i + 2]) out[i]!.crowded = out[i + 1]!.crowded = out[i + 2]!.crowded = true;
   return out;
 }
 
@@ -629,6 +633,10 @@ interface DetailItem {
   shows: boolean;
   /** It runs the part's whole length, so it crosses every detail. */
   full: boolean;
+  /** What's cut, for the detail's caption. */
+  what: string;
+  /** It's always drawn larger, as a Domino mortise is, so its machine setup is on the sheet. */
+  zoom: boolean;
 }
 
 /**
@@ -647,6 +655,8 @@ interface Detail {
   up: number[];
   /** Where each spot drawn this way starts along the part. */
   starts: number[];
+  /** What's cut there, each once. */
+  what: string[];
   key: string;
 }
 
@@ -661,7 +671,7 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
   const crowded = (at: number[] | null) => (at ? numberPlaces(at.map((v) => v / s), gapsBetween(at)).map((p) => p.crowded) : []);
   const cx = crowded(chainX);
   const cy = crowded(chainY);
-  if (!cx.includes(true) && !cy.includes(true)) return null;
+  if (!cx.includes(true) && !cy.includes(true) && !items.some((i) => i.zoom)) return null;
   const join = DETAIL_JOIN_MM * s;
   const runs: { lo: number; hi: number; items: DetailItem[] }[] = [];
   for (const it of items.filter((i) => !i.full).sort((a, b) => a.lo - b.lo)) {
@@ -680,10 +690,11 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
     const up = uniqueSorted([0, W, ...[...r.items, ...full].flatMap((i) => i.up)].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut));
     const shape = r.items.map((i) => [roundCut(i.lo - r.lo), roundCut(i.hi - r.lo), roundCut(i.ylo), roundCut(i.yhi), i.shows]);
     const key = JSON.stringify([left ? roundCut(r.lo) : null, right ? roundCut(L - r.hi) : null, shape]);
-    return { lo: r.lo, hi: r.hi, left, right, along, up, key };
+    const what = [...new Set(r.items.map((i) => i.what))];
+    return { lo: r.lo, hi: r.hi, left, right, along, up, what, key, zoom: r.items.some((i) => i.zoom) };
   });
   const touches = (sp: (typeof spots)[number], p: number) => (p >= sp.lo - EPS && p <= sp.hi + EPS) || (p <= EPS && sp.left) || (p >= L - EPS && sp.right);
-  const picked = cy.includes(true) ? spots : spots.filter((sp) => cx.some((c, i) => c && (touches(sp, chainX![i]!) || touches(sp, chainX![i + 1]!))));
+  const picked = cy.includes(true) ? spots : spots.filter((sp) => sp.zoom || cx.some((c, i) => c && (touches(sp, chainX![i]!) || touches(sp, chainX![i + 1]!))));
   if (!picked.length) return null;
   const details: Detail[] = [];
   for (const sp of picked) {
@@ -697,6 +708,9 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
   return { mainX: mainX && mainX.length > 2 ? mainX : null, mainY: cy.includes(true) ? null : chainY, details };
 }
 
+/** A detail's caption, under its label. */
+const CAPTION = 2.5;
+
 /** What a detail's label says. */
 const detailLabel = (dt: Detail, ds: number) => `Detail ${dt.letter}, 1:${ds}${dt.starts.length > 1 ? `, ${dt.starts.length} places` : ""}`;
 
@@ -708,9 +722,12 @@ function detailBox(dt: Detail, ds: number, L: number, W: number) {
   const top = dt.along.length > 1 ? dimMargin(1) : 2;
   const left = dimMargin(1);
   const face = (w1 - w0) / ds;
-  // The label starts at the detail's left edge, clear of its width chain.
-  const w = left + Math.max(face, textWidth_mm(detailLabel(dt, ds), 3, true)) + 4;
-  return { w0, w1, top, left, face, w, h: top + W / ds + LABEL };
+  // The label starts at the detail's left edge, clear of its width chain, with what's cut there under it.
+  const room = Math.max(face, 50);
+  const caption = wrap(dt.what.join("; "), room, CAPTION);
+  const captionW = Math.max(0, ...caption.map((l) => textWidth_mm(l, CAPTION)));
+  const w = left + Math.max(face, textWidth_mm(detailLabel(dt, ds), 3, true), captionW) + 4;
+  return { w0, w1, top, left, face, w, caption, h: top + W / ds + LABEL + caption.length * 3.2 };
 }
 
 /**
@@ -869,6 +886,52 @@ function referenceText(f: Frame): string {
 const FASTENER_LABELS = new Set(["screw holes", "dowel holes", "pocket holes"]);
 /** A Domino mortise is set out by its centre, which the joiner lines up with a pencil mark. */
 const centred = (m: Machining) => m.label === DOMINO_MORTISE;
+
+/** What's cut, in a few words for a detail's caption: what the machine is set to. */
+function shortWhat(m: Machining): string {
+  if (m.label === DOMINO_MORTISE) return `Domino ${num(m.width_mm)} × ${num(m.length_mm)}, ${num(m.depth_mm)} deep, ${m.play_mm ? `${num(m.play_mm)} mm play` : "tight"}`;
+  if (FASTENER_LABELS.has(m.label)) return `${m.label}, Ø${num(m.diameter_mm ?? 4)}`;
+  return `${m.label} ${num(m.width_mm)} wide, ${num(m.depth_mm)} deep`;
+}
+
+/**
+ * How a Domino is set up for a mortise, on the drawn part. The fence sits on
+ * a face across the cutter, and the height dialled in is the distance from
+ * that face to the mortise's centre. It's the nearer of the two, the face
+ * side or face edge when they're as near, since the fence only reaches so
+ * far. The centre line, marked in pencil, is across the mortise's length.
+ */
+function dominoSetup(f: Frame, m: Machining, b: { min: Vec3; max: Vec3 }) {
+  const plunge = frameAxis(f, FACE_AXIS[m.face]);
+  const across = ([0, 1, 2] as const).filter((i) => i !== plunge);
+  const span = (i: 0 | 1 | 2) => b.max[i]! - b.min[i]!;
+  const [h, l] = span(across[0]!) <= span(across[1]!) ? [across[0]!, across[1]!] : [across[1]!, across[0]!];
+  const size = [f.size.L, f.size.W, f.size.T][h]!;
+  const c = (i: 0 | 1 | 2) => (b.min[i]! + b.max[i]!) / 2;
+  const [low, high] = [frameFace(f, h, false), frameFace(f, h, true)];
+  const fromLow = c(h);
+  const fromHigh = size - c(h);
+  const ref = h === 1 ? f.ref.edge : h === 2 ? f.ref.side : null;
+  const useLow = Math.abs(fromLow - fromHigh) <= 0.05 ? ref !== high : fromLow < fromHigh;
+  const line = l === 0 ? `${num(c(0))} along` : l === 1 ? `${num(fromEdge(f, c(1)))} from the face edge` : `${num(fromSide(f, c(2)))} from the face side`;
+  return { fence: sideName(f.part, useLow ? low : high), height: useLow ? fromLow : fromHigh, line, lineAlong: l === 0 };
+}
+
+/**
+ * A Domino mortise's caption under its detail: its size, depth and play,
+ * then the fence's face and height. The centre line goes in too when it's
+ * across the part, since a detail can stand for spots at several places along.
+ */
+function dominoCaption(f: Frame, m: Machining, b: { min: Vec3; max: Vec3 }): string {
+  const set = dominoSetup(f, m, b);
+  return `${shortWhat(m)}. Fence on the ${set.fence} at ${num(set.height)}${set.lineAlong ? "" : `, centre line at ${set.line}`}`;
+}
+
+/** The face edge's mark, a V outside the edge's line with its point on it, the way it's marked on the wood. */
+function faceEdgeMark(pen: Pen, x: number, line: number, out: 1 | -1) {
+  pen.line(x - 1.1, line + out * 2, x, line + out * 0.4, THIN);
+  pen.line(x, line + out * 0.4, x + 1.1, line + out * 2, THIN);
+}
 const LEFT_STANDING = new Set(["tenon", "tongue"]);
 
 /**
@@ -1106,13 +1169,9 @@ function noteText(f: Frame, m: Machining, d: DeriveResult): string {
   }
   const b = boxInFrame(f, m.region);
   if (centred(m)) {
-    // Its centre, on the two ways across the cut. For a mortise in an end or an edge, how far in is the fence height.
-    const plunge = frameAxis(f, FACE_AXIS[m.face]);
-    const c = [0, 1, 2].map((i) => (b.min[i]! + b.max[i]!) / 2);
-    const words = [`${num(c[0]!)} along`, `${num(fromEdge(f, c[1]!))} from the face edge`, `${num(fromSide(f, c[2]!))} from the face side`];
-    const across = ([0, 1, 2] as const).filter((i) => i !== plunge);
-    const long = across.reduce((a, i) => (b.max[i]! - b.min[i]! > b.max[a]! - b.min[a]! ? i : a));
-    return `${what}. Centre at ${across.map((i) => words[i]).join(", ")}, its length running ${["along", "across", "through the thickness"][long]}.`;
+    // How to set the joiner up for it: the fence's face and height, then the pencil centre line.
+    const set = dominoSetup(f, m, b);
+    return `${what}. Fence on the ${set.fence} at ${num(set.height)}, centre line at ${set.line}.`;
   }
   // A cut into a broad face says which in its words. Any other says how far through it sits.
   const onFace = b.max[2] >= f.size.T - EPS || b.min[2] <= EPS;
@@ -1170,7 +1229,7 @@ export function partSheetTexts(design: Design, d: DeriveResult, list: CutList = 
   return list.rows.map((row, i) => sheetWords(row, d, i + 2));
 }
 
-function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
+function partSheet(row: CutRow, d: DeriveResult, paper: Paper, withNotes = false): Sheet {
   const part = d.byId.get(row.parts[0]!)!;
   const f = frameOf(part, d);
   const words = sheetWords(row, d, 0);
@@ -1201,12 +1260,14 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   // slope and hole the part's cuts make, under the views.
   const shape = shapeInFrame(f);
   const shaped = shape ? shapeNotes(f, shape) : [];
-  const notes = words.notes;
+  // They're left off unless asked, which leaves their room to the details. A part with nothing to cut still says so.
+  const notes = withNotes ? words.notes : [];
+  const plain = !words.notes.length;
   const noteW = area.w - 8;
   const noteLines = notes.map((n) => wrap(n, noteW, TEXT));
   const standing = part.machining.some((m) => LEFT_STANDING.has(m.label)) ? " An outline at an end is a tenon or tongue." : "";
-  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${words.positions}`, area.w, TEXT);
-  const notesH = (notes.length ? 5 + noteLines.reduce((s, l) => s + l.length * 3.6 + 0.8, 0) : 5) + legend.length * 3.6 + 2;
+  const legend = wrap(`Grey is cut away and dashed is out of sight.${standing} ${words.positions} A V marks the face edge.`, area.w, TEXT);
+  const notesH = (notes.length ? 5 + noteLines.reduce((s, l) => s + l.length * 3.6 + 0.8, 0) : plain ? 5 : 0) + legend.length * 3.6 + 2;
   const bottom = area.y + area.h - notesH;
 
   // Chains of machining along the length and up the width, on the face view.
@@ -1276,9 +1337,13 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
         up: centred(m) ? mid(1) : [b.min[1], b.max[1]],
         shows: b.max[2] >= T - EPS,
         full: b.max[0] - b.min[0] >= L - EPS,
+        what: centred(m) ? dominoCaption(f, m, b) : shortWhat(m),
+        zoom: centred(m),
       };
     }),
-    ...holes.filter((h) => h.drill === 2).flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], along: [c[0]], up: [c[1]], shows: true, full: false }))),
+    ...holes
+      .filter((h) => h.drill === 2)
+      .flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], along: [c[0]], up: [c[1]], shows: true, full: false, what: shortWhat(h.m), zoom: false }))),
   ];
   const layoutAt = (s: number, details: boolean, mid: boolean) => {
     const plan = details && !shape ? planDetails(L, W, s, items, chainX, chainY) : null;
@@ -1316,6 +1381,8 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
     false,
     false,
   );
+  // A Domino's setup is in its detail's caption, so a sheet with no room for its details keeps its notes.
+  if (!withNotes && !shelf && items.some((i) => i.zoom)) return partSheet(row, d, paper, true);
   const { s, marginTop, marginLeft } = chosen;
   const mainX = chosen.chainX;
   const mainY = chosen.chainY;
@@ -1416,7 +1483,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   ];
   // A balloon that would land on another steps along to the right, its leader still on its own machining.
   const placed: [number, number][] = [];
-  anchors.forEach((anchor, k) => {
+  if (withNotes) anchors.forEach((anchor, k) => {
     let bx = anchor[0] + 4;
     const by = anchor[1] - 4;
     while (placed.some(([x, y]) => Math.hypot(x - bx, y - by) < 4.4)) bx += 4.4;
@@ -1528,6 +1595,10 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
       dimRow(pen, "left", x0, x0 - DIM_FIRST, dt.up.map((v) => at(box.w0, v)[1]), ups);
       sheet.dims.push({ view: `detail ${dt.letter}`, along: "width", kind: "chain", values_mm: ups, scale: ds });
       pen.text(x0, y1 + 5.5, detailLabel(dt, ds), { size_mm: 3, bold: true });
+      box.caption.forEach((line, k) => pen.text(x0, y1 + 9 + k * 3.2, line, { size_mm: CAPTION, colour: GREY }));
+      // The face edge's V, so the detail's numbers can be read from it.
+      const edgeLow = frameFace(f, 1, false) === f.ref.edge;
+      faceEdgeMark(pen, x0 + Math.min(4, box.face / 3), edgeLow ? y1 : y0, edgeLow ? 1 : -1);
       for (const st of dt.starts) {
         const a0 = dt.left ? 0 : st;
         const a1 = dt.right ? L : st + dt.hi - dt.lo;
@@ -1539,6 +1610,10 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
       x += box.w + GAP;
     });
   }
+
+  // The face edge's V on the face view, the way it's marked on the wood.
+  const edgeLow = frameFace(f, 1, false) === f.ref.edge;
+  faceEdgeMark(pen, fx + Math.min(6, L / s / 4), edgeLow ? fy + W / s : fy, edgeLow ? 1 : -1);
 
   // Notes and the legend.
   let y = bottom + 4;
@@ -1555,7 +1630,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
       }
       y += 0.8;
     });
-  } else {
+  } else if (plain) {
     pen.text(area.x, y, "No machining. Cut it to size.", { size_mm: 3 });
     y += 5;
   }
@@ -2024,7 +2099,7 @@ export function workshopDrawings(design: Design, d: DeriveResult, opts: DrawingO
   const date = opts.date ?? longDate(new Date());
   const paper = opts.paper ?? "A4";
   const ga = arrangement(design, d, paper);
-  const parts = list.rows.map((row) => partSheet(row, d, paper));
+  const parts = list.rows.map((row) => partSheet(row, d, paper, opts.notes === true));
   const sheetOf = new Map(list.rows.map((r, i) => [r.row, i + 2]));
   const layout = cutLayout(design, list);
   const tables = [...cutListSheets(list, d, paper, sheetOf, layout), ...(layout.materials.length ? cuttingPlanSheets(layout, paper) : []), ...drillingSheets(drillingList(design, d, list), paper, sheetOf), ...hardwareSheets(list, paper)];

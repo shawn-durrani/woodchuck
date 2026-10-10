@@ -91,6 +91,8 @@ export function MakeTab({
   onView,
   paper,
   onPaper,
+  notes,
+  onNotes,
   onSaved,
   onSelect,
 }: {
@@ -99,6 +101,8 @@ export function MakeTab({
   onView: (v: MakeView) => void;
   paper: Paper;
   onPaper: (p: Paper) => void;
+  notes: boolean;
+  onNotes: (on: boolean) => void;
   onSaved: (text: string) => void;
   onSelect: (ids: string[]) => void;
 }) {
@@ -107,7 +111,7 @@ export function MakeTab({
     <div className="make-tab">
       <div className="make-head">
         <div className="make-downloads">
-          <DrawingsLink slug={state.project.slug} paper={paper} onPaper={onPaper} onSaved={onSaved} big empty={empty} />
+          <DrawingsLink slug={state.project.slug} paper={paper} onPaper={onPaper} notes={notes} onNotes={onNotes} onSaved={onSaved} big empty={empty} />
           {empty ? (
             <button disabled title="Nothing to cut yet. Ask Claude to build something first.">
               Download CSV

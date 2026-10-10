@@ -567,6 +567,25 @@ describe("woodchuck_drawings, woodchuck_photo and woodchuck_history", () => {
     expect((await sheet(99))[0]!.text).toMatch(/drawings have \d+ sheets, so there's no sheet 99\.$/);
   });
 
+  it("puts the part sheets' notes on when asked, as the window's tick does, the same each time", async () => {
+    // Issue #96: the notes are left off unless asked, to leave room for the details.
+    expect((await post("/api/projects", { name: "Record console", example: "record_console" })).status).toBe(200);
+    type Content = { type: string; text?: string; data?: string }[];
+    const picture = async (notes?: boolean) =>
+      ((await client.callTool({ name: "woodchuck_drawings", arguments: { sheet: 2, ...(notes === undefined ? {} : { notes }) } })) as unknown as { content: Content }).content[1]!.data;
+    const plain = await picture();
+    const noted = await picture(true);
+    expect(noted).not.toBe(plain);
+    expect(await picture(true)).toBe(noted);
+    expect(await picture(false)).toBe(plain);
+    const list = (await tool("woodchuck_drawings", { notes: true })).text;
+    expect(list).toContain(`To print at 100%: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A4&notes=1`);
+    expect((await tool("woodchuck_drawings", { notes: true })).text).toBe(list);
+    // The PDF itself takes the same.
+    const pdf = async (q: string) => Buffer.from(await (await fetch(`${process.env.WOODCHUCK_URL}/api/drawings.pdf${q}`)).arrayBuffer());
+    expect((await pdf("?paper=A4&notes=1")).length).toBeGreaterThan((await pdf("?paper=A4")).length);
+  });
+
   it("sets the photo's lens and shadow, and holds a blend or a removal for a yes", async () => {
     expect((await tool("woodchuck_photo", { show: true })).text).toBe("Nothing changed. There's no room photo with this design. The woodworker loads one with Share, then Photo.");
     expect((await tool("woodchuck_photo", { remove: true, confirmed: true })).text).toBe("There's no room photo with this design, so there's nothing to remove.");

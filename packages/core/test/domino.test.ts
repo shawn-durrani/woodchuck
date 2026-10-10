@@ -477,7 +477,7 @@ describe("the Domino's worked example", () => {
   });
 
   it("dimensions each mortise on the workshop drawings", () => {
-    const sheets = workshopDrawings(d, r, { date: "5 October 2026" });
+    const sheets = workshopDrawings(d, r, { date: "5 October 2026", notes: true });
     const sheet = (title: string) => sheets.find((s) => s.title === title)!;
     const texts = (title: string) => sheet(title).marks.flatMap((m) => (m.kind === "text" ? [m.text] : []));
     // Issue #92: a Domino mortise is set out by its centre, the way the joiner lines up with a pencil mark.
@@ -485,14 +485,14 @@ describe("the Domino's worked example", () => {
     // A mortise in an end has no place along the side to mark, and its depth is in the note.
     expect(sheet("Part 2: Side").dims.some((x) => x.along === "length" && x.kind === "chain")).toBe(false);
     // How far in its centre sits is the fence height.
-    expect(texts("Part 2: Side")).toContain("Domino mortise 6 wide × 19.8 long × 28 deep, tight, in the top end for top. Centre at 50 from the face edge, 9 from the face side, its length running across.");
+    expect(texts("Part 2: Side")).toContain("Domino mortise 6 wide × 19.8 long × 28 deep, tight, in the top end for top. Fence on the left face at 9, centre line at 50 from the face edge.");
     // The top is turned over for its mortises, so its front is at the bottom of its face view, and the sheet says so.
     expect(texts("Part 1: Top")).toEqual(expect.arrayContaining(["Bottom face", "Front edge, face edge", "Right end", "Face side: the top face. Face edge: the front edge."]));
     expect(texts("Part 1: Top").join(" ")).toContain("Along is from the left end. Across is from the face edge and through is from the face side.");
     // The top's mortises are loose and the side's tight, but they share their centres.
     expect(sheet("Part 1: Top").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [50, 100, 100, 50] });
     expect(sheet("Part 1: Top").dims).toContainEqual({ view: "face", along: "length", kind: "chain", values_mm: [9, 391] });
-    expect(texts("Part 1: Top")).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side. Centre at 9 along, 150 from the face edge, its length running across.");
+    expect(texts("Part 1: Top")).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side. Fence on the left end at 9, centre line at 150 from the face edge.");
     expect(sheets.find((s) => s.kind === "hardware")!.marks.some((m) => m.kind === "text" && m.text === "Festool DOMINO tenon, beech, 6 × 40 mm")).toBe(true);
   });
 });

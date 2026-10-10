@@ -281,7 +281,8 @@ can't show a tool's pictures.
 
 `woodchuck_drawings` lists the workshop drawings by sheet number. It
 sends one sheet back as a picture when `sheet` names it, drawn the same
-way as the PDF. Its links to the PDF, the cutting plan and the cut list say
+way as the PDF. A part sheet leaves its numbered notes off unless `notes`
+is true, as the window's With notes tick does. Its links to the PDF, the cutting plan and the cut list say
 when they open only on this computer. `woodchuck_read` gives the part
 sheets in words.
 
