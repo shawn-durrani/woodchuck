@@ -47,11 +47,22 @@ import {
   type JointType,
   type Op,
   type ParamUnit,
+  workshopDrawings,
 } from "@woodchuck/core";
 import { background, describe, hasReply, itemsAfter, progressText, type Item, type Progress } from "./progress.js";
+import { sheetPng } from "./render.js";
 import type { EditSummary } from "./tools.js";
 
 const BASE = (process.env.WOODCHUCK_URL ?? "http://127.0.0.1:8905").replace(/\/$/, "");
+/** True when an address works only on the computer it names, as 127.0.0.1 does. */
+export function localOnly(base: string): boolean {
+  const host = new URL(base).hostname.replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host.endsWith(".localhost") || /^127\./.test(host);
+}
+/** The app's links open only on the computer it runs on, so they're no use in a reply read elsewhere. */
+const LOCAL = localOnly(BASE);
+const LOCAL_LINKS = "These links open only on the computer Woodchuck runs on, so they're no use in a reply to someone on another device.";
+
 /** Named in the note the Woodchuck window shows when its view is changed. */
 const CALLER = process.env.WOODCHUCK_CALLER ?? "another app";
 /** The caller's name at the start of a line. */
@@ -131,6 +142,7 @@ export function designList(s: AppState): string {
     "Designs, by id:",
     ...all.map((p) => `- ${p.slug}: ${p.name}${p.starred ? ", starred" : ""}${p.slug === s.project.slug ? ", open" : ""}${p.changed ? `, changed ${p.changed.slice(0, 10)}` : ""}`),
     `The open design's file: ${BASE}/api/design.json`,
+    ...(LOCAL ? ["That link opens only on the computer Woodchuck runs on. woodchuck_read with what file gives the file itself."] : []),
   ].join("\n");
 }
 
@@ -366,6 +378,32 @@ export function readText(s: AppState, what: ReadPart, part?: string): string {
     case "file":
       return [`${of} file, as JSON:`, JSON.stringify(design)].join("\n");
   }
+}
+
+/**
+ * What woodchuck_picture says with its picture. The picture comes with the
+ * result, and a link that opens only on this computer would show as a
+ * broken image anywhere else, so it's offered for a reply only when it
+ * opens elsewhere too.
+ */
+export function pictureText(name: string, preview: boolean, url: string, local: boolean): string {
+  const what = `Here's ${name}${preview ? " with the preview's change, not yet applied" : ""}. The picture comes with this result, so a chat that shows a tool's pictures already shows it to the woodworker.`;
+  return local
+    ? `${what} Its link, ${url}, opens only on the computer Woodchuck runs on, so don't put it in a reply.`
+    : `${what} For a chat that can't, put this line in your reply, on its own, to show it:\n\n![${name}](${url})`;
+}
+
+/** The workshop drawings by sheet, with links to print them. */
+export function drawingsText(name: string, titles: string[], paper: string, base: string, local: boolean): string {
+  return [
+    `Workshop drawings for ${name}, on ${paper}, in ${titles.length} sheets:`,
+    ...titles.map((t, i) => `- Sheet ${i + 1}: ${t}`),
+    "Give sheet, by its number, to get that sheet as a picture. woodchuck_read with what parts gives the part sheets' words.",
+    `To print at 100%: ${base}/api/drawings.pdf?paper=${paper}`,
+    `Cutting plan alone, to print and take to the saw: ${base}/api/cutting-plan.pdf?paper=${paper}`,
+    `Cut list, as a spreadsheet file: ${base}/api/cutlist.csv`,
+    ...(local ? [LOCAL_LINKS] : []),
+  ].join("\n");
 }
 
 /** A list of lines cut to a cap, with a last line saying how many more there are. */
@@ -1091,7 +1129,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
       try {
         const plan = (design: Design) => {
           const lines = cuttingPlanText(cutLayout(design, cutList(design, derive(design))));
-          return `${lines.join("\n")}\nTo print: ${BASE}/api/cutting-plan.pdf?paper=A4`;
+          return `${lines.join("\n")}\nTo print: ${BASE}/api/cutting-plan.pdf?paper=A4${LOCAL ? ", on the computer Woodchuck runs on" : ""}`;
         };
         const design = (await getState()).design;
         const clear = <T,>(v: T[] | null | undefined) => (v === undefined ? undefined : v === null || v.length === 0 ? null : v);
@@ -1258,20 +1296,26 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Woodchuck's workshop drawings",
       description:
-        "Get links to the open design's workshop drawings as a PDF to print at 100%, with a drawing of each part and the cut list, cutting plan, drilling and hardware lists, to the cutting plan alone, and to its cut list as a spreadsheet file. It only reads, so calling again is safe.",
-      inputSchema: { paper: z.enum(["A4", "A3"]).optional().describe("The paper the drawings are laid out on. A4 when left out") },
+        "List the open design's workshop drawings by sheet: the general arrangement, a sheet for each part, then the cut list, cutting plan, drilling and hardware lists. Give sheet, by its number, to get that sheet as a picture to look at, which a chat that shows a tool's pictures shows the woodworker too. woodchuck_read gives the part sheets in words. It also links to the drawings as a PDF to print at 100%, the cutting plan alone and the cut list as a spreadsheet file. It only reads, so calling again is safe.",
+      inputSchema: {
+        paper: z.enum(["A4", "A3"]).optional().describe("The paper the drawings are laid out on. A4 when left out"),
+        sheet: z.number().int().min(1).optional().describe("A sheet's number, from the list, to get that sheet as a picture"),
+      },
     },
-    async ({ paper }) => {
+    async ({ paper, sheet }) => {
       warmUp();
       try {
         const s = await getState();
-        return text(
-          [
-            `Workshop drawings for ${s.design.name}, on ${paper ?? "A4"}: ${BASE}/api/drawings.pdf?paper=${paper ?? "A4"}`,
-            `Cutting plan alone, to print and take to the saw: ${BASE}/api/cutting-plan.pdf?paper=${paper ?? "A4"}`,
-            `Cut list, as a spreadsheet file: ${BASE}/api/cutlist.csv`,
-          ].join("\n"),
-        );
+        const sheets = workshopDrawings(s.design, derive(s.design), { paper: paper ?? "A4" });
+        if (sheet === undefined) return text(drawingsText(s.design.name, sheets.map((x) => x.title), paper ?? "A4", BASE, LOCAL));
+        const one = sheets[sheet - 1];
+        if (!one) return text(`${s.design.name}'s drawings have ${sheets.length} sheets, so there's no sheet ${sheet}.`);
+        return {
+          content: [
+            { type: "text" as const, text: `Sheet ${sheet} of ${sheets.length} of the workshop drawings for ${s.design.name}: ${one.title}.` },
+            { type: "image" as const, data: sheetPng(one).toString("base64"), mimeType: "image/png" },
+          ],
+        };
       } catch (e) {
         return unreachable(e);
       }
@@ -1370,7 +1414,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
     {
       title: "Picture of the Woodchuck design",
       description:
-        "Draw the open design as a picture, in the Finished look with its real timber and finishes by default, from a fixed camera. The picture comes back for you to look at, with a link to it. With preview true, it draws the preview Woodchuck's Claude is showing as if applied, without applying it. To show the woodworker the picture, put the markdown image line it gives you in your reply. For what their window shows right now, use woodchuck_screenshot.",
+        "Draw the open design as a picture, in the Finished look with its real timber and finishes by default, from a fixed camera. The picture comes back with the result, for you to look at, and a chat that shows a tool's pictures shows it to the woodworker too. With preview true, it draws the preview Woodchuck's Claude is showing as if applied, without applying it. For what their window shows right now, use woodchuck_screenshot.",
       inputSchema: {
         preview: z.boolean().optional().describe("Draw the waiting preview's change instead of the design as it is"),
         look: z.enum(["finished", "plain"]).optional(),
@@ -1397,7 +1441,7 @@ export function buildServer(o: { askWaitMs?: number; replyWaitMs?: number } = {}
           content: [
             {
               type: "text" as const,
-              text: `Here's ${s.project.name}${preview ? " with the preview's change, not yet applied" : ""}. Put this line in your reply, on its own, to show it:\n\n![${s.project.name}](${url})`,
+              text: pictureText(s.project.name, Boolean(preview), url, LOCAL),
             },
             { type: "image" as const, data: png, mimeType: "image/png" },
           ],

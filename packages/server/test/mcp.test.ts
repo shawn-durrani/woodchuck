@@ -4,7 +4,7 @@
 
 import { describe as group, expect, it } from "vitest";
 import { applyOps, emptyDesign, recordConsoleOps } from "@woodchuck/core";
-import { colourCards, describe, designText, itemsAfter, readText, READ_PARTS, summarise, type AppState } from "../src/mcp.js";
+import { colourCards, describe, designText, drawingsText, itemsAfter, localOnly, pictureText, readText, READ_PARTS, summarise, type AppState } from "../src/mcp.js";
 
 group("the Woodchuck MCP server", () => {
   const chat = [
@@ -78,6 +78,40 @@ group("the Woodchuck MCP server", () => {
     expect(cards).toContain("- 13 Amsterdam #2b3a3a");
     expect(cards).toContain("- 3044 Raw: Keeps pale timber looking bare, with a matt sheen");
     expect(cards).toMatch(/Osmo Polyx-Oil \(modelled/);
+  });
+});
+
+group("links another chat can use", () => {
+  // Issue #82: a picture linked at 127.0.0.1 showed as a broken image on a phone.
+  it("knows an address that opens only on this computer", () => {
+    for (const base of ["http://127.0.0.1:8905", "http://localhost:8905", "http://[::1]:8905", "http://woodchuck.localhost"]) expect(localOnly(base), base).toBe(true);
+    for (const base of ["https://my-mac.my-tailnet.ts.net", "http://192.168.1.20:8905"]) expect(localOnly(base), base).toBe(false);
+  });
+
+  it("offers a picture's link for a reply only when it opens elsewhere too", () => {
+    const here = pictureText("Hall table", false, "http://127.0.0.1:8905/api/renders/1.png", true);
+    expect(here).toBe(
+      "Here's Hall table. The picture comes with this result, so a chat that shows a tool's pictures already shows it to the woodworker. Its link, http://127.0.0.1:8905/api/renders/1.png, opens only on the computer Woodchuck runs on, so don't put it in a reply.",
+    );
+    expect(here).not.toContain("![");
+    const shared = pictureText("Hall table", true, "https://my-mac.my-tailnet.ts.net/api/renders/1.png", false);
+    expect(shared).toContain("Here's Hall table with the preview's change, not yet applied.");
+    expect(shared).toMatch(/put this line in your reply, on its own, to show it:\n\n!\[Hall table\]\(https:\/\/my-mac\.my-tailnet\.ts\.net\/api\/renders\/1\.png\)$/);
+  });
+
+  it("says the drawings' links open only on this computer when they do", () => {
+    const titles = ["General arrangement", "Part 1: Top"];
+    expect(drawingsText("Hall table", titles, "A4", "http://127.0.0.1:8905", true).split("\n")).toEqual([
+      "Workshop drawings for Hall table, on A4, in 2 sheets:",
+      "- Sheet 1: General arrangement",
+      "- Sheet 2: Part 1: Top",
+      "Give sheet, by its number, to get that sheet as a picture. woodchuck_read with what parts gives the part sheets' words.",
+      "To print at 100%: http://127.0.0.1:8905/api/drawings.pdf?paper=A4",
+      "Cutting plan alone, to print and take to the saw: http://127.0.0.1:8905/api/cutting-plan.pdf?paper=A4",
+      "Cut list, as a spreadsheet file: http://127.0.0.1:8905/api/cutlist.csv",
+      "These links open only on the computer Woodchuck runs on, so they're no use in a reply to someone on another device.",
+    ]);
+    expect(drawingsText("Hall table", titles, "A3", "https://my-mac.my-tailnet.ts.net", false)).not.toContain("only on the computer");
   });
 });
 

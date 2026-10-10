@@ -500,7 +500,7 @@ describe("woodchuck_undo, woodchuck_redo and woodchuck_designs", () => {
     expect(list).toMatch(/^Designs, by id:\n/);
     expect(list).toContain(`- ${first}: `);
     expect(list).toContain(", open");
-    expect(list).toContain(`The open design's file: ${process.env.WOODCHUCK_URL}/api/design.json`);
+    expect(list).toContain(`The open design's file: ${process.env.WOODCHUCK_URL}/api/design.json\nThat link opens only on the computer Woodchuck runs on.`);
 
     expect((await tool("woodchuck_designs", { action: "new", name: "Fairhaven bench" })).text).toBe("Started Fairhaven bench. It's open now.");
     expect((await tool("woodchuck_designs", { action: "new", name: "Fairhaven bench" })).text).toBe("Fairhaven bench is open already, so nothing changed.");
@@ -544,12 +544,27 @@ describe("woodchuck_drawings, woodchuck_photo and woodchuck_history", () => {
   const post = (p: string, body: unknown) =>
     fetch(`${process.env.WOODCHUCK_URL}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  it("links to the drawings and the cut list", async () => {
+  it("lists the drawings by sheet, with links that say they open only on this computer", async () => {
     const name = (await state()).design.name;
-    expect((await tool("woodchuck_drawings", { paper: "A3" })).text).toBe(
-      `Workshop drawings for ${name}, on A3: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A3\nCutting plan alone, to print and take to the saw: ${process.env.WOODCHUCK_URL}/api/cutting-plan.pdf?paper=A3\nCut list, as a spreadsheet file: ${process.env.WOODCHUCK_URL}/api/cutlist.csv`,
-    );
-    expect((await tool("woodchuck_drawings", {})).text).toContain("on A4: ");
+    const lines = (await tool("woodchuck_drawings", { paper: "A3" })).text.split("\n");
+    expect(lines[0]).toMatch(new RegExp(`^Workshop drawings for ${name}, on A3, in \\d+ sheets:$`));
+    expect(lines[1]).toBe("- Sheet 1: General arrangement");
+    expect(lines).toContain(`To print at 100%: ${process.env.WOODCHUCK_URL}/api/drawings.pdf?paper=A3`);
+    expect(lines).toContain(`Cut list, as a spreadsheet file: ${process.env.WOODCHUCK_URL}/api/cutlist.csv`);
+    // Issue #82: a 127.0.0.1 link is a broken image on any other device.
+    expect(lines.at(-1)).toBe("These links open only on the computer Woodchuck runs on, so they're no use in a reply to someone on another device.");
+    expect((await tool("woodchuck_drawings", {})).text).toContain(", on A4, in ");
+  });
+
+  it("sends one sheet back as a picture, the same each time it's asked", async () => {
+    type Content = { type: string; text?: string; data?: string; mimeType?: string }[];
+    const sheet = async (n: number) => ((await client.callTool({ name: "woodchuck_drawings", arguments: { sheet: n } })) as unknown as { content: Content }).content;
+    const first = await sheet(2);
+    expect(first[0]!.text).toMatch(/^Sheet 2 of \d+ of the workshop drawings for .+: Part 1: .+\.$/);
+    expect(first[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect(Buffer.from(first[1]!.data!, "base64").subarray(1, 4).toString()).toBe("PNG");
+    expect((await sheet(2))[1]!.data).toBe(first[1]!.data);
+    expect((await sheet(99))[0]!.text).toMatch(/drawings have \d+ sheets, so there's no sheet 99\.$/);
   });
 
   it("sets the photo's lens and shadow, and holds a blend or a removal for a yes", async () => {
