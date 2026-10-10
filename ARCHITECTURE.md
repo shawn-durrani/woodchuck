@@ -190,12 +190,23 @@ the blanks, and draws each part's outline inside its own.
 
 A part's sheet names each side by where it sits in the piece. Its three
 views are labelled with the face, edge and end they show, such as the
-bottom face and the front edge. Its legend says which end, edge and face
-along, up and in are measured from. A part turned over for its machining
+bottom face and the front edge. A part turned over for its machining
 shows its edges the other way up, and its sheet names them as they are.
-Each note gives where a cut starts and ends, along and up, which shows
-the way its long side runs. The cut list names a cut's side the same way,
-so a mortise in the end of a rail is in its end.
+The cut list names a cut's side the same way, so a mortise in the end of
+a rail is in its end.
+
+Every part is marked out from a face side and a face edge, the way a
+woodworker marks the two faces every size is measured from. They come
+from the part's front, the side facing someone standing in front of the
+piece. A part whose front is a broad face has that as its face side, and
+its top edge, or its left edge when it stands upright, as its face edge.
+A part whose front is an edge has that as its face edge, and its top
+face, or its outside face when it stands upright, as its face side. A
+face edge is straight, so an edge a slope cuts gives way to the one
+opposite. The sheet names both beside the material, and the views that
+show them say so. Each note gives a cut's place along from the end the
+sheet names, across from the face edge and through from the face side.
+Two matching parts drawn opposite ways round then read the same numbers.
 
 ## A spot too small to read is drawn again larger
 

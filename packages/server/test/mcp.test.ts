@@ -136,10 +136,11 @@ group("woodchuck_read's words", () => {
       "",
       "Sheet 4, part 3: Right side. Make 1 (right_side).",
       "Cut to 400 long × 520 wide × 30 thick, 30 mm carcass panel, grain along the length.",
+      "Face side: the right face. Face edge: the front edge.",
       "Views: left face, front edge and top end.",
-      "1. rabbet 30 wide × 10 deep × 520 long in the left face for bottom. At 0 to 30 along, 0 to 520 up.",
-      "2. groove 9 wide × 10 deep × 370 long in the left face for back. At 30 to 400 along, 511 to 520 up.",
-      "Along is from the bottom end, up from the front edge and in from the left face.",
+      "1. rabbet 30 wide × 10 deep × 520 long in the left face for bottom. At 0 to 30 along, 0 to 520 from the face edge.",
+      "2. groove 9 wide × 10 deep × 370 long in the left face for back. At 30 to 400 along, 511 to 520 from the face edge.",
+      "Along is from the bottom end. Across is from the face edge and through is from the face side.",
     ]);
     // Every part, by its sheet, with one that has nothing to cut saying so.
     const all = lines("parts");
@@ -169,7 +170,7 @@ group("woodchuck_read's words", () => {
     expect(cut).toContain("  - groove 9 wide × 10 deep × 370 long in the left face for back at (0,30,0)");
     expect(lines("cutting_plan").slice(0, 2)).toEqual(["Record console's cutting plan:", "Saw kerf 3 mm, sheet trim 10 mm. Parts are named by cut-list row."]);
     expect(lines("drilling")).toContain(
-      "- 12. Top ×1: 3 screw holes each for left_side, Ø4, right through, in the top face. Centres: 15 along, 86.7 up; 15 along, 260 up; 15 along, 433.3 up.",
+      "- 12. Top ×1: 3 screw holes each for left_side, Ø4, right through, in the top face. Centres: 15 along, 86.7 from the face edge; 15 along, 260 from the face edge; 15 along, 433.3 from the face edge.",
     );
     expect(lines("hardware")[1]).toMatch(/^- Side-mount slide pair, 450 mm: 5/);
     expect(lines("checks")).toEqual([

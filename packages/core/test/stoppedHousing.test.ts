@@ -294,7 +294,7 @@ describe("pictures of a stopped housing", () => {
     expect(texts("Left side").join(" ")).toContain("stopped 10 mm from the front");
     expect(sheet("Shelf").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [230, 10] });
     expect(sheet("Shelf").dims).toContainEqual({ view: "face", along: "length", kind: "chain", values_mm: [6, 564, 6] });
-    expect(texts("Shelf").join(" ")).toContain("notch 6 × 10 out of the front left corner, to fit the stopped dado in side_l. At 0 to 6 along, 230 to 240 up.");
+    expect(texts("Shelf").join(" ")).toContain("notch 6 × 10 out of the front left corner, to fit the stopped dado in side_l. At 0 to 6 along, 0 to 10 from the face edge.");
   });
 });
 

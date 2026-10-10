@@ -260,6 +260,7 @@ export function readText(s: AppState, what: ReadPart, part?: string): string {
           "",
           `Sheet ${t.sheet}, part ${t.row}: ${t.name}. Make ${t.qty} (${t.parts.join(", ")}).`,
           `${t.cut}, ${t.material}.`,
+          t.reference,
           `Views: ${t.views.face}, ${t.views.edge} and ${t.views.end}.`,
           ...(t.notes.length ? t.notes.map((n, i) => `${i + 1}. ${n}`) : ["No machining. Cut it to size."]),
           t.positions,
