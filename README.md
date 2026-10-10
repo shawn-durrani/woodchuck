@@ -121,8 +121,8 @@ would be lost.
   and a worked example on two sample boards shows how it goes together.
 - **Workshop drawings print at true scale.** They come as a PDF on A4 or
   A3, with the main views, a drawing of each part, the cut list, the
-  cutting plan and the drilling and hardware lists. Every size on them
-  matches the cut list to 0.1 mm.
+  cutting plan, the drilling list, the Domino settings and the hardware
+  list. Every size on them matches the cut list to 0.1 mm.
 - **Cut layout buys the least timber.** Tell it the boards and sheets you
   already have, and it cuts from those first, ripping narrower parts from
   wider boards, and buys only the rest. It places every part a saw kerf

@@ -19,7 +19,7 @@
 import { runChecks } from "./checks.js";
 import { AXIS_INDEX, DOMINO_MORTISE, type Box, type DeriveResult, type DerivedJoint, type DerivedPart, type Machining, type Vec3 } from "./derive.js";
 import { JOINT_LIBRARY } from "./joints.js";
-import { cutList, machiningText, machiningWith, roundCut, sideName, type CutList, type CutRow } from "./cutlist.js";
+import { cutList, dominoWidth, machiningText, machiningWith, roundCut, sideName, type CutList, type CutRow } from "./cutlist.js";
 import { fmt } from "./expr.js";
 import { cutLayout, ripped, rowBoards, type CutLayout, type StockPiece } from "./layout.js";
 import { cutOutline } from "./profile.js";
@@ -80,7 +80,7 @@ export interface SheetDim {
 }
 
 export interface Sheet {
-  kind: "arrangement" | "part" | "cut list" | "cutting plan" | "drilling" | "hardware";
+  kind: "arrangement" | "part" | "cut list" | "cutting plan" | "drilling" | "domino" | "hardware";
   title: string;
   paper: Paper;
   width_mm: number;
@@ -633,8 +633,8 @@ interface DetailItem {
   shows: boolean;
   /** It runs the part's whole length, so it crosses every detail. */
   full: boolean;
-  /** What's cut, for the detail's caption. */
-  what: string;
+  /** What's cut, as the lines of the detail's caption. */
+  what: string[];
   /** It's always drawn larger, as a Domino mortise is, so its machine setup is on the sheet. */
   zoom: boolean;
 }
@@ -655,8 +655,8 @@ interface Detail {
   up: number[];
   /** Where each spot drawn this way starts along the part. */
   starts: number[];
-  /** What's cut there, each once. */
-  what: string[];
+  /** What's cut there, each once, as caption lines. */
+  what: string[][];
   key: string;
 }
 
@@ -690,7 +690,7 @@ function planDetails(L: number, W: number, s: number, items: DetailItem[], chain
     const up = uniqueSorted([0, W, ...[...r.items, ...full].flatMap((i) => i.up)].filter((v) => v >= -EPS && v <= W + EPS).map(roundCut));
     const shape = r.items.map((i) => [roundCut(i.lo - r.lo), roundCut(i.hi - r.lo), roundCut(i.ylo), roundCut(i.yhi), i.shows]);
     const key = JSON.stringify([left ? roundCut(r.lo) : null, right ? roundCut(L - r.hi) : null, shape]);
-    const what = [...new Set(r.items.map((i) => i.what))];
+    const what = [...new Map(r.items.map((i) => [i.what.join("\n"), i.what])).values()];
     return { lo: r.lo, hi: r.hi, left, right, along, up, what, key, zoom: r.items.some((i) => i.zoom) };
   });
   const touches = (sp: (typeof spots)[number], p: number) => (p >= sp.lo - EPS && p <= sp.hi + EPS) || (p <= EPS && sp.left) || (p >= L - EPS && sp.right);
@@ -724,7 +724,7 @@ function detailBox(dt: Detail, ds: number, L: number, W: number) {
   const face = (w1 - w0) / ds;
   // The label starts at the detail's left edge, clear of its width chain, with what's cut there under it.
   const room = Math.max(face, 50);
-  const caption = wrap(dt.what.join("; "), room, CAPTION);
+  const caption = dt.what.flat().flatMap((line) => wrap(line, room, CAPTION));
   const captionW = Math.max(0, ...caption.map((l) => textWidth_mm(l, CAPTION)));
   const w = left + Math.max(face, textWidth_mm(detailLabel(dt, ds), 3, true), captionW) + 4;
   return { w0, w1, top, left, face, w, caption, h: top + W / ds + LABEL + caption.length * 3.2 };
@@ -887,11 +887,16 @@ const FASTENER_LABELS = new Set(["screw holes", "dowel holes", "pocket holes"]);
 /** A Domino mortise is set out by its centre, which the joiner lines up with a pencil mark. */
 const centred = (m: Machining) => m.label === DOMINO_MORTISE;
 
-/** What's cut, in a few words for a detail's caption: what the machine is set to. */
+/** What's cut, in a few words for a detail's caption. */
 function shortWhat(m: Machining): string {
-  if (m.label === DOMINO_MORTISE) return `Domino ${num(m.width_mm)} × ${num(m.length_mm)}, ${num(m.depth_mm)} deep, ${m.play_mm ? `${num(m.play_mm)} mm play` : "tight"}`;
   if (FASTENER_LABELS.has(m.label)) return `${m.label}, Ø${num(m.diameter_mm ?? 4)}`;
   return `${m.label} ${num(m.width_mm)} wide, ${num(m.depth_mm)} deep`;
+}
+
+/** The Domino tenon a mortise takes, thickness by length as Festool names it, such as "5 × 30". */
+function dominoTenon(m: Machining, d: DeriveResult): string {
+  const p = d.joints.find((j) => j.id === m.joint)?.params;
+  return p?.thickness !== undefined && p.length !== undefined ? `${num(p.thickness)} × ${num(p.length)}` : `${num(m.width_mm)} mm`;
 }
 
 /**
@@ -918,13 +923,19 @@ function dominoSetup(f: Frame, m: Machining, b: { min: Vec3; max: Vec3 }) {
 }
 
 /**
- * A Domino mortise's caption under its detail: its size, depth and play,
- * then the fence's face and height. The centre line goes in too when it's
+ * A Domino mortise's caption under its detail, one setting a line in
+ * Festool's words: the tenon, then the depth stop and the width dial, then
+ * the fence's face and height. The centre line goes in too when it's
  * across the part, since a detail can stand for spots at several places along.
  */
-function dominoCaption(f: Frame, m: Machining, b: { min: Vec3; max: Vec3 }): string {
+function dominoCaption(f: Frame, m: Machining, b: { min: Vec3; max: Vec3 }, d: DeriveResult): string[] {
   const set = dominoSetup(f, m, b);
-  return `${shortWhat(m)}. Fence on the ${set.fence} at ${num(set.height)}${set.lineAlong ? "" : `, centre line at ${set.line}`}`;
+  return [
+    `Domino ${dominoTenon(m, d)}`,
+    `Depth ${num(m.depth_mm)}, width ${dominoWidth(m.play_mm)}`,
+    `Fence on the ${set.fence} at ${num(set.height)}`,
+    ...(set.lineAlong ? [] : [`Centre line at ${set.line}`]),
+  ];
 }
 
 /** The face edge's mark, a V outside the edge's line with its point on it, the way it's marked on the wood. */
@@ -1337,13 +1348,13 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper, withNotes = false
         up: centred(m) ? mid(1) : [b.min[1], b.max[1]],
         shows: b.max[2] >= T - EPS,
         full: b.max[0] - b.min[0] >= L - EPS,
-        what: centred(m) ? dominoCaption(f, m, b) : shortWhat(m),
+        what: centred(m) ? dominoCaption(f, m, b, d) : [shortWhat(m)],
         zoom: centred(m),
       };
     }),
     ...holes
       .filter((h) => h.drill === 2)
-      .flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], along: [c[0]], up: [c[1]], shows: true, full: false, what: shortWhat(h.m), zoom: false }))),
+      .flatMap((h) => h.at.map((c) => ({ lo: c[0], hi: c[0], ylo: c[1], yhi: c[1], along: [c[0]], up: [c[1]], shows: true, full: false, what: [shortWhat(h.m)], zoom: false }))),
   ];
   const layoutAt = (s: number, details: boolean, mid: boolean) => {
     const plan = details && !shape ? planDetails(L, W, s, items, chainX, chainY) : null;
@@ -1595,7 +1606,8 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper, withNotes = false
       dimRow(pen, "left", x0, x0 - DIM_FIRST, dt.up.map((v) => at(box.w0, v)[1]), ups);
       sheet.dims.push({ view: `detail ${dt.letter}`, along: "width", kind: "chain", values_mm: ups, scale: ds });
       pen.text(x0, y1 + 5.5, detailLabel(dt, ds), { size_mm: 3, bold: true });
-      box.caption.forEach((line, k) => pen.text(x0, y1 + 9 + k * 3.2, line, { size_mm: CAPTION, colour: GREY }));
+      // The settings to dial in, in full ink.
+      box.caption.forEach((line, k) => pen.text(x0, y1 + 9 + k * 3.2, line, { size_mm: CAPTION }));
       // The face edge's V, so the detail's numbers can be read from it.
       const edgeLow = frameFace(f, 1, false) === f.ref.edge;
       faceEdgeMark(pen, x0 + Math.min(4, box.face / 3), edgeLow ? y1 : y0, edgeLow ? 1 : -1);
@@ -1808,6 +1820,98 @@ export function drillingList(design: Design, d: DeriveResult, list: CutList = cu
     }
   }
   return out;
+}
+
+/** One group of Domino mortises in one cut-list row's part, all cut with the joiner set the same way. */
+export interface DominoRow {
+  row: number;
+  part: string;
+  /** How many of the part to make. */
+  qty: number;
+  /** Mortises in each part. */
+  count: number;
+  /** The tenon, thickness by length, such as "5 × 30". */
+  tenon: string;
+  /** The depth stop. */
+  depth_mm: number;
+  /** The width dial, in Festool's words: tight, middle or widest. */
+  width: string;
+  /** The face the fence sits on, such as "back edge", and the height dialled in. */
+  fence: string;
+  height_mm: number;
+  /** Where each pencil centre line goes, measured as on the part's sheet. */
+  centres: string;
+}
+
+/**
+ * Every Domino mortise, grouped by part and by how the joiner is set for
+ * it, for a sheet to keep beside the machine.
+ */
+export function dominoList(design: Design, d: DeriveResult, list: CutList = cutList(design, d)): DominoRow[] {
+  const out: DominoRow[] = [];
+  for (const row of list.rows) {
+    const part = d.byId.get(row.parts[0]!);
+    if (!part) continue;
+    const f = frameOf(part, d);
+    const groups = new Map<string, DominoRow & { at: string[] }>();
+    for (const m of part.machining) {
+      if (m.label !== DOMINO_MORTISE) continue;
+      const set = dominoSetup(f, m, boxInFrame(f, m.region));
+      const base = { tenon: dominoTenon(m, d), depth_mm: roundCut(m.depth_mm), width: dominoWidth(m.play_mm), fence: set.fence, height_mm: roundCut(set.height) };
+      const key = JSON.stringify([base, set.lineAlong ? "" : set.line]);
+      const g = groups.get(key);
+      if (g) {
+        g.count++;
+        g.at.push(set.line);
+      } else groups.set(key, { row: row.row, part: row.name, qty: row.qty, count: 1, ...base, centres: "", at: [set.line] });
+    }
+    for (const { at, ...g } of groups.values()) {
+      // Places along are listed in order; one across the part is the same for each.
+      const along = at.every((x) => x.endsWith(" along"));
+      const sorted = along ? at.map((x) => parseFloat(x)).sort((a, b) => a - b).map((x) => num(x)) : [];
+      out.push({ ...g, centres: along ? `${sorted.join(", ")} along` : at[0]! });
+    }
+  }
+  return out;
+}
+
+function dominoSheets(rows: DominoRow[], paper: Paper, sheetOf: Map<number, number>): Sheet[] {
+  if (!rows.length) return [];
+  return tableSheets(
+    "domino",
+    "Domino settings",
+    [
+      "Every Domino mortise, grouped by how the joiner is set for it. Depth is the depth stop. Width is the width dial: tight is as wide as the tenon, middle 6 mm wider and widest 10 mm wider.",
+      "Height is the fence height, from the face the fence sits on. Centre lines are pencil marks across each mortise, measured as on the part's sheet.",
+    ],
+    [
+      { head: "Part", weight: 24 },
+      { head: "Sheet", weight: 7, align: "end" },
+      { head: "Make", weight: 7, align: "end" },
+      { head: "Each", weight: 7, align: "end" },
+      { head: "Total", weight: 7, align: "end" },
+      { head: "Tenon", weight: 10 },
+      { head: "Depth", weight: 8, align: "end" },
+      { head: "Width", weight: 9 },
+      { head: "Fence on", weight: 16 },
+      { head: "Height", weight: 8, align: "end" },
+      { head: "Centre lines", weight: 40 },
+    ],
+    rows.map((r) => [
+      `${r.row}. ${r.part}`,
+      String(sheetOf.get(r.row) ?? ""),
+      String(r.qty),
+      String(r.count),
+      String(r.count * r.qty),
+      r.tenon,
+      num(r.depth_mm),
+      r.width,
+      r.fence,
+      num(r.height_mm),
+      r.centres,
+    ]),
+    paper,
+  );
 }
 
 function drillingSheets(rows: DrillRow[], paper: Paper, sheetOf: Map<number, number>): Sheet[] {
@@ -2102,7 +2206,7 @@ export function workshopDrawings(design: Design, d: DeriveResult, opts: DrawingO
   const parts = list.rows.map((row) => partSheet(row, d, paper, opts.notes === true));
   const sheetOf = new Map(list.rows.map((r, i) => [r.row, i + 2]));
   const layout = cutLayout(design, list);
-  const tables = [...cutListSheets(list, d, paper, sheetOf, layout), ...(layout.materials.length ? cuttingPlanSheets(layout, paper) : []), ...drillingSheets(drillingList(design, d, list), paper, sheetOf), ...hardwareSheets(list, paper)];
+  const tables = [...cutListSheets(list, d, paper, sheetOf, layout), ...(layout.materials.length ? cuttingPlanSheets(layout, paper) : []), ...drillingSheets(drillingList(design, d, list), paper, sheetOf), ...dominoSheets(dominoList(design, d, list), paper, sheetOf), ...hardwareSheets(list, paper)];
   const sheets = [ga, ...parts, ...tables];
   sheets.forEach((s, i) => frame(s, design.name, date, i + 1, sheets.length));
   return sheets;

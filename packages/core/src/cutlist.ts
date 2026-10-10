@@ -44,6 +44,18 @@ export interface CutList {
   notes?: string[];
 }
 
+/**
+ * A Domino mortise's width setting in Festool's words: the DF 500's width
+ * dial is tight, as wide as the tenon, or middle or widest, 6 or 10 mm wider.
+ */
+export function dominoWidth(play_mm: number | undefined): string {
+  const play = play_mm ?? 0;
+  if (play <= 0.05) return "tight";
+  if (Math.abs(play - 6) <= 0.05) return "middle";
+  if (Math.abs(play - 10) <= 0.05) return "widest";
+  return `${fmt(play)} mm wider than the tenon`;
+}
+
 /** The cut list's precision, 0.1 mm. The workshop drawings round the same way, so the two always agree. */
 export function roundCut(n: number): number {
   return Math.round(n * 10) / 10;
@@ -97,7 +109,7 @@ export function machiningText(m: Machining, part?: DerivedPart, { at = true }: {
     case "box joint fingers":
       return `${counted(m.count, "box joint slot")}, ${n(m.width_mm)} wide × ${n(m.depth_mm)} deep, for ${m.with}`;
     case DOMINO_MORTISE:
-      return `Domino mortise ${n(m.width_mm)} wide × ${n(m.length_mm)} long × ${n(m.depth_mm)} deep, ${m.play_mm ? `${n(m.play_mm)} mm play` : "tight"}, in the ${side(m.face)} for ${m.with}${where}`;
+      return `Domino mortise ${n(m.width_mm)} wide × ${n(m.length_mm)} long × ${n(m.depth_mm)} deep, width ${dominoWidth(m.play_mm)}, in the ${side(m.face)} for ${m.with}${where}`;
     case "tenon":
     case "tongue":
       return `${m.label} ${n(m.width_mm)} thick × ${n(m.length_mm)} wide × ${n(m.depth_mm)} long on the ${m.face} end${m.flush ? `, flush with the ${m.flush} face` : ""}, into ${m.with}`;

@@ -249,13 +249,18 @@ another chat reads in words always have their notes.
 A Domino joiner lines up on a pencil mark at the centre of its mortise,
 and its fence height is the distance from the face to the cutter's centre.
 A part's sheet places each Domino mortise the same way, by its centre, on
-its chains. Every Domino mortise gets a detail, and the line under it says
-how to set the joiner up. That gives the tenon's size, the depth and the
-play, then the face the fence sits on and the height to dial in. The
+its chains. Every Domino mortise gets a detail, and the lines under it
+say how to set the joiner up, one setting a line in Festool's words. They
+give the tenon, such as 5 × 30, then the depth stop and the width dial,
+then the face the fence sits on and the height to dial in. The width dial
+is tight, as wide as the tenon, or middle or widest, 6 or 10 mm wider. The
 fence goes on the nearer face across the cutter, since it only reaches so
 far, or the face side or face edge when they're as near. Where the
-mortise runs across the part, the line also gives its pencil centre line.
+mortise runs across the part, the lines also give its pencil centre line.
 A sheet with no room for its details keeps its notes, which say the same.
+A Domino settings sheet lists every group of mortises set up the same
+way, with the part, how many, the settings and the centre lines, to keep
+beside the machine.
 The loose and tight mortises of a joint differ in length but share a
 centre, so the two pieces read the same numbers. The cut list gives a
 Domino mortise's centre too.

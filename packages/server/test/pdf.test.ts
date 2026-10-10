@@ -101,7 +101,9 @@ describe("the drawings PDF", () => {
 // part laid out evenly along its length by its middle. Since #94 each part
 // sheet names its face side and face edge and measures from them. Since
 // #96 the notes are left off unless asked, a V marks the face edge, and
-// every Domino gets a detail with its machine setup.
+// every Domino gets a detail with its machine setup. Since #98 the Domino
+// example's drawings name its settings in Festool's words and list them on
+// a sheet of their own.
 const BEFORE_SHAPES: Record<string, string> = {
   "record console": "7918a5c1793c5fb1a9f7fe59f8c0b6523d67d3df58e53d0c6a519d5788a6ee25",
   butt: "4b4558f079b98370a1590f39d834c03a022da49939fbe7290a78847ea86c076b",
@@ -109,14 +111,14 @@ const BEFORE_SHAPES: Record<string, string> = {
   pocket_screws: "7c73b6dac681e03d1e8760a8127bd39ee03eebcf6dc2c08572c6bd8a1c234e12",
   dowels: "0d2756a3e2731b957d0ac0a0a436ca9d53177e5fd924f06eb948d96c4b9bc0f7",
   // Added with the joint, after shapes were drawn.
-  domino: "b2db72240d4ba8947081cfc84317488a25410ba166fb0cb276ee557e9256b281",
+  domino: "21ab9e18c8aa0a48d4fdc4004da1dd6f48b1a3a9fd05ae78b83dbc7213e68d80",
   dado: "857c19a6d8cfafc570d53fbcb4bf95002952d9911850686f70b60693f999146d",
   groove: "ebb5aa6a8a415f5c8d9e396598943c17421627c1194ea454c5e0b1af1a796e1d",
   rabbet: "a80cb55d119e906970249237839a64f34261a01f1d5e94ba5242d3978fa4dccc",
   tongue: "7908cd0cb11a8279e36faba4e42acffc5fe4484d08d315b4875f2e516c89995b",
   // Added with the joint, after shapes were drawn.
   dado_rabbet: "365232e64b65a24e4158bd7c03b3032c066483fdabc2910ff256dce389b349bf",
-  mortise_tenon: "8fed11c0a7d01751d124b65271157cd964e7c62455ec37d4315c7471df23063d",
+  mortise_tenon: "f34ea304c4bf82362f48f9d8bfa58e8766e8fa86e286d1d54eec9ef1f2bd29d3",
   half_lap: "7fb766ca974bd38fce38ef6ead4ac323819472323ec46422df2a4353847e04af",
   box_joint: "7158538de29cdc26216690912de1095d1e52bfa92964aa0d532a5b84a0e7032d",
   through_slot: "e974ef0a8309126bf5caefdf7701eb4709e7f288145f7a0f9512e87e983eda34",
