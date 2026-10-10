@@ -78,7 +78,10 @@ record console's drawer side holds a narrow gap's number written past the
 end of its row. An invented hall frame holds Domino mortises set out by
 their centres. Its rails are held to each centre on the chains and in the
 notes, and to the middle they're set out from. The Domino tests hold a
-joint's tight and loose mortises to sharing their centres.
+joint's tight and loose mortises to sharing their centres. The rule for a
+part's face side and face edge is held on invented boxes, and the hall
+frame's two rails are held to giving the same brace mortise the same
+place from their face edge.
 Every example's part sheets are held to no text printed over other text,
 and to no two narrow gaps side by side in a row, except at either end.
 The views, the drawings and their PDF of every example with no cuts have to

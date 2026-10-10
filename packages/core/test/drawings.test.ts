@@ -88,7 +88,7 @@ describe("workshop drawings", () => {
     const written = texts(bottom);
     expect(written).toContain("Make 1");
     expect(written).toContain("Cut to 2000 long × 520 wide × 30 thick");
-    expect(written).toContain("dado 30 wide × 10 deep × 511 long in the top face for partition. At 382 to 412 along, 9 to 520 up.");
+    expect(written).toContain("dado 30 wide × 10 deep × 511 long in the top face for partition. At 382 to 412 along, 0 to 511 from the face edge.");
     expect(dim(bottom, "face", "length", "overall")!.values_mm).toEqual([2000]);
     // The partitions sit evenly about the middle, so the chain runs through it, and the sheet gives the end to the middle.
     expect(dim(bottom, "face", "length", "chain")!.values_mm).toEqual([382, 30, 372, 30, 186, 186, 30, 372, 30, 382]);
@@ -124,21 +124,21 @@ describe("workshop drawings", () => {
 
   it("turns a part over so its machining faces up, as with the right side", () => {
     const right = sheets.find((s) => s.title === "Part 3: Right side")!;
-    expect(texts(right)).toContain("groove 9 wide × 10 deep × 370 long in the left face for back. At 30 to 400 along, 511 to 520 up.");
+    expect(texts(right)).toContain("groove 9 wide × 10 deep × 370 long in the left face for back. At 30 to 400 along, 511 to 520 from the face edge.");
     const left = sheets.find((s) => s.title === "Part 2: Left side")!;
-    expect(texts(left)).toContain("groove 9 wide × 10 deep × 370 long in the right face for back. At 30 to 400 along, 0 to 9 up.");
+    expect(texts(left)).toContain("groove 9 wide × 10 deep × 370 long in the right face for back. At 30 to 400 along, 511 to 520 from the face edge.");
   });
 
   it("names each view and the sides it measures from, so a part turned over reads the right way round", () => {
     // Both sides' grooves sit at the back. The right side is turned over, so
-    // its back edge is at the top of its sheet, and each sheet says which
-    // edge it measures up from.
+    // its back edge is at the top of its sheet. Each sheet names its views,
+    // and both measure across from their face edge, the front.
     const right = texts(sheets.find((s) => s.title === "Part 3: Right side")!);
     const left = texts(sheets.find((s) => s.title === "Part 2: Left side")!);
-    expect(right).toEqual(expect.arrayContaining(["Left face", "Front edge", "Top end"]));
-    expect(left).toEqual(expect.arrayContaining(["Right face", "Back edge", "Top end"]));
-    expect(right.join(" ")).toContain("Along is from the bottom end, up from the front edge and in from the left face.");
-    expect(left.join(" ")).toContain("Along is from the bottom end, up from the back edge and in from the right face.");
+    expect(right).toEqual(expect.arrayContaining(["Left face", "Front edge, face edge", "Top end", "Face side: the right face. Face edge: the front edge."]));
+    expect(left).toEqual(expect.arrayContaining(["Right face", "Back edge", "Top end", "Face side: the left face. Face edge: the front edge."]));
+    expect(right.join(" ")).toContain("Along is from the bottom end. Across is from the face edge and through is from the face side.");
+    expect(left.join(" ")).toContain("Along is from the bottom end. Across is from the face edge and through is from the face side.");
     expect(right.concat(left)).not.toContain("Face");
   });
 
@@ -158,10 +158,12 @@ describe("workshop drawings", () => {
       through: true,
       face: "top face",
     });
-    expect(rows[1]!.centres.slice(0, 2)).toEqual(["417 along, 136.8 up", "417 along, 392.3 up"]);
-    expect(rows[2]!.centres).toEqual(["15 along, 86.7 up", "15 along, 260 up", "15 along, 433.3 up"]);
+    expect(rows[1]!.centres.slice(0, 2)).toEqual(["417 along, 127.8 from the face edge", "417 along, 383.3 from the face edge"]);
+    expect(rows[2]!.centres).toEqual(["15 along, 86.7 from the face edge", "15 along, 260 from the face edge", "15 along, 433.3 from the face edge"]);
     const sheet = sheets.find((s) => s.kind === "drilling")!;
-    expect(texts(sheet)).toEqual(expect.arrayContaining(["12. Top", "left_side", "through", "15 along, 86.7 up; 15 along, 260 up; 15 along, 433.3 up"]));
+    expect(texts(sheet)).toEqual(expect.arrayContaining(["12. Top", "left_side", "through"]));
+    // A long list of centres wraps onto a second line in its cell.
+    expect(texts(sheet).join(" ")).toContain("15 along, 86.7 from the face edge; 15 along, 260 from the face edge; 15 along, 433.3 from the face edge");
   });
 
   it("lists dowel holes in both parts, and pocket holes as set by the jig", () => {
@@ -171,7 +173,7 @@ describe("workshop drawings", () => {
       ["Top", "bottom face", 2, 8, 16],
       ["Side", "top end", 2, 8, 16],
     ]);
-    expect(rows[1]!.centres).toEqual(["45 up, 9 in", "135 up, 9 in"]);
+    expect(rows[1]!.centres).toEqual(["45 from the face edge, 9 from the face side", "135 from the face edge, 9 from the face side"]);
     const pockets = jointExample("pocket_screws");
     const sheet = workshopDrawings(pockets, derive(pockets), { date: "3 October 2026" }).find((s) => s.kind === "drilling")!;
     expect(texts(sheet)).toContain("set by jig");

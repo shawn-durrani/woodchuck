@@ -148,14 +148,14 @@ describe("an invented drawer box with its bottom in grooves", () => {
     const notes = (title: string) => sheet(title).marks.flatMap((m) => (m.kind === "text" && /^(groove|rabbet)/.test(m.text) ? [m.text] : []));
     // The side: the groove is 10 up and 6 wide, and runs its whole length.
     expect(sheet("Part 1: Side").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [10, 6, 104] });
-    expect(notes("Part 1: Side")).toEqual(["groove 6 wide × 6 deep × 438 long in the right face for bottom. At 0 to 438 along, 10 to 16 up."]);
+    expect(notes("Part 1: Side")).toEqual(["groove 6 wide × 6 deep × 438 long in the right face for bottom. At 0 to 438 along, 104 to 110 from the face edge."]);
     // The front: a rabbet as wide as each side at each end, and the groove between them. It's turned over, so the groove is 10 from its top on the sheet.
     expect(sheet("Part 3: Box front").dims).toContainEqual({ view: "face", along: "length", kind: "chain", values_mm: [6, 6, 376, 6, 6] });
     expect(sheet("Part 3: Box front").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [104, 6, 10] });
     expect(notes("Part 3: Box front")).toEqual([
-      "rabbet 12 wide × 6 deep × 120 long in the back face for side_l. At 0 to 12 along, 0 to 120 up.",
-      "rabbet 12 wide × 6 deep × 120 long in the back face for side_r. At 388 to 400 along, 0 to 120 up.",
-      "groove 6 wide × 6 deep × 388 long in the back face for bottom. At 6 to 394 along, 104 to 110 up.",
+      "rabbet 12 wide × 6 deep × 120 long in the back face for side_l. At 0 to 12 along, 0 to 120 from the face edge.",
+      "rabbet 12 wide × 6 deep × 120 long in the back face for side_r. At 388 to 400 along, 0 to 120 from the face edge.",
+      "groove 6 wide × 6 deep × 388 long in the back face for bottom. At 6 to 394 along, 104 to 110 from the face edge.",
     ]);
   });
 

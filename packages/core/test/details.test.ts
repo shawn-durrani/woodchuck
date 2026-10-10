@@ -110,12 +110,20 @@ describe("a long rail set out by its Dominos' centres, from its middle", () => {
     ]);
     expect(top.dims).toContainEqual({ view: "face", along: "length", kind: "middle", values_mm: [750] });
     expect(top.dims.some((x) => x.view.startsWith("detail"))).toBe(false);
-    expect(texts(top)).toContain("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the bottom face for brace_1. Centre at 390 along, 31.5 up, its length running along.");
+    expect(texts(top)).toContain("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the bottom face for brace_1. Centre at 390 along, 31.5 from the face edge, its length running along.");
   });
 
   it("measures the bottom rail's centres up from its own back edge", () => {
     // The top rail is turned over for its mortises, so its width runs up from the front.
     expect(chains(sheet("Part 2: Bottom rail"))).toContainEqual({ view: "face", along: "width", values_mm: [13.5, 9, 22.5] });
+  });
+
+  it("gives the same brace mortise the same place on both rails, from their face edge", () => {
+    // Issue #94: the rails are drawn opposite ways round, but both are measured from their front, their face edge.
+    const note = (title: string) => texts(sheet(title)).find((t) => t.includes("for brace_1."))!;
+    expect(note("Part 2: Bottom rail")).toBe("Domino mortise 5 wide × 24.8 long × 12 deep, 6 mm play, in the top face for brace_1. Centre at 390 along, 31.5 from the face edge, its length running along.");
+    expect(note("Part 1: Top rail").split(". Centre")[1]).toBe(note("Part 2: Bottom rail").split(". Centre")[1]);
+    expect(texts(sheet("Part 1: Top rail"))).toContain("Face side: the top face. Face edge: the front edge.");
   });
 
   it("gives a part with work only at its ends no middle", () => {

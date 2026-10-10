@@ -310,7 +310,7 @@ describe("woodchuck_set_param and woodchuck_design", () => {
     expect(Object.keys(read.inputSchema.properties!)).toEqual(["what", "part"]);
     const before = await state();
     const first = await tool("woodchuck_read", { what: "parts", part: "right_side" });
-    expect(first.text).toContain("Along is from the bottom end, up from the front edge and in from the left face.");
+    expect(first.text).toContain("Along is from the bottom end. Across is from the face edge and through is from the face side.");
     expect((await tool("woodchuck_read", { what: "parts", part: "right_side" })).text).toBe(first.text);
     expect((await tool("woodchuck_read", { what: "joints" })).text).toMatch(/^Record console's joints, by id:\n- bottom_in_left: rabbet, bottom into left_side/);
     expect((await state()).history).toEqual(before.history);

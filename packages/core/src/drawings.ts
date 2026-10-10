@@ -754,9 +754,42 @@ interface Frame {
   T: Axis;
   size: { L: number; W: number; T: number };
   flip: boolean;
+  /** The face side and face edge, which every size across and through the part is measured from. */
+  ref: { side: Face; edge: Face };
 }
 
-function frameOf(part: DerivedPart): Frame {
+/**
+ * A part's face side and face edge, the two it's marked out and measured
+ * from. They come from its front, which faces someone standing in front of
+ * the piece. A part whose front is a broad face has that as its face side,
+ * and its top edge, or its left edge when it stands upright, as its face
+ * edge. A part whose front is an edge has that as its face edge, and its top
+ * face, or its outside face when it stands upright, as its face side. A part
+ * whose front is an end, such as a drawer side, takes its top edge and its
+ * outside face. A face edge has to be straight, so an edge a slope cuts
+ * gives way to the edge opposite it.
+ */
+export function referenceFaces(part: Pick<DerivedPart, "thickness_axis" | "width_axis" | "nominal" | "profile">, middleX: number): { side: Face; edge: Face } {
+  const outside: Face = (part.nominal.min[0]! + part.nominal.max[0]!) / 2 > middleX + EPS ? "right" : "left";
+  const pick = (axis: Axis, broad: boolean): Face => (axis === "z" ? "front" : axis === "y" ? "top" : broad ? outside : "left");
+  let edge = pick(part.width_axis, false);
+  const pr = part.profile;
+  const sloped = pr?.outline_mm.some((q, i) => {
+    const b = pr.outline_mm[(i + 1) % pr.outline_mm.length]!;
+    return pr.edge_faces[i] === edge && Math.abs(b[0] - q[0]) > EPS && Math.abs(b[1] - q[1]) > EPS;
+  });
+  if (sloped) edge = AXIS_FACES[part.width_axis][FACE_IS_MAX[edge] ? 0 : 1];
+  return { side: pick(part.thickness_axis, true), edge };
+}
+
+/** The middle of the piece from left to right, which says which side of an upright part is its outside. */
+function pieceMiddleX(d: DeriveResult): number {
+  const solid = d.parts.filter((p) => !p.broken && !p.decor);
+  if (!solid.length) return 0;
+  return (Math.min(...solid.map((p) => p.nominal.min[0]!)) + Math.max(...solid.map((p) => p.nominal.max[0]!))) / 2;
+}
+
+function frameOf(part: DerivedPart, d: DeriveResult): Frame {
   const T = part.thickness_axis;
   let below = 0;
   let above = 0;
@@ -772,8 +805,22 @@ function frameOf(part: DerivedPart): Frame {
     T,
     size: { L: part.cut.length, W: part.cut.width, T: part.cut.thickness },
     flip: below > above,
+    ref: referenceFaces(part, pieceMiddleX(d)),
   };
 }
+
+/** How far a place across the drawn part, up its face view, is from the face edge. */
+function fromEdge(f: Frame, y: number): number {
+  return frameFace(f, 1, false) === f.ref.edge ? y : f.size.W - y;
+}
+
+/** How far a place through the drawn part is from the face side. */
+function fromSide(f: Frame, z: number): number {
+  return frameFace(f, 2, true) === f.ref.side ? f.size.T - z : z;
+}
+
+/** Two places' distances from a face, nearer first, as "a to b". */
+const span2 = (a: number, b: number) => `${num(Math.min(a, b))} to ${num(Math.max(a, b))}`;
 
 /** A world point in the part's frame: [along, up, through]. */
 function inFrame(f: Frame, p: Vec3): Vec3 {
@@ -809,10 +856,14 @@ function viewSides(f: Frame) {
   };
 }
 
-/** Where a part sheet measures from, named as the part sits in the piece. */
+/** Where a part sheet measures from: its left end on the drawing, then its face edge and its face side. */
 function positionsText(f: Frame): string {
-  const side = (k: 0 | 1 | 2, high: boolean) => sideName(f.part, frameFace(f, k, high));
-  return `Along is from the ${side(0, false)}, up from the ${side(1, false)} and in from the ${side(2, true)}.`;
+  return `Along is from the ${sideName(f.part, frameFace(f, 0, false))}. Across is from the face edge and through is from the face side.`;
+}
+
+/** The face side and face edge to mark on the part, named as it sits in the piece. */
+function referenceText(f: Frame): string {
+  return `Face side: the ${sideName(f.part, f.ref.side)}. Face edge: the ${sideName(f.part, f.ref.edge)}.`;
 }
 
 const FASTENER_LABELS = new Set(["screw holes", "dowel holes", "pocket holes"]);
@@ -848,19 +899,20 @@ function holeCentres(m: Machining, d: DeriveResult): Vec3[] {
   });
 }
 
-/** Hole centres on the part drawing, in order along and then up. */
+/** Hole centres on the part drawing, in order along, then out from the face edge and the face side. */
 function centresInFrame(f: Frame, m: Machining, d: DeriveResult): Vec3[] {
   return holeCentres(m, d)
     .map((c) => inFrame(f, c))
-    .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    .sort((a, b) => a[0] - b[0] || fromEdge(f, a[1]) - fromEdge(f, b[1]) || fromSide(f, a[2]) - fromSide(f, b[2]));
 }
 
 /** A hole's centre in words, on the face it's drilled into. */
 function centreText(f: Frame, drill: 0 | 1 | 2, c: Vec3): string {
-  const inFrom = num(f.size.T - c[2]);
-  if (drill === 2) return `${num(c[0])} along, ${num(c[1])} up`;
-  if (drill === 1) return `${num(c[0])} along, ${inFrom} in`;
-  return `${num(c[1])} up, ${inFrom} in`;
+  const edge = `${num(fromEdge(f, c[1]))} from the face edge`;
+  const side = `${num(fromSide(f, c[2]))} from the face side`;
+  if (drill === 2) return `${num(c[0])} along, ${edge}`;
+  if (drill === 1) return `${num(c[0])} along, ${side}`;
+  return `${edge}, ${side}`;
 }
 
 
@@ -992,20 +1044,20 @@ function cornerRadius(h: FrameHole): number {
 }
 
 /** What to cut for the shape, in the drawing's words, each with where its balloon points. */
-function shapeNotes(s: FrameShape): { text: string; at: P }[] {
+function shapeNotes(f: Frame, s: FrameShape): { text: string; at: P }[] {
   const out: { text: string; at: P }[] = [];
   for (const { a, b, side: where, angle_deg } of s.slopes) {
     const side = where[0]!.toUpperCase() + where.slice(1);
     // The balloon points a third of the way along, clear of the angle written past the middle.
     out.push({
-      text: `${side} cut on a slope from ${num(a[0])} along, ${num(a[1])} up to ${num(b[0])} along, ${num(b[1])} up, ${degrees(angle_deg)}.`,
+      text: `${side} cut on a slope from ${num(a[0])} along, ${num(fromEdge(f, a[1]))} from the face edge, to ${num(b[0])} along, ${num(fromEdge(f, b[1]))} from it, ${degrees(angle_deg)}.`,
       at: [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3],
     });
   }
   for (const h of s.holes) {
     if (h.circle) {
       const [x, y] = h.circle.centre;
-      out.push({ text: `Ø${num(h.circle.diameter_mm)} hole right through, centre ${num(x)} along, ${num(y)} up.`, at: [x, y] });
+      out.push({ text: `Ø${num(h.circle.diameter_mm)} hole right through, centre ${num(x)} along, ${num(fromEdge(f, y))} from the face edge.`, at: [x, y] });
       continue;
     }
     const [x0, x1] = extent(h.pts, 0);
@@ -1013,7 +1065,7 @@ function shapeNotes(s: FrameShape): { text: string; at: P }[] {
     const r = h.joined ? 0 : cornerRadius(h);
     const corners = r > 0.05 ? `, corners rounded to ${num(r)}` : "";
     const what = h.joined ? `Cutout right through, ${num(x1 - x0)} × ${num(y1 - y0)} overall` : `${num(x1 - x0)} × ${num(y1 - y0)} cutout right through${corners}`;
-    out.push({ text: `${what}, from ${num(x0)} along, ${num(y0)} up.`, at: [(x0 + x1) / 2, (y0 + y1) / 2] });
+    out.push({ text: `${what}, at ${span2(x0, x1)} along, ${span2(fromEdge(f, y0), fromEdge(f, y1))} from the face edge.`, at: [(x0 + x1) / 2, (y0 + y1) / 2] });
   }
   return out;
 }
@@ -1057,14 +1109,15 @@ function noteText(f: Frame, m: Machining, d: DeriveResult): string {
     // Its centre, on the two ways across the cut. For a mortise in an end or an edge, how far in is the fence height.
     const plunge = frameAxis(f, FACE_AXIS[m.face]);
     const c = [0, 1, 2].map((i) => (b.min[i]! + b.max[i]!) / 2);
-    const words = [`${num(c[0]!)} along`, `${num(c[1]!)} up`, `${num(f.size.T - c[2]!)} in`];
+    const words = [`${num(c[0]!)} along`, `${num(fromEdge(f, c[1]!))} from the face edge`, `${num(fromSide(f, c[2]!))} from the face side`];
     const across = ([0, 1, 2] as const).filter((i) => i !== plunge);
     const long = across.reduce((a, i) => (b.max[i]! - b.min[i]! > b.max[a]! - b.min[a]! ? i : a));
-    return `${what}. Centre at ${across.map((i) => words[i]).join(", ")}, its length running ${["along", "up", "through the thickness"][long]}.`;
+    return `${what}. Centre at ${across.map((i) => words[i]).join(", ")}, its length running ${["along", "across", "through the thickness"][long]}.`;
   }
-  const near = b.max[2] >= f.size.T - EPS;
-  const depth = near ? "" : `, ${num(f.size.T - b.max[2])} to ${num(f.size.T - b.min[2])} in`;
-  return `${what}. At ${num(b.min[0])} to ${num(b.max[0])} along, ${num(b.min[1])} to ${num(b.max[1])} up${depth}.`;
+  // A cut into a broad face says which in its words. Any other says how far through it sits.
+  const onFace = b.max[2] >= f.size.T - EPS || b.min[2] <= EPS;
+  const depth = onFace ? "" : `, ${span2(fromSide(f, b.min[2]), fromSide(f, b.max[2]))} from the face side`;
+  return `${what}. At ${span2(b.min[0], b.max[0])} along, ${span2(fromEdge(f, b.min[1]), fromEdge(f, b.max[1]))} from the face edge${depth}.`;
 }
 
 /** A part's sheet in words, for a reader with no drawing to look at. */
@@ -1082,14 +1135,16 @@ export interface PartSheetText {
   views: { face: string; edge: string; end: string };
   /** One line per piece of machining, then one for each slope and hole, numbered as on the sheet. */
   notes: string[];
-  /** Which end, edge and face along, up and in are measured from. */
+  /** The face side and face edge to mark on the part. */
+  reference: string;
+  /** Which end along is measured from, and that across and through are from the face edge and face side. */
   positions: string;
 }
 
 /** The words on a part's sheet: its cut size, the side each view shows, its notes and where they're measured from. */
 function sheetWords(row: CutRow, d: DeriveResult, sheet: number): PartSheetText {
   const part = d.byId.get(row.parts[0]!)!;
-  const f = frameOf(part);
+  const f = frameOf(part, d);
   const shape = shapeInFrame(f);
   const looks = viewSides(f);
   return {
@@ -1101,7 +1156,8 @@ function sheetWords(row: CutRow, d: DeriveResult, sheet: number): PartSheetText 
     cut: `Cut to ${fmt(row.length_mm)} long × ${fmt(row.width_mm)} wide × ${fmt(row.thickness_mm)} thick`,
     material: `${row.material_name}${row.grain ? ", grain along the length" : ""}`,
     views: { face: sideName(part, looks.face), edge: sideName(part, looks.edge), end: sideName(part, looks.end) },
-    notes: [...part.machining.map((m) => noteText(f, m, d)), ...(shape ? shapeNotes(shape).map((x) => x.text) : [])],
+    notes: [...part.machining.map((m) => noteText(f, m, d)), ...(shape ? shapeNotes(f, shape).map((x) => x.text) : [])],
+    reference: referenceText(f),
     positions: positionsText(f),
   };
 }
@@ -1116,7 +1172,7 @@ export function partSheetTexts(design: Design, d: DeriveResult, list: CutList = 
 
 function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   const part = d.byId.get(row.parts[0]!)!;
-  const f = frameOf(part);
+  const f = frameOf(part, d);
   const words = sheetWords(row, d, 0);
   const { L, W, T } = f.size;
   const area = drawingArea(paper);
@@ -1133,7 +1189,10 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   // The cut list's own numbers, so the two can't disagree.
   pen.text(hx, hy, words.cut, { size_mm: 3.5 });
   hy += 5;
-  pen.text(hx, hy, clip(words.material, area.w, 3), { size_mm: 3 });
+  // The two faces to mark on the wood, which every size across and through it is measured from, beside the material.
+  const refW = textWidth_mm(words.reference, 3, true);
+  pen.text(hx, hy, clip(words.material, area.w - refW - 6, 3), { size_mm: 3 });
+  pen.text(area.x + area.w, hy, words.reference, { size_mm: 3, bold: true, anchor: "end" });
   hy += 4.5;
   pen.text(hx, hy, clip(`Parts: ${row.parts.join(", ")}`, area.w, TEXT), { colour: GREY });
   const top = hy + 4;
@@ -1141,7 +1200,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
   // The notes: one numbered line per piece of machining, then one for each
   // slope and hole the part's cuts make, under the views.
   const shape = shapeInFrame(f);
-  const shaped = shape ? shapeNotes(shape) : [];
+  const shaped = shape ? shapeNotes(f, shape) : [];
   const notes = words.notes;
   const noteW = area.w - 8;
   const noteLines = notes.map((n) => wrap(n, noteW, TEXT));
@@ -1405,7 +1464,7 @@ function partSheet(row: CutRow, d: DeriveResult, paper: Paper): Sheet {
 
   // Each view is named for the side of the piece it shows, so a part rolled over can't be read the wrong way round.
   const label = (x: number, y: number, face: Face) => {
-    const text = sideName(part, face);
+    const text = sideName(part, face) + (face === f.ref.side ? ", face side" : face === f.ref.edge ? ", face edge" : "");
     pen.text(x, y, text[0]!.toUpperCase() + text.slice(1), { size_mm: 3, anchor: "middle", bold: true });
   };
   label(fx + L / s / 2, fy + W / s + 5.5, looks.face);
@@ -1636,7 +1695,7 @@ export function drillingList(design: Design, d: DeriveResult, list: CutList = cu
   for (const row of list.rows) {
     const part = d.byId.get(row.parts[0]!);
     if (!part) continue;
-    const f = frameOf(part);
+    const f = frameOf(part, d);
     const byKind = new Map<string, DrillRow>();
     for (const m of part.machining) {
       if (!FASTENER_LABELS.has(m.label)) continue;
@@ -1684,7 +1743,7 @@ function drillingSheets(rows: DrillRow[], paper: Paper, sheetOf: Map<number, num
     "Drilling list",
     [
       "Every screw, dowel and pocket hole, from each part's machining. Sizes are in mm, to 0.1 mm as in the cut list.",
-      "Centres are measured as on each part's sheet, from the end, edge and face it names.",
+      "Centres are measured as on each part's sheet: along from the end it names, and from its face edge and face side.",
     ],
     [
       { head: "Part", weight: 24 },
