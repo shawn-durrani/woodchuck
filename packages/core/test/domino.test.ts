@@ -187,14 +187,14 @@ describe("Dominos in a carcass", () => {
   it("place every mortise on the cut list", () => {
     const rows = cutList(d, r).rows;
     expect(rows.find((x) => x.parts.includes("bottom"))!.machining).toEqual([
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left face for side_l at (0,6.5,103.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left face for side_l at (0,6.5,178.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left face for side_l at (0,6.5,253.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left face for side_l at (0,6.5,28.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right face for side_r at (394,6.5,103.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right face for side_r at (394,6.5,178.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right face for side_r at (394,6.5,253.1)",
-      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right face for side_r at (394,6.5,28.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left end for side_l at (0,6.5,103.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left end for side_l at (0,6.5,178.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left end for side_l at (0,6.5,253.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the left end for side_l at (0,6.5,28.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right end for side_r at (394,6.5,103.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right end for side_r at (394,6.5,178.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right end for side_r at (394,6.5,253.1)",
+      "Domino mortise 5 wide × 18.8 long × 20 deep, tight, in the right end for side_r at (394,6.5,28.1)",
     ]);
     expect(rows.find((x) => x.parts.includes("top"))!.machining).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side_l at (6,0,37.1)");
   });
@@ -387,10 +387,12 @@ describe("the Domino's worked example", () => {
     const texts = (title: string) => sheet(title).marks.flatMap((m) => (m.kind === "text" ? [m.text] : []));
     expect(sheet("Part 2: Side").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [40.1, 19.8, 80.2, 19.8, 80.2, 19.8, 40.1] });
     expect(sheet("Part 2: Side").dims).toContainEqual({ view: "face", along: "length", kind: "chain", values_mm: [372, 28] });
-    expect(texts("Part 2: Side")).toContain("Domino mortise 6 wide × 19.8 long × 28 deep, tight, in the top face for top. At 372 along, 240.1 up, 6 in.");
-    // The top is turned over for its mortises, so its front is at the bottom of its face view.
+    expect(texts("Part 2: Side")).toContain("Domino mortise 6 wide × 19.8 long × 28 deep, tight, in the top end for top. At 372 to 400 along, 240.1 to 259.9 up, 6 to 12 in.");
+    // The top is turned over for its mortises, so its front is at the bottom of its face view, and the sheet says so.
+    expect(texts("Part 1: Top")).toEqual(expect.arrayContaining(["Bottom face", "Front edge", "Right end"]));
+    expect(texts("Part 1: Top").join(" ")).toContain("Along is from the left end, up from the front edge and in from the bottom face.");
     expect(sheet("Part 1: Top").dims).toContainEqual({ view: "face", along: "width", kind: "chain", values_mm: [40.1, 19.8, 77.2, 25.8, 74.2, 25.8, 37.1] });
-    expect(texts("Part 1: Top")).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side. At 6 along, 137.1 up.");
+    expect(texts("Part 1: Top")).toContain("Domino mortise 6 wide × 25.8 long × 12 deep, 6 mm play, in the bottom face for side. At 6 to 12 along, 137.1 to 162.9 up.");
     expect(sheets.find((s) => s.kind === "hardware")!.marks.some((m) => m.kind === "text" && m.text === "Festool DOMINO tenon, beech, 6 × 40 mm")).toBe(true);
   });
 });

@@ -93,25 +93,26 @@ describe("the drawings PDF", () => {
 });
 
 // The PDF of every example, as main wrote it before shapes were drawn. The
-// drawings gained the cutting plan and the cut list's Board column with #78.
+// drawings gained the cutting plan and the cut list's Board column with #78,
+// and named each part's sides as they sit in the piece with #80.
 const BEFORE_SHAPES: Record<string, string> = {
-  "record console": "3c4c397516dab7672744358e1769e9846918c5890b3c24a4c4b5e4175a697b30",
-  butt: "de00b6b4477e0d2725db2ef471240d124ca403220b1116eb3c9039f9b140e913",
-  screws: "2f022b320531dc96197d739b961633d156338c772c1e83c2617c3af51e897463",
-  pocket_screws: "5c8c52cff0a3883c008cd7669b58e7cd78ee2ec541cc478b8350ed4a7c89c141",
-  dowels: "5c9fa58732ce37bf05cf9a6acea9e5f9855f545c63f8e69b4f048961d2424cb1",
+  "record console": "ae72befd22dc9c4a79721ae711cb5237be62f3e2a34f9366deb30ef44fd77b09",
+  butt: "e9629fa333142c64ba52a3f2bba474f5026a710145e60da8ce60b3d73fdae830",
+  screws: "ce206032ca47506c07879a1703a76d05a5a83a046dd3a7912e39c0a5ad0ae889",
+  pocket_screws: "3209c886b2591ef45146ec84a5d75ce45382aa55754542d4d1aa11f28332bf3f",
+  dowels: "ffdfa3bf62672f222be29393bb6c0e12459decc62f890bb8cc987f2c6a8a49ed",
   // Added with the joint, after shapes were drawn.
-  domino: "b4f8dbaee0d6a6b719227fd300f5caa8c6d73d329e141ff3e063515dbf8cba33",
-  dado: "f499535dd54f049cda1dd180599fd0c3310c446784ac2c862464cd6648af0f5e",
-  groove: "082be5ef6b0792279fed84d968b32ad520536cd2fe430ded968dd1f124291926",
-  rabbet: "9c87c53bddbb63f48981d3f4cb21a72418c5f73c7c97e95e102843dbfdb71f1f",
-  tongue: "3d7aab804a83760d62c479d2c914b9d5fa163502448f15d934d6a18421d710ea",
+  domino: "7b58d029cd9114cb1fba7a15074490be1b05bb15d0d8748cd9b06176594d81e5",
+  dado: "cf68edb11e2fb40ff1a2475ece4b98e5f42bf3b8edb4fe61e38843957a62a52e",
+  groove: "9634c408c380a69bdbfc1ea10384cb7a4bdcc3cf83a7d735df2d0e18661f9687",
+  rabbet: "4bbdb1b2d9a242313fa4411ad9a93457a465f39414be6e08a2d68d727af0acc2",
+  tongue: "f8664d44315162cd9f38721935dcfb29de8aa65b634ab252f7aa81e976372b8c",
   // Added with the joint, after shapes were drawn.
-  dado_rabbet: "67d99c63c2656df10996658391d0c6f5778534ccf2b8ecc6e5b50fde3570e70b",
-  mortise_tenon: "fbaddbf01dcae488b198ad93de6dd6e24843481d4ea2843987f81edfcf16f08e",
-  half_lap: "e0aaa08d4b2851584135db7e9e930bbc4c09b61f68e8f624afe40190175cc74f",
-  box_joint: "4425c7514ded48670b352dbf06032cf57d219559a78f18b4e2b28d7b24d9a2b9",
-  through_slot: "52addace9b1b7db8d5f8c63f1cceac54ddbe802c313efca8007c4ed069ef7f1e",
+  dado_rabbet: "bbf3d20679d9b0408864e4d7b94a6aa72633d7604f21adb8d304a55337663095",
+  mortise_tenon: "bb58e4e59e491f900f88fd24ced29c8bcd9c6e5273414e686c2bdf046d213327",
+  half_lap: "4ea7edb65591a4a381a32b62550d098d845045b4f81416d60a169f27e7e4ea40",
+  box_joint: "fca517d06aac7e821db09010fc4689e5586c65c7a3d6e000376673f5b9a091c8",
+  through_slot: "f518d18f28182dceebac7d83a6c3ac15426712ae4486b80efb71920ea2006a97",
 };
 
 describe("drawings of a design with no cuts", () => {
