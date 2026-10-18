@@ -1,0 +1,48 @@
+{
+  "id": "festool-domino-sipo-6x40",
+  "name": "Festool DOMINO tenon, Sipo mahogany, 6 × 40 mm",
+  "kind": "fixing",
+  "sources": [
+    {
+      "url": "https://www.festoolusa.com/accessories/joining/accessories-for-joining/dominos/494870---d-6x40190-mau",
+      "title": "Sipo DOMINO D 6x40/190 MAU (Festool USA)",
+      "note": "Dimensions 6 x 40 x 19.8 mm (thickness, length, width), 190 pieces, for the DF 500. Material Sipo mahogany dowels, weatherproof, FSC-certified. Item number 494870 is from the Festool dealer listing on ahturf.com."
+    },
+    {
+      "url": "https://ahturf.com/festool-domino-sipo-d-6x40-190-mau/",
+      "title": "Festool DOMINO Sipo D 6x40/190 MAU (AH Turf)",
+      "note": "Item number 494870, for the DOMINO DF 500; Sipo tenon described as ideal for outdoor applications"
+    }
+  ],
+  "specs": {
+    "thickness_mm": 6,
+    "width_mm": 19.8,
+    "length_mm": 40,
+    "cutter_mm": 6,
+    "mortise_depth_mm": 20,
+    "pack_qty": 190,
+    "material": "Sipo mahogany",
+    "exterior_use": "yes"
+  },
+  "shape": [
+    {
+      "name": "tenon",
+      "min_mm": [
+        0,
+        0,
+        0
+      ],
+      "max_mm": [
+        40,
+        19.8,
+        6
+      ]
+    }
+  ],
+  "maker": "Festool",
+  "model": "Sipo DOMINO D 6x40/190 MAU",
+  "sku": "494870",
+  "mounting": "Glued into a matching pair of mortises, one in each part, cut with a Festool DOMINO DF 500 joiner and its 6 mm cutter. About half its length goes into each part.",
+  "notes": "Same 6 x 40 x 19.8 size as the beech 6x40 already in the library, so it uses the same 6 mm cutter and the usual 20 mm mortise depth stop (taken from the beech entry, not re-read on the Sipo page). The model is a plain box without the rounded edges and glue grooves. Festool also lists a 570-piece pack (494860).",
+  "approved_at": "2026-10-18T06:06:06.236Z"
+}
